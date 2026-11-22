@@ -347,7 +347,7 @@ export class ChatService {
     const mine = thread === publicThread || thread === groupThread(viewer.personId) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread))) || (thread.startsWith('convo:') && (await this.conversations.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
     const row = await this.core.store.readState.markRead(viewer.personId, thread, upTo ?? null);
-    this.core.signal({ scope: thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
+    this.core.signal(thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group');
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }
 
@@ -373,7 +373,7 @@ export class ChatService {
     await this.channels.sessionLeft(sessionId, ownerId === null ? null : { id: ownerId, name: owner });
     await this.direct.sessionChanged(sessionId, owner);
     // An agent that left without ever being on the wall sent no stream message either, so an open page is told its list changed (#1112).
-    this.core.signal({ scope: 'group', owner: nameKey(owner) });
+    this.core.signal('group');
   }
 
   /** The live sessions whose hidden conversations were already shown again, so a report (every few seconds) costs a lookup and not a scan of the conversations. */
@@ -389,7 +389,7 @@ export class ChatService {
     this.seen.add(sessionId);
     // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
     // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
-    this.core.signal({ scope: 'group', owner: nameKey(owner) });
+    this.core.signal('group');
   }
 
   /** The hourly housekeeping: conversations against the live set, then retention for both channels and the hidden conversations. */
@@ -410,7 +410,7 @@ export class ChatService {
     this.core.forgetIdle();
     if (channelMessages || directMessages || conversationMessages) {
       this.core.onEvent({ kind: 'purged', channelMessages: channelMessages + conversationMessages, directMessages });
-      this.core.signal({ scope: 'public', owner: null });
+      this.core.signal('public');
     }
   }
 }

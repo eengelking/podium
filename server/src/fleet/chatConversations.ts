@@ -363,7 +363,7 @@ export class ConversationChat {
     if (!state) return;
     void this.store
       .setDelivery(id, messageId, m, state, this.core.host.now())
-      .then(() => this.core.signal({ scope: 'dm', owner: null }))
+      .then(() => this.core.signal('dm'))
       .catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
   }
 
@@ -493,7 +493,7 @@ export class ConversationChat {
       return fail(409, out.reason === 'deleted' ? 'That message was already deleted.' : 'Podium has already sent this to an agent, so it can no longer be changed.', out.reason);
     }
     this.core.onEvent({ kind: op === 'edit' ? 'conversation_message_edited' : 'conversation_message_deleted', by: viewer.actor, conversation: id, messageId });
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) this.core.signal({ scope: 'dm', owner: nameKey(m.name) });
+    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) this.core.signal('dm');
     return { ok: true, message: this.view(viewer, out.message) };
   }
 
@@ -512,7 +512,7 @@ export class ConversationChat {
     }
     if (!next) return fail(404, 'There is no such conversation.');
     this.core.onEvent({ kind: 'conversation_members_added', by: viewer.actor, conversation: id, count: got.members.length });
-    for (const m of next.members) if (m.leftAt === null && m.kind === 'person') this.core.signal({ scope: 'dm', owner: nameKey(m.name) });
+    for (const m of next.members) if (m.leftAt === null && m.kind === 'person') this.core.signal('dm');
     return { ok: true, conversation: this.info(viewer, next, undefined, await this.endedIn([next])) };
   }
 
@@ -525,7 +525,7 @@ export class ConversationChat {
     if (!out) return fail(404, 'There is no such conversation.');
     if (out.deleted) await this.reads.forget(conversationThread(id));
     this.core.onEvent({ kind: 'conversation_left', by: viewer.actor, conversation: id, deleted: out.deleted });
-    this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
+    this.core.signal('dm');
     return { ok: true, deleted: out.deleted };
   }
 
@@ -557,7 +557,7 @@ export class ConversationChat {
         this.core.noticed.add(key);
         await this.core.host.peers.messages.notice(m.ref, told);
       }
-      this.core.signal({ scope: 'dm', owner: null });
+      this.core.signal('dm');
     }
   }
 

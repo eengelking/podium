@@ -1550,6 +1550,38 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(sse.join('')).not.toContain(MSG_FROM_ED);
   });
 
+  it('pins the chat event: only rev and scope, rev rising by one for each signal, for a channel post, a Direct Message, an own-agent message and a mark-read', async () => {
+    const w = await world();
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const events = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!) as { rev: number; scope: string });
+    const step = async (act: () => Promise<{ status: number }>, status: number) => {
+      const from = events().length;
+      expect((await act()).status).toBe(status);
+      await w.fleet.flush();
+      await settle();
+      return events().slice(from);
+    };
+    const seen: Record<string, { rev: number; scope: string }[]> = {};
+    seen.channelPost = await step(() => say(w.edB, 'general', 'hello everyone'), 201);
+    seen.groupPost = await step(() => say(w.edB, 'group', 'a note to my agents'), 201);
+    seen.ownAgentDm = await step(() => w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'please run the suite' }), 202);
+    seen.crossPersonDm = await step(() => w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' }), 202);
+    seen.markRead = await step(() => w.alexB.post(`${CH}/read`).set(H).send({ thread: 'public' }), 200);
+    const all = events();
+    expect(all.map((e) => e.rev)).toEqual(all.map((_, i) => all[0]!.rev + i));
+    for (const e of all) expect(Object.keys(e).sort()).toEqual(['rev', 'scope']);
+    expect(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.map((e) => e.scope)]))).toEqual({ channelPost: ['public'], groupPost: ['group'], ownAgentDm: ['dm'], crossPersonDm: ['dm', 'dm', 'dm'], markRead: ['public'] });
+  });
+
+  it('reads no open requests for a count the stream no longer carries when a cross-person Direct Message is sent', async () => {
+    const w = await world();
+    const spy = vi.spyOn(w.fleet.peers.rights, 'openRequests');
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' })).status).toBe(202);
+    await w.fleet.flush();
+    expect(spy.mock.calls.length).toBe(0);
+  });
+
   // ---- A launched agent reaches an open console (#1112) -----------------------------------------------------------------
 
   it('signals the consoles when an agent that has done nothing joins and when it leaves, so an open Chat page reads its list again', async () => {

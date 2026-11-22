@@ -10,7 +10,7 @@ import type { Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
 import { AdminNotices } from './chatAdminNotices.js';
 import { ConcludedList } from './chatConcluded.js';
-import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
+import { fail, type ChatEvent, type ChatHost, type ChatScope, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 const MINUTE = 60_000;
 
@@ -136,15 +136,15 @@ export class ChatCore {
     for (const [who, times] of this.recent) if (times.every((t) => now - t >= MINUTE)) this.recent.delete(who);
   }
 
-  /** Tells open consoles that a thread changed. `owner` and counts are for one person's badges; there is never text. */
-  signal(s: ChatSignal): void {
-    this.host.signal({ ...s, rev: ++this.rev });
+  /** Tells open consoles that something in `scope` changed, once for each of `times` people it concerns: a counter and the scope, never a name, a count or text. */
+  signal(scope: ChatScope, times = 1): void {
+    for (let i = 0; i < times; i++) this.host.signal({ scope, rev: ++this.rev });
   }
 
-  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. The count is kept under the person's id (#1284). */
-  async count(who: PersonRef, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
-    const row = await this.store.readState.bump(who.id, thread, mention);
-    this.signal({ scope, owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
+  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal. The count is kept under the person's id (#1284). */
+  async count(who: PersonRef, thread: string, scope: ChatScope, mention: boolean): Promise<void> {
+    await this.store.readState.bump(who.id, thread, mention);
+    this.signal(scope);
   }
 
   /**

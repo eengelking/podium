@@ -9,7 +9,7 @@ import { ChatCore, type AcrossUpdate, type ChatLimits } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { CHANNEL_NAME, lockedByDelivery } from '../storage/chatRows.js';
 import {
-  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, type ChannelId, type ChatViewer, type Fail, type PersonRef,
+  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, scopeOf, type ChannelId, type ChatViewer, type Fail, type PersonRef,
 } from './chatTypes.js';
 
 /** How far back a held mention is looked for when a channel resumes: 10 pages of 100, far more than a person pauses over. */
@@ -563,7 +563,7 @@ export class ChannelChat {
     }
     if (!hit) return;
     await this.handle(hit.channel, null).setMention(hit.message.id, hit.index, { state: u.state, why: u.why });
-    this.core.signal({ scope: 'public', owner: null });
+    this.core.signal('public');
   }
 
   /** What becomes of a delivered mention moves its state: taken is working, refused is not delivered, a drop is dropped. */
@@ -575,7 +575,7 @@ export class ChannelChat {
         .setMention(messageId, index, patch)
         .then(() => {
           this.core.onEvent({ kind: o.kind === 'took' ? 'delivered' : 'dropped', channel, owner: oname(owner), by: 'server', messageId, sessionId, ...(o.kind === 'took' ? {} : { why: 'why' in o ? o.why : undefined }) });
-          this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+          this.core.signal(scopeOf(channel));
         })
         .catch((err: unknown) => this.core.host.warn('a mention in Chat could not be updated', err));
     });
@@ -588,10 +588,10 @@ export class ChannelChat {
     const mentioned = new Set(planned.flatMap((p) => (p.bump !== null ? [p.bump] : [])));
     for (const who of audience) {
       if (who.id === authorId) continue;
-      const row = await this.store.readState.bump(who.id, thread, mentioned.has(who.id));
-      if (mentioned.has(who.id)) this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
+      await this.store.readState.bump(who.id, thread, mentioned.has(who.id));
+      if (mentioned.has(who.id)) this.core.signal(scopeOf(channel));
     }
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
   }
 
   /** An agent posts (its main loop, with its person's token). The channel's flags bind it; a mention of another agent waits for a later release. */
@@ -663,7 +663,7 @@ export class ChannelChat {
   /** Tells the consoles that a message changed, as a post does for its scope, and the Admin log: ids and where, never the text. */
   private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, messageId: string): void {
     this.core.onEvent({ kind, scope: 'channel', channel, owner: channel === GROUP ? oname(owner) : null, by: viewer.actor, messageId });
-    this.core.signal({ scope: channel === GROUP ? 'group' : 'public', owner: channel === GROUP ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
   }
 
   /** The copies of a message that waits for another person's approval, with the id each kept; `null` when one has none (stored before copies were kept), which cannot be reached. */
@@ -835,7 +835,7 @@ export class ChannelChat {
         const m = message.mentions[index]!;
         if (this.retarget(m)) continue;
         await h.setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
-        this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: oname(scope) });
+        this.core.signal(scopeOf(channel));
       }
     }
   }
@@ -857,7 +857,7 @@ export class ChannelChat {
     await this.store.settings.setFlags(scope.key, { paused, ...(byAdmin ? { pausedByAdmin: byAdmin } : {}) });
     let delivered = 0;
     if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : viewer.personId);
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
     const state = await this.flagsOf(channel, owner, viewer.personId);
     return { ok: true, delivered, ...state };
   }
@@ -870,7 +870,7 @@ export class ChannelChat {
     if (viewer.admin && aboutGroup) await this.reads.stopped(viewer, this.threadOf(channel, owner), disconnected ? 'disconnected' : 'reconnected', this.stopTells(channel, owner, 'your Podium group'), this.peopleOf(channel, owner));
     this.core.onEvent({ kind: disconnected ? 'disconnected' : 'reconnected', channel, owner: oname(scope.owner), by: viewer.actor, everyone: false, count: 0 });
     await this.store.settings.setFlags(scope.key, { disconnected });
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
     return { ok: true, ...(await this.flagsOf(channel, owner, viewer.personId)) };
   }
 
@@ -903,7 +903,7 @@ export class ChannelChat {
     this.core.onEvent({ kind: 'cleared', channel, owner: oname(owner), by: viewer.actor, everyone: false, count: await h.count() });
     const removed = await h.clear();
     await this.store.readState.forget(this.threadOf(channel, owner));
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
     return { ok: true, removed };
   }
 

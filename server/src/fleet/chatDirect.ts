@@ -555,7 +555,7 @@ export class DirectChat {
       const first = errors[0]!;
       return fail(first.status, first.error);
     }
-    this.core.signal({ scope: 'dm', owner });
+    this.core.signal('dm');
     return { ok: true as const, message: directMessages(stored, viewer)[0]!, skipped, errors };
   }
 
@@ -598,11 +598,11 @@ export class DirectChat {
   }
 
   /** Tells the consoles of both people that a message changed, and the owner's count of what waits for them (a delete closes a request), and the Admin log: ids and where, never the text. */
-  private async changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, c: ConversationSummary, id: string): Promise<void> {
+  private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, c: ConversationSummary, id: string): void {
     this.core.onEvent({ kind, scope: 'dm', channel: null, owner: nameKey(c.owner), by: viewer.actor, messageId: id });
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) await this.tell(person.name, c.owner, c.ownerId);
-    else this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.tell(person.name, c.owner);
+    else this.core.signal('dm');
   }
 
   /** The message as a read returns it, now that it changed: every row it is made of, so a message to two agents answers with both. */
@@ -623,7 +623,7 @@ export class DirectChat {
     if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     const out = await this.peers.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
     if (!out.ok) return this.refused(out, scope);
-    await this.changed('message_edited', viewer, scope.c, id);
+    this.changed('message_edited', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
 
@@ -633,7 +633,7 @@ export class DirectChat {
     if ('status' in scope) return scope;
     const out = await this.peers.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
     if (!out.ok) return this.refused(out, scope);
-    await this.changed('message_deleted', viewer, scope.c, id);
+    this.changed('message_deleted', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
 
@@ -656,21 +656,20 @@ export class DirectChat {
       return fail(out.reason === 'not-found' ? 404 : 403, out.reason === 'not-found' ? 'There is no such message.' : 'Only the person who wrote a message can change it.');
     }
     // The store changed the message only for its author, so the person is the viewer.
-    await this.tell(viewer.name, row.owner, row.ownerId);
+    this.tell(viewer.name, row.owner);
     return { ok: true };
   }
 
   // ---- A person writes to another person's agent (#1034) ------------------------------------------------------------
 
-  /** The count the owner's stream signal carries: messages from other people that wait for the owner's approval. A count only. */
+  /** Messages from other people that wait for the owner's approval: the count the overview shows its owner. */
   async approvalsFor(ownerId: number | null): Promise<number> {
     return (await this.peerStore.rights.openRequests(ownerId)).filter((r) => r.kind === 'message' && isPersonKey(r.fromKey)).length;
   }
 
-  /** Tells the person's consoles, and the owner's with the count of what waits for them. Never any text. */
-  private async tell(person: string, owner: string, ownerId: number | null): Promise<void> {
-    this.core.signal({ scope: 'dm', owner: nameKey(person) });
-    if (nameKey(owner) !== nameKey(person)) this.core.signal({ scope: 'dm', owner: nameKey(owner), approvals: await this.approvalsFor(ownerId) });
+  /** Tells the person's consoles, and the owner's when it is another person. Never any text. */
+  private tell(person: string, owner: string): void {
+    this.core.signal('dm', nameKey(owner) === nameKey(person) ? 1 : 2);
   }
 
   /** The text of a person's message to another person's agent: stored and held for the agent's owner, or sent at once over a link the owner opened. */
@@ -684,7 +683,7 @@ export class DirectChat {
     const row = await this.peers.sendAcross({ person: viewer.name, personId: viewer.personId, toSession: sessionId, text: redact ? this.core.redact(text) : text, authorId: viewer.personId });
     if ('ok' in row) return fail(row.status, row.error);
     this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
-    await this.tell(viewer.name, row.owner, row.ownerId);
+    this.tell(viewer.name, row.owner);
     return { ok: true, row };
   }
 
@@ -770,7 +769,7 @@ export class DirectChat {
     if (role === 'admin' && (op === 'pause' || op === 'resume') && (op === 'pause') !== (cross.link === 'paused')) await this.stoppedLink(viewer, c, op);
     const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' }, op === 'pause' ? role : undefined);
     if (!out.ok) return fail(out.status, out.error);
-    await this.tell(personEnd.name, c.owner, c.ownerId);
+    this.tell(personEnd.name, c.owner);
     return { ok: true, link: (await this.crossOf(c, viewer))?.link ?? 'none' };
   }
 
@@ -780,7 +779,7 @@ export class DirectChat {
     await this.stoppedLink(viewer, c, op === 'pause' ? 'pause' : 'resume');
     const out = await this.peerStore.rights.pauseLink(null, c.a.reporterKey, c.b.reporterKey, op === 'pause', { name: viewer.actor, admin: true });
     if (!out.ok) return fail(out.status, out.error);
-    this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    this.core.signal('dm');
     return { ok: true, link: op === 'pause' ? 'paused' : 'open' };
   }
 
@@ -818,7 +817,7 @@ export class DirectChat {
     else if (t.kind === 'delivered') update(['waiting', 'approval'], 'working', null);
     else if (t.kind === 'dropped') update(['approval', 'waiting'], 'dropped', reasonOf({ state: 'dropped', why: t.why, owner: m.owner, toName: m.toName })?.replace(/\.$/, '') ?? null);
     else return;
-    void this.tell(m.fromName, m.owner, m.ownerId).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not signal', err));
+    this.tell(m.fromName, m.owner);
   }
 
   /** What the agent did with a text: taken is Delivered, refused is Dropped. An agent that ended drops its queued messages itself. */
@@ -827,7 +826,7 @@ export class DirectChat {
     if (!result) return;
     void this.peers
       .result(sessionId, id, result)
-      .then(() => this.core.signal({ scope: 'dm', owner: null }))
+      .then(() => this.core.signal('dm'))
       .catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be updated', err));
   }
 
@@ -845,10 +844,10 @@ export class DirectChat {
     await this.core.store.readState.forget(dmThread(a, b));
     await this.reads.forget(dmThread(a, b));
     this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });
-    this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    this.core.signal('dm');
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    if (person && role === 'sender') this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
-    else if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal({ scope: 'dm', owner: nameKey(person.name) });
+    if (person && role === 'sender') this.core.signal('dm');
+    else if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal('dm');
     return { ok: true, removed };
   }
 
@@ -869,13 +868,13 @@ export class DirectChat {
       if (!anyLive && c.hiddenAt === null) changed = (await this.peers.hideConversation(ownerId, c.a.sessionId, c.b.sessionId)) > 0 || changed;
       else if (anyLive && c.hiddenAt !== null) changed = (await this.peers.showConversation(ownerId, c.a.sessionId, c.b.sessionId)) > 0 || changed;
     }
-    if (changed) this.core.signal({ scope: 'dm', owner: nameKey(owner) });
+    if (changed) this.core.signal('dm');
   }
 
   async sessionChanged(sessionId: string, owner: string): Promise<void> {
     const ownerId = await this.idOf(owner);
     if (ownerId !== null) await this.reconcileOwner(owner, ownerId, sessionId);
-    this.core.signal({ scope: 'dm', owner: nameKey(owner) });
+    this.core.signal('dm');
   }
 
   /**
@@ -903,9 +902,9 @@ export class DirectChat {
       }
       await this.remember(c, gone, other, thread, undelivered);
       this.core.onEvent({ kind: 'dm_concluded', owner: nameKey(c.owner), a: c.a.sessionId, b: c.b.sessionId, count: removed });
-      this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+      this.core.signal('dm');
       const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-      if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal({ scope: 'dm', owner: nameKey(person.name) });
+      if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal('dm');
     }
   }
 
@@ -922,7 +921,7 @@ export class DirectChat {
       if (owner !== null) people.add(owner);
     }
     this.core.concluded.add(people, { thread, agent: gone.name, with: [other.name], ...(undelivered > 0 ? { undelivered } : {}) });
-    this.core.signal({ scope: 'dm', owner: null });
+    this.core.signal('dm');
   }
 
   /** A session reported: its hidden conversations come back. `reconcileOwner` signals the consoles only when one did. */

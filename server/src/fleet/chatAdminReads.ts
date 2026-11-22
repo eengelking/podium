@@ -133,7 +133,7 @@ export class AdminReads {
       if (s.scope === 'list') this.core.onEvent({ kind: 'admin_browse', by: viewer.actor, person: s.person ?? s.owners[0] ?? '' });
       else this.core.onEvent({ kind: 'admin_read', by: viewer.actor, scope: s.scope, thread: s.thread, owners: s.owners });
     }
-    if (got.started || ping) for (const owner of new Set(s.owners)) this.core.signal({ scope: s.scope === 'dm' ? 'dm' : 'group', owner });
+    if (got.started || ping) this.core.signal(s.scope === 'dm' ? 'dm' : 'group', new Set(s.owners).size);
   }
 
   /**

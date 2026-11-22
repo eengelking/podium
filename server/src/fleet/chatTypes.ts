@@ -91,16 +91,14 @@ export type ChatEvent =
   | { kind: 'purged'; channelMessages: number; directMessages: number }
   | { kind: 'channel_opened' | 'channel_edited' | 'channel_removed'; channel: ChannelId; by: string; messages?: number };
 
-/** What Chat tells the host changed. The stream sends only `rev` and `scope` of it; the rest is for the host and is never broadcast. */
+/** What Chat tells the host changed, and so the whole of what the stream carries: a change counter and a coarse scope, no name, count or id (#1034). */
+export type ChatScope = 'public' | 'group' | 'dm';
 export interface ChatSignal {
-  scope: 'public' | 'group' | 'dm';
-  /** The person whose counts changed, folded; null for a change everyone sees. */
-  owner: string | null;
-  unread?: number;
-  mentions?: number;
-  /** For the owner of an agent another person wrote to (#1034): how many such messages wait for the owner's approval. A count only. */
-  approvals?: number;
+  scope: ChatScope;
+  rev: number;
 }
+/** The scope a channel's change belongs to: a public channel (General included) is public, My group is a group. */
+export const scopeOf = (c: ChannelId): ChatScope => (isPublicChannel(c) ? 'public' : 'group');
 
 /** What the Chat service needs of the fleet. The fleet implements it. */
 export interface ChatHost {
@@ -118,6 +116,6 @@ export interface ChatHost {
   /** The admin secret and anything else that must never be stored or sent on. */
   secrets(): string[];
   /** Tells open consoles that Chat changed (content-free). */
-  signal(s: ChatSignal & { rev: number }): void;
+  signal(s: ChatSignal): void;
   warn(what: string, err: unknown): void;
 }
