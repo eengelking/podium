@@ -429,3 +429,57 @@ describe('an agent answering in a conversation', () => {
     expect(out.status).toBe(403);
   });
 });
+
+// What a conversation says when it refuses a text for its length or its rate: its own words (shorter than a channel's and a Direct Message's), the same on a send, an edit and an
+// agent's answer, with the limits the Admin set (#1310).
+describe('the length and rate refusals of a conversation', () => {
+  const TOO_LONG = (n: number) => `A message is at most ${n} characters.`;
+  const TOO_FAST = (s: number) => `You are sending too fast. Wait ${s} seconds.`;
+  const HA = { 'X-Podium-Admin': '1' };
+  async function limited(chat: { maxChars: number; perMinute: number }) {
+    const w = await world();
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-dev' }]);
+    expect(res.status).toBe(201);
+    const admin = request.agent(w.app);
+    expect((await admin.post('/api/admin/unlock').set(HA).send({ name: 'Admin', token: SECRET })).status).toBe(200);
+    expect((await admin.put('/api/admin/settings').set(HA).send({ chat })).status).toBe(200);
+    return { ...w, id: res.body.conversation.id as string };
+  }
+  const send = (b: B, id: string, text: unknown) => b.post(`${CH}/conversations/${id}/messages`).set(H).send({ text });
+
+  it('says it in the conversation\'s words on a send, and counts a refusal for length as no send', async () => {
+    const w = await limited({ maxChars: 20, perMinute: 2 });
+    const long = await send(w.edB, w.id, 'x'.repeat(21));
+    expect([long.status, long.body.error]).toEqual([422, TOO_LONG(20)]);
+    expect((await send(w.edB, w.id, 'one')).status).toBe(201);
+    expect((await send(w.edB, w.id, 'two')).status).toBe(201);
+    const fast = await send(w.edB, w.id, 'three');
+    expect([fast.status, fast.body.error]).toEqual([429, TOO_FAST(60)]);
+    expect((await send(w.edB, w.id, 42)).status).toBe(400);
+    expect((await send(w.edB, w.id, '   ')).body.error).toBe('Write something to send.');
+    w.tick(61_000);
+    expect((await send(w.edB, w.id, 'four')).status).toBe(201);
+  });
+
+  it('says it in the same words on an edit, and on an agent\'s answer', async () => {
+    const w = await limited({ maxChars: 20, perMinute: 2 });
+    const first = await send(w.edB, w.id, '@Alex@console hi');
+    expect(first.status).toBe(201);
+    const edit = (text: string) => w.edB.patch(`${CH}/conversations/${w.id}/messages/${first.body.message.id}`).set(H).send({ text });
+    const long = await edit('@Alex@console ' + 'y'.repeat(21));
+    expect([long.status, long.body.error]).toEqual([422, TOO_LONG(20)]);
+    expect((await edit('@Alex@console fine')).status).toBe(200);
+    const fast = await edit('@Alex@console again');
+    expect([fast.status, fast.body.error]).toEqual([429, TOO_FAST(60)]);
+    w.tick(61_000);
+    const handed = await send(w.alexB, w.id, '@dev status?');
+    expect(handed.status).toBe(201);
+    const answer = (text: string) => request(w.app).post(`/api/fleet/sessions/sess-dev/chat/conversations/${w.id}/messages`).set('X-Podium-Token', w.ed.token).send({ text });
+    const tooLong = await answer('z'.repeat(21));
+    expect([tooLong.status, tooLong.body.error]).toEqual([422, TOO_LONG(20)]);
+    expect((await answer('ok one')).status).toBe(201);
+    expect((await answer('ok two')).status).toBe(201);
+    const slow = await answer('ok three');
+    expect([slow.status, slow.body.error]).toEqual([429, TOO_FAST(60)]);
+  });
+});
