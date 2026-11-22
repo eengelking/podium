@@ -1,6 +1,6 @@
 // The shell scripts that run under `set -u` (#823). bash 3.2, the one macOS ships, lets `${NAME//a/b}` and the other pattern forms
 // read a variable that was never set; bash 4 and later, the one CI and every Linux machine runs, stops the script with "NAME: unbound
-// variable". So a script that reads an environment variable that way passes on a Mac and fails in CI (scripts/test-db.sh did, with
+// variable". So a script that reads an environment variable that way passes on a Mac and fails in CI (scripts/db-servers.sh, then called test-db.sh, did, with
 // PODIUM_TEST_ONLY). This reads each script and fails for a variable the script never assigns, read with a pattern operator, a
 // substring or a length and no default. A plain `$NAME` or `${NAME}` is left out: it stops the script on every bash, so a run on a
 // Mac already finds it. A variable the script sets itself is safe; one it only gets from the environment needs `${NAME:-}` first.

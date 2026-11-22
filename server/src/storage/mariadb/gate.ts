@@ -26,7 +26,7 @@ export async function mariaGate(
     await connect(url);
   } catch (e) {
     const why = e instanceof Error ? e.message.split(url).join(label(url)).split(passwordOf(url) || '\u0000').join('***') : 'unknown error';
-    throw new Error(`PODIUM_TEST_MARIADB is set but the MariaDB server at ${label(url)} is unreachable (${why}). Start it (scripts/test-db.sh does) or unset the variable.`);
+    throw new Error(`PODIUM_TEST_MARIADB is set but the MariaDB server at ${label(url)} is unreachable (${why}). Start it (npm run test:db does) or unset the variable.`);
   }
 }
 

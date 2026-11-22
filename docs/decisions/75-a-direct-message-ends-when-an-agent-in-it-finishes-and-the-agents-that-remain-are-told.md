@@ -54,5 +54,5 @@ conversation, yet it looked like a party to it, so other agents talked to it as 
 <!-- nav:start -->
 ---
 
-Previous: [74. A Direct Message is a conversation of two or more people, and an Admin cannot read one that has no agent in it (#1278)](74-a-direct-message-is-a-conversation-of-two-or-more-people-and-an-admin-cannot-read-one-without-an-agent-in-it.md) · Up: [Decisions](README.md)
+Previous: [74. A Direct Message is a conversation of two or more people, and an Admin cannot read one that has no agent in it (#1278)](74-a-direct-message-is-a-conversation-of-two-or-more-people-and-an-admin-cannot-read-one-without-an-agent-in-it.md) · Up: [Decisions](README.md) · Next: [76. The server tests on every adapter run from `npm run test:db`, with the options of `e2e:fast` (#1294)](76-the-server-tests-on-every-adapter-run-from-npm-run-test-db-with-the-options-of-e2e-fast.md)
 <!-- nav:end -->
