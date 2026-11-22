@@ -1576,6 +1576,49 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.map((e) => e.scope)]))).toEqual({ channelPost: ['public'], groupPost: ['group'], ownAgentDm: ['dm'], crossPersonDm: ['dm', 'dm', 'dm'], markRead: ['public'], deleteOwn: ['dm'], deleteAcross: ['dm', 'dm'] });
   });
 
+  /** The `chat` events a step writes, as their scopes, once the Admin log's writes and the stream have settled. */
+  const streamOf = (w: W) => {
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const events = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!) as { rev: number; scope: string });
+    return async (act: () => Promise<unknown>) => {
+      const from = events().length;
+      await act();
+      await w.fleet.flush();
+      await settle();
+      return events().slice(from).map((e) => e.scope);
+    };
+  };
+
+  it('pins the chat events of an edit and a delete of a Direct Message: one for the person alone, two when another person is at the other end (#1310)', async () => {
+    const w = await world();
+    const step = streamOf(w);
+    const peers = w.fleet.peers.messages;
+    const own = (await peers.sendFromPerson({ ownerId: w.ed.person.id, person: 'Ed', toSession: 'sess-tester', text: 'for the tester', authorId: w.ed.person.id })) as { id: string };
+    const across = (await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' })).body.message.id as string;
+    expect(await step(() => w.edB.patch(`${CH}/dm/me/sess-tester/messages/${own.id}`).set(H).send({ text: 'a reword' }))).toEqual(['dm']);
+    expect(await step(() => w.edB.patch(`${CH}/dm/me/sess-alex/messages/${across}`).set(H).send({ text: 'a reword' }))).toEqual(['dm', 'dm']);
+    expect(await step(() => w.edB.delete(`${CH}/dm/me/sess-tester/messages/${own.id}`).set(H))).toEqual(['dm']);
+    // A delete also closes the request that waited for the owner, which the trail of the message tells both people of again.
+    expect(await step(() => w.edB.delete(`${CH}/dm/me/sess-alex/messages/${across}`).set(H))).toEqual(['dm', 'dm', 'dm', 'dm']);
+  });
+
+  it('pins the chat events of a Direct Message concluded because an agent ended: between two agents, and across owners (#1310)', async () => {
+    const finish = async (w: W, report: () => Promise<unknown>) => {
+      await report();
+      w.tick(DEFAULT_CONFIG.lingerMs + 1000);
+      await w.fleet.sweep();
+    };
+    const w = await world();
+    await linkedConversation(w);
+    const step = streamOf(w);
+    expect(await step(() => finish(w, () => tester(w, { status: 'done', waitReason: null })))).toEqual(['dm', 'dm', 'dm', 'group']);
+    const x = await world();
+    expect((await x.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' })).status).toBe(202);
+    const stepX = streamOf(x);
+    expect(await stepX(() => finish(x, () => alexOne(x, { status: 'done', waitReason: null })))).toEqual(['dm', 'dm', 'dm', 'dm', 'dm', 'dm', 'group']);
+  });
+
   it('answers a bad page size of a channel, a Direct Message and a conversation the same way, and reads a good one (#1310)', async () => {
     const w = await world();
     await linkedConversation(w);
