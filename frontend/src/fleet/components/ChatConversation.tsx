@@ -14,7 +14,7 @@ import { ChatMembersPanel, ChatMembersStack, type Member } from "./ChatMembers";
 import { agentState } from "./ChatSidebar";
 import { StateIcon } from "./Chips";
 import { Editor, Text, DeleteMessageDialog } from "./ChatThread";
-import { ChAt, ChClock, ChGroup, ChLock, ChNo, ChTrash } from "./ChatIcons";
+import { ChAt, ChClock, ChGroup, ChInfo, ChLock, ChNo, ChTrash } from "./ChatIcons";
 import { hm } from "../trafficData";
 
 const KEEP_ALIVE_MS = 15_000;
@@ -25,9 +25,9 @@ function conversationMembers(c: ConversationInfo, sessions: Record<string, Sessi
     key: `${m.kind}:${m.name}:${i}`,
     kind: m.you ? "you" : m.kind,
     name: m.name,
-    line: m.kind === "agent" ? "Agent" : m.you ? "You" : m.addedBy ? `Added by ${m.addedBy}` : "Started it",
+    line: m.kind === "agent" ? (m.ended ? "Agent, ended" : "Agent") : m.you ? "You" : m.addedBy ? `Added by ${m.addedBy}` : "Started it",
     state: null,
-    word: null,
+    word: m.ended ? "Ended" : null,
     ...(m.kind === "agent" ? { family: Object.values(sessions).find((s) => s.name === m.name)?.modelFamily } : {}),
   }));
 }
@@ -246,6 +246,9 @@ export function ChatConversation(p: ConversationProps) {
   }
 
   const withAgent = info.hasAgent;
+  // An agent that ended for good stays listed, marked, with a line in the thread (#1283); the people in it can keep writing.
+  const ended = info.members.filter((m) => m.kind === "agent" && m.ended);
+  const stayers = info.members.filter((m) => m.kind === "person").map((m) => (m.you ? "You" : m.name)).join(" and ");
   const addresses = conversationAddresses(info);
   return (
     <>
@@ -264,6 +267,14 @@ export function ChatConversation(p: ConversationProps) {
               {withAgent ? conversationSummary(info) : `Only ${info.members.length === 2 ? "you and " + title : "you and these " + (info.members.length - 1) + " people"} can read this. An Admin cannot.`}
             </span>
             <span>{t.total} {t.total === 1 ? "message" : "messages"}</span>
+            {ended.map((m) => (
+              <span className="tag" key={`ended-${m.name}`} data-testid="chat-conversation-ended">
+                <ChNo />
+                <span>
+                  <bdi>{m.name}</bdi>: Ended. It can no longer be written to.
+                </span>
+              </span>
+            ))}
             <AdminTags readers={readers} pause={null} />
           </div>
         </div>
@@ -293,6 +304,18 @@ export function ChatConversation(p: ConversationProps) {
               </div>
               <div role="log" aria-label="Messages" aria-live="polite" aria-relevant="additions" aria-atomic="false">
                 <ol className="ch-msgs">{rows}</ol>
+                {ended.length > 0 && (
+                  <ol className="ch-msgs">
+                    {ended.map((m) => (
+                      <li className="ch-rec" key={`ended-line-${m.name}`} data-testid="chat-conversation-ended-line">
+                        <ChInfo />
+                        <span>
+                          <bdi>{m.name}</bdi> ended. This direct message has been concluded for <bdi>{m.name}</bdi>. {stayers} can keep writing here.
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
               {t.messages.length === 0 && (
                 <div className="ch-intro" data-testid="chat-intro">

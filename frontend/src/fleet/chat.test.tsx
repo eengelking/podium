@@ -10,7 +10,7 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer, LEAVE_MS } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, AdminRead, ChannelLink, ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
+import type { Address, AdminRead, ChannelLink, Concluded,ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
@@ -103,6 +103,8 @@ const BOOK: Address[] = [
 
 interface Fake {
   overview: ChatOverview;
+  /** What was concluded because an agent in a Direct Message ended (#1283); none by default. */
+  concluded?: Concluded[];
   channels: Record<string, { messages: ChannelMessage[]; older?: string | null }>;
   dms: Record<string, { messages: DirectMessage[]; older?: string | null; total?: number }>;
   postError?: RespondError | Error;
@@ -188,6 +190,11 @@ function fakeChat(w: Fake = world()) {
     };
   };
   const api = {
+    concluded: vi.fn(async () => ({ ok: true as const, concluded: structuredClone(w.concluded ?? []) })),
+    dismissConcluded: vi.fn(async (id: string) => {
+      w.concluded = (w.concluded ?? []).filter((c) => c.id !== id);
+      return { ok: true as const };
+    }),
     overview: vi.fn(async (owner?: string | null) => structuredClone(owner && w.owners?.[owner] ? { ...w.overview, ...w.owners[owner] } : w.overview)),
     markRead: vi.fn(async () => ({ ok: true as const, unread: 0, mentions: 0 })),
     addresses: vi.fn(async () => ({ ok: true as const, addresses: structuredClone(BOOK) })),
@@ -318,15 +325,15 @@ const flush = () =>
     for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 
-function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean; sessions?: ReturnType<typeof makeSession>[] } = {}) {
+function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean; sessions?: ReturnType<typeof makeSession>[]; wall?: { notices: Record<string, boolean>; showBackgroundSessions: boolean; cardTitleMachine: boolean }; view?: "wall" } = {}) {
   const chat = opts.chat ?? fakeChat();
   const sessions = [
     makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
     makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
     ...(opts.sessions ?? []),
   ];
-  const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
-  const props = { chat: true, respondApi: respondApi(opts.me ?? ED), peersApi: peersApi(), chatApi: chat.api };
+  const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true }, ...(opts.wall ? { wall: opts.wall } : {}) });
+  const props = { chat: opts.view !== "wall", respondApi: respondApi(opts.me ?? ED), peersApi: peersApi(), chatApi: chat.api };
   const view = render(<FleetView {...props} state={state} />);
   // Each signal moves the state on from the last one, so a second signal in a test is a new signal and not the same one again.
   let current = state;
@@ -4405,5 +4412,121 @@ describe("conversations of people and agents (#1278)", () => {
     fireEvent.click(rowBtn("v:cnv_1"));
     await flush();
     expect(screen.queryByTestId("chat-conversation")).toBeNull();
+  });
+});
+
+describe("a Direct Message concluded because an agent ended (#1283)", () => {
+  const ENDED: Concluded = { id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 };
+  const wallNotice = () => screen.queryByText("Tester ended.");
+
+  it("shows a notice on the wall for each, and an X that dismisses only that one and says the kind can be turned off in Admin > Settings", async () => {
+    window.location.hash = "#/";
+    const chat = fakeChat();
+    chat.w.concluded = [ENDED, { ...ENDED, id: "dm:s-x|s-y@2", agent: "infra-notes", with: ["Maya Kim"] }];
+    page({ chat, view: "wall" });
+    await flush();
+    expect(wallNotice()).toBeInTheDocument();
+    expect(screen.getByText(/Its direct message with claude-dashboard was concluded and deleted/)).toBeInTheDocument();
+    expect(screen.getByText("infra-notes ended.")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close notice: Concluded direct messages" })[0]!);
+    await flush();
+    expect(chat.api.dismissConcluded).toHaveBeenCalledWith(ENDED.id);
+    expect(wallNotice()).toBeNull();
+    expect(screen.getByText("infra-notes ended.")).toBeInTheDocument();
+    const toast = screen.getByText("Notice dismissed").closest(".toast") as HTMLElement;
+    expect(toast).toHaveTextContent("will show again the next time a direct message is concluded");
+    expect(within(toast).getByRole("link", { name: /Open Admin > Settings/ })).toHaveAttribute("href", "#/admin/settings");
+  });
+
+  it("says a message the person wrote was not delivered, when one was waiting for approval or never taken", async () => {
+    window.location.hash = "#/";
+    const chat = fakeChat();
+    chat.w.concluded = [{ ...ENDED, undelivered: 1 }, { ...ENDED, id: "dm:s-x|s-y@2", agent: "infra-notes", with: ["Maya Kim"], undelivered: 3 }];
+    page({ chat, view: "wall" });
+    await flush();
+    expect(screen.getByText(/Its direct message with claude-dashboard was concluded and deleted\..*A message you wrote to it was not delivered\./)).toBeInTheDocument();
+    expect(screen.getByText(/3 messages you wrote to it were not delivered\./)).toBeInTheDocument();
+  });
+
+  it("shows nothing when none was concluded, and nothing when the Admin switched the kind off", async () => {
+    window.location.hash = "#/";
+    const none = page({ view: "wall" });
+    await flush();
+    expect(wallNotice()).toBeNull();
+    none.unmount();
+    const chat = fakeChat();
+    chat.w.concluded = [ENDED];
+    page({ chat, view: "wall", wall: { notices: { "background-sessions": true, "concluded-direct-messages": false }, showBackgroundSessions: false, cardTitleMachine: false } });
+    await flush();
+    expect(wallNotice()).toBeNull();
+  });
+});
+
+describe("the open Direct Message is concluded because its agent ended (#1283)", () => {
+  it("stays open with a banner that says so, turns the composer off, and leaves with Back to conversations", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    expect(screen.queryByTestId("chat-concluded")).toBeNull();
+    // The server concludes it: the row leaves the overview, the thread is gone, and the list says why.
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    const banner = screen.getByTestId("chat-concluded");
+    expect(banner).toHaveTextContent("Tester ended. This direct message has been concluded and deleted. Nothing in it is kept.");
+    expect(screen.getByText("This direct message has ended.")).toBeInTheDocument();
+    expect(screen.queryByText("That conversation is gone, so nothing can be sent.")).toBeNull();
+    fireEvent.click(within(banner).getByRole("button", { name: "Back to conversations" }));
+    await flush();
+    expect(screen.queryByTestId("chat-concluded")).toBeNull();
+  });
+});
+
+describe("a conversation that keeps going after an agent in it ended (#1283)", () => {
+  const info = (): ConversationInfo => ({
+    id: "cnv_1",
+    thread: "convo:cnv_1",
+    members: [
+      { kind: "person", name: "Ed", you: true, addedBy: null, address: "Ed@console", sessionId: null },
+      { kind: "person", name: "Maya", you: false, addedBy: "Ed", address: "Maya@console", sessionId: null },
+      { kind: "agent", name: "Tester", you: false, addedBy: "Ed", ended: true, address: null, sessionId: "sess-tester" },
+    ],
+    hasAgent: true,
+    unread: 0,
+    mentions: 0,
+    messages: 1,
+    lastAt: T0,
+    adminReading: [],
+  });
+
+  it("marks the ended agent in the header and the members panel, and leaves a line in the thread that says the people can keep writing", async () => {
+    const w = world();
+    w.overview.conversations = [info()];
+    w.convoMessages.cnv_1 = [{ id: "k1", author: { kind: "person", name: "Maya", you: false }, text: "rerun the suite?", createdAt: T0 - 60_000, editedAt: null, deletedAt: null, replyTo: null, canChange: false, changeWhy: null, deliveries: [] }];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const c = within(screen.getByTestId("chat-conversation"));
+    expect(c.getByTestId("chat-conversation-ended")).toHaveTextContent("Tester: Ended. It can no longer be written to.");
+    expect(c.getByTestId("chat-conversation-ended-line")).toHaveTextContent("Tester ended. This direct message has been concluded for Tester. You and Maya can keep writing here.");
+    expect(c.getByText("rerun the suite?")).toBeInTheDocument();
+  });
+
+  it("shows neither when no agent in it has ended", async () => {
+    const w = world();
+    const plain = info();
+    plain.members = plain.members.map((m) => ({ ...m, ended: undefined }));
+    w.overview.conversations = [plain];
+    w.convoMessages.cnv_1 = [];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    expect(screen.queryByTestId("chat-conversation-ended")).toBeNull();
+    expect(screen.queryByTestId("chat-conversation-ended-line")).toBeNull();
   });
 });

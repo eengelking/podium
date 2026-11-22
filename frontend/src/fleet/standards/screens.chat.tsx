@@ -85,6 +85,8 @@ interface DmPage { messages: DirectMessage[]; older?: string | null; total: numb
 function chatApi(w: World): ChatApi {
   const all = () => [...w.overview.directs, ...Object.values(w.owners ?? {}).flatMap((o) => o.directs ?? [])];
   return {
+    concluded: async () => ({ ok: true as const, concluded: [] }),
+    dismissConcluded: async () => ({ ok: true as const }),
     overview: async (owner?: string | null) => structuredClone(owner && w.owners?.[owner] ? { ...w.overview, ...w.owners[owner] } : w.overview),
     markRead: async () => ({ ok: true as const, unread: 0, mentions: 0 }),
     addresses: async () => ({ ok: true as const, addresses: structuredClone(BOOK) }),

@@ -450,6 +450,29 @@ export function peerCases(o: Openers): void {
     expect([trips('after one'), trips('after the person'), trips('after the answer')]).toEqual([0, 0, 1]);
   });
 
+  it('tells a live agent in Podium\'s voice and not one that is not live, and still says an agent ended once its conversation is deleted, the same on every adapter (#1283)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers } = await setUp(s, clock);
+      const m = peers.messages;
+      await rec('person writes to beta', m.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', text: 'hello' }));
+      await m.notice('sa', 'beta ended. This direct message has been concluded.');
+      await rec('reply for alpha carries the notice', peers.replyFor('sa', true));
+      await m.notice('sx', 'told to nobody');
+      await rec('no reply for a session that is not live', peers.replyFor('sx', true));
+      await peers.ended('sb');
+      await rec('the conversation is deleted', m.deleteConversation(ED_ID, `person:${ED_ID}`, 'sb'));
+      await rec('no conversation is left', m.ownerConversations(ED_ID, { includeHidden: true }));
+      await rec('the ended agent is still known, so it is refused as ended', m.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', text: 'anyone?' }));
+      await rec('an id no session ever had is not known', m.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'nope', text: 'anyone?' }));
+    });
+    expect(t.get('the ended agent is still known, so it is refused as ended')).toMatchObject({ status: 409 });
+    expect(t.get('an id no session ever had is not known')).toMatchObject({ status: 404 });
+    expect(t.get('no conversation is left')).toEqual([]);
+    expect(JSON.stringify(t.get('reply for alpha carries the notice'))).toContain('has been concluded');
+    expect(JSON.stringify(t.get('no reply for a session that is not live'))).not.toContain('told to nobody');
+  });
+
   it('deletes one conversation\'s messages and no other, and a page cursor outlives the deletion (#1034)', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };

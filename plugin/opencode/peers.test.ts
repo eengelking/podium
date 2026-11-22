@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AdminNotice, PeerDelivery, PeerRequest, Report } from '../core/protocol.ts';
+import { ENDED_NOTICE_MARK, type AdminNotice, type PeerDelivery, type PeerRequest, type Report } from '../core/protocol.ts';
 import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
@@ -292,6 +292,27 @@ describe('a message for the orchestrator (#969)', () => {
     expect(x.prompts[0]!.text).toContain('A notice from Podium itself');
     await x.r.tick();
     expect(x.server.calls.filter((c) => c.path.includes('/peers/deliveries/n')).map((c) => c.body.result)).toEqual(['took', 'took']);
+  });
+
+  it('tells the agent that remains when a direct message ended, in Podium\'s own words and once, and an ordinary notice stays a toast (#1283)', async () => {
+    const x = rig();
+    await reported(x);
+    const ended = `${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`;
+    x.server.deliveries = [
+      message({ id: 'n1', kind: 'notice', from: null, text: 'Ed paused the link to pi.' }),
+      message({ id: 'n2', kind: 'notice', from: null, text: ended }),
+    ];
+    await x.r.tick();
+    await flushed();
+    expect(x.toasts).toEqual(['Ed paused the link to pi.', ended]);
+    expect(x.prompts).toHaveLength(1);
+    expect(x.prompts[0]!.text).toMatch(/^A notice from Podium itself, about a direct message this orchestrator was in\./);
+    expect(x.prompts[0]!.text).toContain('A direct message you were in has ended. Tester ended.');
+    // Handed over again, it is acted on once.
+    x.server.deliveries = [message({ id: 'n2', kind: 'notice', from: null, text: ended })];
+    await x.r.tick();
+    await flushed();
+    expect(x.prompts).toHaveLength(1);
   });
 
   it('a notice prompt OpenCode does not take is dropped quietly', async () => {

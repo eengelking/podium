@@ -12,7 +12,7 @@
 // through a step does the whole step again at the next start, and ends in the same state.
 import { COLLATION, type MariaDbConn } from './conn.js';
 import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
-import { CHAT_IDS_DONE_KEY, idsOf, OWNED_PEER_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndKey, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
+import { CHAT_IDS_DONE_KEY, keepOwnerSettings, OWNED_PEER_TABLES, OWNER_EVIDENCE_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndRewrite, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { nameKey } from '../rows.js';
 
 type DB = MariaDbConn;
@@ -72,15 +72,14 @@ async function fillOwnerIds(db: DB): Promise<void> {
 
 /**
  * Binds the peer-messaging tables to a person by id (#1284), as SQLite's `fillPeerOwnerIds` does: the rights, requests and messages that exist get the id of their owner by the owner's folded
- * name against `people.name_lower`, a row whose owner matches no person keeps none, a person's end of a link (`person:<name>`) becomes `person:<id>` (or `person:gone:<name>`), and the
- * owner defaults are rekeyed by the id, a row of nobody dropped. A row is only given to a person who existed when it was written. It runs as one transaction with its mark (`PEER_IDS_DONE_KEY`),
+ * name against `people.name_lower`, a row whose owner matches no person keeps none, a person's end of a link (`person:<name>`) becomes `person:<id>` for a row written since the person was made
+ * (or `person:gone:<name>` for an older row, #1292), and the owner defaults are rekeyed by the id only for a person who provably owns them (`keepOwnerSettings`), every other row dropped. A row is only given to a person who existed when it was written. It runs as one transaction with its mark (`PEER_IDS_DONE_KEY`),
  * so a step that stopped part way never leaves keys half rewritten for the run that follows, and a step whose rewrite committed before its version was recorded does not run on its own result.
  */
 async function fillPeerOwnerIds(db: DB): Promise<void> {
   await db.tx(async () => {
   if (!(await firstRun(db, PEER_IDS_DONE_KEY))) return;
   const people = await peopleIndex(db);
-  const ids = idsOf(people);
   for (const { table, at } of OWNED_PEER_TABLES) {
     // order-insensitive: each owner name is written on its own rows, whatever the order.
     for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`)) {
@@ -88,31 +87,48 @@ async function fillPeerOwnerIds(db: DB): Promise<void> {
       if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`, [p.id, r.owner, p.createdAt]);
     }
   }
-  // The link names first, while the session columns still say which end is the person.
+  // The link names first, while the session columns still say which end is the person. A row older than the person gets the gone end (#1292).
   const links = await db.all<{ link: string; from_session: string; to_session: string }>("SELECT DISTINCT link, from_session, to_session FROM peer_messages WHERE substr(from_session, 1, 7) = 'person:' OR substr(to_session, 1, 7) = 'person:' ORDER BY link, from_session, to_session");
+  const setLink = 'UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?) AND sent_at >= ? AND sent_at < ?';
   for (const l of links) {
     const end = l.from_session.startsWith('person:') ? l.from_session : l.to_session;
-    const next = renameLinkEnd(l.link, end, personEndKey(end, ids));
-    if (next !== null && next !== l.link) await db.run('UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?)', [next, l.link, l.from_session, l.to_session]);
+    const w = personEndRewrite(end, people);
+    if (w === null) continue;
+    const live = renameLinkEnd(l.link, end, w.to);
+    const old = renameLinkEnd(l.link, end, w.earlier);
+    if (live !== null) await db.run(setLink, [`~${live}`, l.link, l.from_session, l.to_session, w.since, Number.MAX_SAFE_INTEGER]);
+    if (old !== null) await db.run(setLink, [`~${old}`, l.link, l.from_session, l.to_session, 0, w.since]);
   }
-  for (const { table, columns } of PERSON_END_COLUMNS) {
+  await db.run("UPDATE peer_messages SET link = substr(link, 2) WHERE substr(link, 1, 1) = '~'");
+  for (const { table, columns, at } of PERSON_END_COLUMNS) {
     for (const col of columns) {
       // order-insensitive: each old key is moved to its new one, through a marker, so a new key is never taken for an old one.
       let moved = false;
       for (const { k } of await db.all<{ k: string }>(`SELECT DISTINCT ${col} AS k FROM ${table} WHERE substr(${col}, 1, 7) = 'person:' ORDER BY ${col}`)) {
-        const to = personEndKey(k, ids);
-        if (to === k) continue;
-        await db.run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [`~${to}`, k]);
+        const w = personEndRewrite(k, people);
+        if (w === null) continue;
+        const move = `UPDATE ${table} SET ${col} = ? WHERE ${col} = ? AND ${at} >= ? AND ${at} < ?`;
+        await db.run(move, [`~${w.to}`, k, w.since, Number.MAX_SAFE_INTEGER]);
+        await db.run(move, [`~${w.earlier}`, k, 0, w.since]);
         moved = true;
       }
       if (moved) await db.run(`UPDATE ${table} SET ${col} = substr(${col}, 2) WHERE substr(${col}, 1, 8) = '~person:'`);
     }
   }
+  // An owner's defaults have no time, so they are kept only for a person who provably owns them (#1292, `keepOwnerSettings`); every other row is dropped and the person has the server's defaults.
+  const ownIds = new Set<number>();
+  const olderNames = new Set<string>();
+  for (const table of OWNER_EVIDENCE_TABLES) {
+    // order-insensitive: the rows are folded into sets.
+    for (const r of await db.all<{ id: number }>(`SELECT DISTINCT owner_id AS id FROM ${table} WHERE owner_id IS NOT NULL ORDER BY owner_id`)) ownIds.add(Number(r.id));
+    // order-insensitive: the rows are folded into sets.
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL AND owner IS NOT NULL ORDER BY owner`)) olderNames.add(nameKey(r.owner));
+  }
   const settings = await db.all<{ owner_lower: string; trust: number; on_request: string; new_send: string; limits_json: string | null }>('SELECT owner_lower, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IS NULL ORDER BY owner_lower');
   await db.run('DELETE FROM peer_owner_settings WHERE owner_id IS NULL');
   for (const s of settings) {
-    const id = ids.get(s.owner_lower);
-    if (id !== undefined) await db.run('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)', [String(id), id, s.trust, s.on_request, s.new_send, s.limits_json]);
+    const id = keepOwnerSettings(s.owner_lower, people, ownIds, olderNames);
+    if (id !== null) await db.run('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)', [String(id), id, s.trust, s.on_request, s.new_send, s.limits_json]);
   }
   });
 }

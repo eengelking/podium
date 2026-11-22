@@ -438,6 +438,8 @@ beside General's, keyed by the channel, so no route of a public channel can retu
   with the copy, which closes that approval request on a delete. A mention of a person never locks. Logged as `group_message_edited`, `group_message_deleted`, and the same with `general_` and `channel_` (7.7).
 - `GET /api/fleet/respond/chat/addresses?channel=&q=`: what a typed `@` can mean in a channel, narrowed by `q` (the start of
   `name@location`). `200 { ok: true, addresses }`.
+- `GET /api/fleet/respond/chat/concluded` and `DELETE /api/fleet/respond/chat/concluded/:id` (#1283): the Direct Messages that were concluded because an agent in them ended, for the signed-in person only
+  (`{ id, thread, agent, with[], at, undelivered? }`: names, a time and a count, never text), and the person's dismissal of one. The list is memory only, kept 24 hours, at most 20 for a person. Another person's id answers `404`, as an unknown one does.
 - `GET /api/fleet/respond/chat/direct-targets?q=`: who the viewer can start a Direct Message with (#1035), for the **New direct message** picker: the live orchestrators of the viewer, then those of other people whose reporter takes part
   in messaging (`peers` on), never a subagent, a fork or an ended session, narrowed by `q` (a part of the name, the owner or the machine). `200 { ok: true, targets }`, each `{ sessionId, name, machine, address, owner, own, status,
   waitReason, canMessage, why, needsApproval, link, thread }`: `why` says in words when `canMessage` is false (responding is off, the reporter takes no messages, or the owner removed the link), `needsApproval` is true for another person's
@@ -579,7 +581,10 @@ as the Activity history, [7.7](07-07-hardening.md#activity-history-432)): `401` 
 `session-recording` flag is off or the session is unknown. A recording's text is never logged.
 
 - **`GET /api/fleet/respond/sessions/:id/recording?before=&limit=&loop=`**: one page of a replay, oldest first, as a
-  `RecordingPage`: `{ entries, olderBefore, total, grant, loops, owner }`. Without `before` it answers the newest
+  `RecordingPage`: `{ entries, olderBefore, total, grant, loops, owner, ownerId }`. `owner` is the owner's name, shown
+  in the refusal a viewer who may not read it gets; `ownerId` is the owner's `people.id` (#1291), which is what decides whose the recording
+  is (the replay page compares it with `RespondMe.id`, never the names), and is `null` for a session owned by the admin secret or by a
+  person since deleted. An older server sends no `ownerId`, which a reader takes as `null`. Without `before` it answers the newest
   `limit` rows (default and most 200, `RECORDING_LIMITS.page`); `before` is the `n` of the oldest row already shown
   and `olderBefore` is the `n` for the next older page, or null. `loop` limits the page to one loop (`@orchestrator`
   or an agent id). `loops` lists every loop of the session with its name and whether it is recorded. `404` when the

@@ -11,7 +11,7 @@ import type { Transport } from '../core/transport.ts';
 import { redactText } from '../core/diffRedact.ts';
 import { isLaunchId } from '../core/launch.ts';
 import {
-  accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, convoSendAnswer, convoSendTarget, chatReadTarget, appliedLevel, deliveredLine, errorOf, findRequest, isAccessAnswer, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
+  accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, convoSendAnswer, convoSendTarget, chatReadTarget, appliedLevel, deliveredLine, errorOf, endedNoticePrompt, findRequest, isAccessAnswer, isEndedNotice, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
   refusalAnswer, requestAnsweredLine, requestLine, requestToast, SEND_NO_TO, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from '../core/peers.ts';
 import type { PromptDelivery } from './answering.ts';
@@ -98,6 +98,8 @@ export class Peers {
       this.d.notify?.(oneLine(d.text, 1000));
       this.result(root, d.id, 'took');
       if (isAccessAnswer(d.text)) void this.d.prompt(root.id, d.id, noticePrompt(d.text)).catch((err) => this.warn('a notice from Podium', err));
+      // A direct message this orchestrator was in has ended (#1283): the agent is told in Podium's own words, so it neither continues it nor opens a new one.
+      if (isEndedNotice(d.text)) void this.d.prompt(root.id, d.id, endedNoticePrompt(d.text)).catch((err) => this.warn('a notice from Podium', err));
       return;
     }
     const busy = [...root.sessions.values()].some((s) => s.executing);

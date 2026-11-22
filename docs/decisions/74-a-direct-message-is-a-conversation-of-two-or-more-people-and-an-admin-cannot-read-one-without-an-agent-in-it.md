@@ -52,5 +52,5 @@ The maintainer's model is Slack or Teams: a person messages a person, and an age
 <!-- nav:start -->
 ---
 
-Previous: [73. A person edits and deletes only their own Chat messages, until an agent has been sent them (#1269)](73-a-person-edits-and-deletes-only-their-own-chat-messages-until-an-agent-has-been-sent-them.md) · Up: [Decisions](README.md)
+Previous: [73. A person edits and deletes only their own Chat messages, until an agent has been sent them (#1269)](73-a-person-edits-and-deletes-only-their-own-chat-messages-until-an-agent-has-been-sent-them.md) · Up: [Decisions](README.md) · Next: [75. A Direct Message ends when an agent in it finishes, and the agents that remain are told (#1283)](75-a-direct-message-ends-when-an-agent-in-it-finishes-and-the-agents-that-remain-are-told.md)
 <!-- nav:end -->

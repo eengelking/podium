@@ -11,6 +11,8 @@ import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
 import { ChatThread, DeleteMessageDialog } from "./components/ChatThread";
 import { ChatConversation } from "./components/ChatConversation";
+import { ConcludedBanner } from "./components/ChatEnded";
+import { useConcluded } from "./useConcluded";
 import { ChannelModal, DirectModal, type DirectDone } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct, MenuAt } from "./components/ChatMenu";
@@ -101,7 +103,10 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
   let sel: Selection = picked && picked.kind !== "convo" ? picked : GENERAL;
-  if (o && picked?.kind === "dm" && !picked.fresh && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
+  // A Direct Message that was concluded because an agent in it ended stays open with a banner that says so, until the person leaves it (#1283).
+  const concluded = useConcluded(api, true, rev);
+  const endedHere = picked?.kind === "dm" && !picked.fresh ? (concluded.items.find((c) => c.thread === picked.key) ?? null) : null;
+  if (o && picked?.kind === "dm" && !picked.fresh && !endedHere && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
   // A channel an Admin removed leaves the list, and the page falls back to General.
   if (o && picked?.kind === "channel" && !o.channels.some((c) => c.id === picked.id)) sel = GENERAL;
   // A conversation of people and agents is open while the overview lists it; one left or deleted falls back to General (#1278).
@@ -647,6 +652,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
       )}
       {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
       {!ro && <GoneRecordLines reads={gone} />}
+      {!ro && endedHere && <ConcludedBanner agent={endedHere.agent} undelivered={endedHere.undelivered} onBack={() => { setPicked(null); setPane("side"); }} />}
       <div className={`ch-split${members ? " mem-open" : ""}`} data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}
@@ -733,8 +739,8 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
                 label={label}
                 draft={draft}
                 onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
-                off={thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
-                offWord={thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
+                off={endedHere ? "This direct message has ended." : thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
+                offWord={endedHere ? "Ended" : thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
                 note={note}
                 error={sendErr}
                 sending={sending}

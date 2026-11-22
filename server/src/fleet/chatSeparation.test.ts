@@ -29,6 +29,9 @@ const ROUTES: { file: string; method: string; path: string; audience: 'dm' | 'ch
   { file: 'chatChannelRoutes.ts', method: 'delete', path: '/chat/channels/:channel/messages', audience: 'channel' },
   { file: 'chatChannelRoutes.ts', method: 'get', path: '/chat/addresses', audience: 'channel' },
   { file: 'chatDmRoutes.ts', method: 'get', path: '/chat/direct-targets', audience: 'counts' },
+  // What was concluded because an agent ended (#1283): names and times, never text.
+  { file: 'chatDmRoutes.ts', method: 'get', path: '/chat/concluded', audience: 'counts' },
+  { file: 'chatDmRoutes.ts', method: 'delete', path: '/chat/concluded/:id', audience: 'counts' },
   { file: 'chatDmRoutes.ts', method: 'get', path: '/chat/dm/:a/:b/messages', audience: 'dm' },
   { file: 'chatDmRoutes.ts', method: 'post', path: '/chat/dm/:a/:b/messages', audience: 'dm' },
   { file: 'chatDmRoutes.ts', method: 'patch', path: '/chat/dm/:a/:b/messages/:id', audience: 'dm' },

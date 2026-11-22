@@ -13,6 +13,11 @@ export const NOTICES: readonly NoticeDef[] = [
     name: 'Background sessions',
     description: 'Says how many sessions nobody is attached to are set aside, with a link to show them.',
   },
+  {
+    id: 'concluded-direct-messages',
+    name: 'Concluded direct messages',
+    description: 'Says when a direct message was concluded and deleted because an agent in it ended. Each one is closed on its own with its X.',
+  },
 ];
 
 export function isNoticeId(id: string): boolean {

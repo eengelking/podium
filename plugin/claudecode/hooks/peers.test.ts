@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import type { PeerDelivery, PeerRequest } from '../../core/protocol.ts'
+import { ENDED_NOTICE_MARK, type PeerDelivery, type PeerRequest } from '../../core/protocol.ts'
 import {
   accessAnswer,
   answerPaused,
@@ -8,6 +8,8 @@ import {
   findRequest,
   framingLine,
   isAccessAnswer,
+  isEndedNotice,
+  endedNoticePrompt,
   isRequestId,
   listAnswer,
   noticePrompt,
@@ -109,6 +111,17 @@ describe('peers: the frame a peer message is submitted under', () => {
     expect(isAccessAnswer('Ed declined your request for access to build-pi.')).toBe(true)
     expect(isAccessAnswer('Your message to Tester on ci-runner-01 was not delivered: the receiver ended first.')).toBe(false)
     expect(noticePrompt('Ed declined your request for access to build-pi.')).toMatch(/^A notice from Podium itself.*not a person's or another agent's text\.\n───\nEd declined/s)
+  })
+})
+
+describe('peers: a direct message that ended (#1283)', () => {
+  const ended = `${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it.`
+  test('is told apart from every other notice, and framed as Podium\'s own words', () => {
+    expect(isEndedNotice(ended)).toBe(true)
+    expect(isEndedNotice('Your message to Tester on ci-runner-01 was not delivered: the receiver ended first.')).toBe(false)
+    expect(isEndedNotice('Ed allowed your request for access to build-pi.')).toBe(false)
+    expect(isEndedNotice(`Someone wrote: ${ENDED_NOTICE_MARK}`)).toBe(false)
+    expect(endedNoticePrompt(ended)).toMatch(/^A notice from Podium itself, about a direct message this orchestrator was in\..*not a person's or another agent's text\.\n───\nA direct message you were in has ended\. Tester ended/s)
   })
 })
 

@@ -309,13 +309,13 @@ export function threadWithId(thread: string, people: PersonIndex): string | null
 
 /**
  * A direct-message thread (`dm:<a>|<b>`) whose person end is still `person:<folded name>`, with the person's id, as the peer tables' own upgrade writes it (`person:<id>`, or `person:gone:<name>` when no
- * person has the name, which no live person's key equals). The ends are put in order again, as `dmThread` does. `null` when no end holds a name.
+ * person has the name, which no live person's key equals). Every name is read as a name, one that begins `gone:` included (#1292): the step runs once, on name-keyed data. The ends are put in order again, as `dmThread` does. `null` when no end holds a name.
  */
 function dmThreadWithIds(thread: string, people: PersonIndex): string | null {
   let changed = false;
   const ends = thread.slice('dm:'.length).split('|').map((end) => {
     const name = nameAfter(end, 'person:');
-    if (name === null || name === 'admin' || name.startsWith('gone:')) return end;
+    if (name === null || name === 'admin') return end;
     changed = true;
     const p = people.get(name);
     return p ? `person:${p.id}` : `person:gone:${name}`;

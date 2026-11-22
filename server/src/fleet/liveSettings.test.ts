@@ -114,7 +114,7 @@ describe('LiveWallSettings', () => {
     const first = openSqliteStorage(file);
     const wall = new LiveWallSettings(first.wallSettings);
     await wall.load();
-    expect(wall.view()).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false, cardTitleMachine: false });
+    expect(wall.view()).toEqual({ notices: { 'background-sessions': true, 'concluded-direct-messages': true }, showBackgroundSessions: false, cardTitleMachine: false });
     expect(wall.noticeOn('background-sessions')).toBe(true);
     expect(wall.noticeOn('made-up')).toBe(true);
     expect(wall.updateDismissed()).toBeNull();

@@ -147,6 +147,7 @@ describe('admin: settings', () => {
 
   it('has a switch for each wall notice, the background sessions and the machine in card titles', () => {
     cy.settingSwitch('notice-background-sessions').should('exist');
+    cy.settingSwitch('notice-concluded-direct-messages').should('have.attr', 'aria-checked', 'true');
     cy.settingSwitch('background').should('have.attr', 'aria-checked', 'false');
     cy.settingSwitch('card-title-machine').should('have.attr', 'aria-checked', 'false');
   });

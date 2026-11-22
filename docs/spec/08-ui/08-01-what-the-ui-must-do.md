@@ -878,9 +878,22 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
   On/Off). They are stored in the server's `settings` table and sent to the wall in `StateBody.wall`, so they
   apply to every browser and survive a restart. A change reaches open tabs through the `wall` stream event.
 - All notices default to on.
-- The notices are the background-sessions note and the update notice. Only the background-sessions note is in
+- The notices are the background-sessions note, the concluded-direct-messages note and the update notice. The first two are in
   `NOTICES`; the update notice is handled apart (below). A later notice that has its own switch adds one entry to
   `NOTICES` in `server/src/storage/features.ts` and one to the stack in `Wall.tsx`.
+- **The concluded-direct-messages notice (#1283, `mockup/podium-chat-dm-ended.html`)** is in `NOTICES` as `concluded-direct-messages`
+  ("Concluded direct messages", on by default). There is one row for each Direct Message that was concluded because an agent in it ended, for the people in it only. It reads
+  `Tester ended.` then `Its direct message with dev was concluded and deleted. A conversation with two or more people stays.`, and adds `A message you wrote to it was not delivered.`
+  (or `N messages you wrote to it were not delivered.`) when a message of the person's never reached the agent. It reports an event, not a standing state, so it departs from
+  "closing turns it off for everyone" as the update notice does: its X is "Close notice: Concluded direct messages", dismisses only that row (`DELETE /api/fleet/respond/chat/concluded/:id`),
+  and the confirmation is titled **Notice dismissed** and says `“Concluded direct messages” will show again the next time a direct message is concluded. You can turn it off in Admin > Settings.`
+  The switch under Admin > Settings > Wall notices turns the whole kind off. The rows come from `GET /api/fleet/respond/chat/concluded` and are read again whenever the console's `chat`
+  signal moves; the server keeps them in memory for 24 hours, so a person who was not connected when it happened is not shown it, and a restart forgets them.
+- **A concluded Direct Message that is open (#1283).** The thread stays open with the read-only banner `Tester ended. This direct message has been concluded and deleted. Nothing in it is kept.`
+  (and the not-delivered sentence), a **Back to conversations** button, and the composer off (`This direct message has ended.`). Nothing else of it is left to show.
+- **A conversation of people and agents that stays after an agent ended (#1283).** The agent is listed as `Agent, ended` in the members panel and an `Ended. It can no longer be written to.`
+  tag in the header, the thread ends with the line `Tester ended. This direct message has been concluded for Tester. You and Maya can keep writing here.`, and a message that would
+  go to the agent is skipped with `it ended, so it did not get this message`. A conversation with two people and one agent shows this way. "Ended" is read from the session, so it holds after a restart.
 - **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
   `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
   link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set

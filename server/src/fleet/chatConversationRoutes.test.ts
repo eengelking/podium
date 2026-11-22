@@ -205,6 +205,51 @@ describe('a conversation with an agent in it', () => {
   });
 });
 
+describe('a conversation ends when an agent in it ends (#1283)', () => {
+  const finish = async (s: S, id: 'sess-tester' | 'sess-dev') => {
+    const r = fixtureReport();
+    r.session = { ...r.session, id, name: id === 'sess-tester' ? 'Tester' : 'dev', status: 'done', waitReason: null, peers: true };
+    r.userName = 'Ed';
+    r.machine = { ...(id === 'sess-tester' ? LINUX : MAC), os: 'macOS 27.0.1' };
+    r.adminNotices = true;
+    await post(s, s.ed.token, r);
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+  };
+
+  it('keeps a conversation that still has two people in it, marks the agent ended, and refuses a message to it', async () => {
+    const w = await world();
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-tester' }], 'run the suite');
+    const id = res.body.conversation.id as string;
+    await finish(w, 'sess-tester');
+    const seen = (await w.edB.get(CH)).body.conversations as { id: string; members: { name: string; kind: string; ended?: boolean }[] }[];
+    expect(seen.map((c) => c.id)).toEqual([id]);
+    expect(seen[0]!.members.find((m) => m.name === 'Tester')).toMatchObject({ kind: 'agent', ended: true });
+    expect(seen[0]!.members.find((m) => m.name === 'Alex')?.ended).toBeFalsy();
+    // The people can still write, and the text is still there.
+    expect((await page(w.alexB, id)).body.messages[0].text).toBe('run the suite');
+    const sent = await w.edB.post(`${CH}/conversations/${id}/messages`).set(H).send({ text: 'carry on without it' });
+    expect(sent.status).toBe(201);
+    expect(sent.body.skipped).toEqual([expect.stringMatching(/^Tester: it ended, so it did not get this message/)]);
+    expect((await w.edB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+  });
+
+  it('deletes a conversation with fewer than two people left, lists it as concluded, and tells the agent that remains once', async () => {
+    const w = await world();
+    const res = await OPEN(w.edB, [{ kind: 'agent', sessionId: 'sess-tester' }, { kind: 'agent', sessionId: 'sess-dev' }], 'both of you');
+    expect(res.status).toBe(201);
+    const id = res.body.conversation.id as string;
+    await finish(w, 'sess-tester');
+    expect((await w.edB.get(CH)).body.conversations).toEqual([]);
+    expect((await page(w.edB, id)).status).toBe(404);
+    const concluded = (await w.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; with: string[] }[];
+    expect(concluded).toHaveLength(1);
+    expect(concluded[0]).toMatchObject({ agent: 'Tester' });
+    const told = ((await dev(w)).body.peerDeliveries ?? []) as { kind: string; text?: string }[];
+    expect(told.filter((n) => n.kind === 'notice' && /Tester ended/.test(n.text ?? '') && /concluded/.test(n.text ?? ''))).toHaveLength(1);
+  });
+});
+
 // An @ in a Direct Message with more than one agent (#1282): a message with no @ goes to every agent in it; one that names members goes only to them.
 describe('an @ in a conversation with two agents and a person', () => {
   const SEND = (b: B, id: string, text: string) => b.post(`${CH}/conversations/${id}/messages`).set(H).send({ text });

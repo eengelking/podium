@@ -758,6 +758,54 @@ export function upgradeCases(o: UpgradeOpeners): void {
     }
   });
 
+  it('gives a newcomer who took a deleted person\'s name none of the defaults or link ends the earlier person left, keeps them for the person who provably owns them, and reads a name that begins gone: as a name, when the database is upgraded (#1292)', async () => {
+    // Ed was made before his rows and owns them. Zed was made after every row: the rows (a right, a request, a message, defaults) name a Zed who held the name earlier and is gone. gone:x was made
+    // early and has no row but a link end; nobody has the name "nobody".
+    const s = await o.openUpgraded(
+      [req('prq_ed', T0, { owner: 'Ed' }), req('prq_zed', T0 + 1, { owner: 'Zed' }), req('prq_amy_old', T0 + 2, { owner: 'Amy' }), req('prq_amy_new', NEWCOMER_AT + 5, { owner: 'Amy' })], [], [],
+      [{ id: 'm_ed', owner: 'Ed', fromSession: 'person:ed', toSession: 'sb', text: 'ed', sentAt: T0, seq: 1 }, { id: 'm_zed', owner: 'Zed', fromSession: 'person:zed', toSession: 'sb', text: 'zed', sentAt: T0, seq: 2 }],
+      [
+        { fromKey: 'person:ed', toKey: 'rk-a', owner: 'Ed', level: 'send', paused: false },
+        { fromKey: 'person:zed', toKey: 'rk-a', owner: 'Zed', level: 'send', paused: false },
+        { fromKey: 'person:gone:x', toKey: 'rk-b', owner: 'Ed', level: 'send', paused: false },
+        { fromKey: 'person:gone:y', toKey: 'rk-b', owner: 'Ed', level: 'send', paused: false },
+      ],
+      [], [],
+      { people: ['Ed', 'gone:x'], newcomers: ['Zed', 'Amy'], ownerSettings: [{ owner: 'Ed', trust: true }, { owner: 'Zed', trust: true }, { owner: 'Amy', trust: true }, { owner: 'gone:x', trust: true }, { owner: 'Nobody', trust: true }] },
+    );
+    try {
+      const ed = (await s.people.findByName('ed'))!.id;
+      const zed = (await s.people.findByName('zed'))!.id;
+      const goneX = (await s.people.findByName('gone:x'))!.id;
+      const amy = (await s.people.findByName('amy'))!.id;
+      const peers = s.peers({ now: () => T0 + 10_000, flagOn: () => true, startedAt: T0 });
+      // Defaults: kept for the person who owns a row written since they were made, reset for a newcomer, for a person with nothing of their own, and for a name nobody has.
+      expect((await peers.rights.defaults(ed)).trust).toBe(true);
+      expect((await peers.rights.defaults(zed)).trust).toBe(false);
+      expect((await peers.rights.defaults(goneX)).trust).toBe(false);
+      // Amy owns a row written since she was made, and a row of the name older than she is shows an earlier Amy held it, so the defaults are not hers.
+      expect((await peers.rights.openRequests(amy)).map((x) => x.id)).toEqual(['prq_amy_new']);
+      expect((await peers.rights.defaults(amy)).trust).toBe(false);
+      // Link ends in a right: Ed's is his id, the newcomer's is not handed the earlier Zed's, which stays under a key no person's equals.
+      expect(await peers.rights.personLink(personKeyOf(ed), 'rk-a')).toMatchObject({ level: 'send' });
+      expect(await peers.rights.personLink(personKeyOf(zed), 'rk-a')).toBeNull();
+      expect(await peers.rights.personLink('person:zed', 'rk-a')).toBeNull();
+      expect(await peers.rights.personLink('person:gone:zed', 'rk-a')).toMatchObject({ level: 'send' });
+      // A person called gone:x is a person, the id of the person, and the stored key person:gone:x was not taken for one already rewritten; a name nobody has is kept under gone: before its whole name, so `gone:y` is never read as `y`.
+      expect(await peers.rights.personLink(personKeyOf(goneX), 'rk-b')).toMatchObject({ level: 'send' });
+      expect(await peers.rights.personLink('person:gone:x', 'rk-b')).toBeNull();
+      expect(await peers.rights.personLink('person:gone:gone:y', 'rk-b')).toMatchObject({ level: 'send' });
+      expect(await peers.rights.personLink('person:gone:y', 'rk-b')).toBeNull();
+      // The ends of a message: Ed's is his id; the earlier Zed's stays under the gone key and the newcomer's conversation is empty.
+      const m = peers.messages;
+      expect((await m.conversation(personKeyOf(ed), 'sb')).map((x) => x.id)).toEqual(['m_ed']);
+      expect(await m.conversation(personKeyOf(zed), 'sb')).toEqual([]);
+      expect((await m.conversation('person:gone:zed', 'sb')).map((x) => x.id)).toEqual(['m_zed']);
+    } finally {
+      await s.close();
+    }
+  });
+
   it('keeps every message of a conversation an older database holds, with no delivery, and takes who a later message is for beside them, when the database is upgraded (#1282)', async () => {
     const CID = 'cnv_00000000_aaaaaaaaaaaaaaaaaaaaaaaa';
     const s = await o.openUpgraded([], [], [], [], [], [], [], { people: ['ed'] }, {

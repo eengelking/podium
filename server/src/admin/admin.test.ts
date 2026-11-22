@@ -216,7 +216,7 @@ describe('groups and settings', () => {
     const { agent, people, wall } = await unlocked();
     const got = (await agent.get('/api/admin/settings').set(H)).body;
     expect(got.showBackgroundSessions).toBe(false);
-    expect(got.notices).toEqual([expect.objectContaining({ id: 'background-sessions', name: 'Background sessions', on: true })]);
+    expect(got.notices).toEqual([expect.objectContaining({ id: 'background-sessions', name: 'Background sessions', on: true }), expect.objectContaining({ id: 'concluded-direct-messages', name: 'Concluded direct messages', on: true })]);
     expect((await agent.put('/api/admin/settings').set(H).send({ notices: { 'background-sessions': false } })).status).toBe(200);
     expect(wall.noticeOn('background-sessions')).toBe(false);
     expect((await agent.put('/api/admin/settings').set(H).send({ showBackgroundSessions: true })).status).toBe(200);

@@ -69,6 +69,7 @@ const batch = (...entries: RecordingEntry[]): RecordingBatch => ({ v: 1, sentAt:
 const BASE = `/api/fleet/respond/sessions/${SID}/recording`;
 const MOD = `/api/fleet/sessions/${SID}/recording`;
 const post = (app: express.Express, token: string, b: unknown) => request(app).post(MOD).set('X-Podium-Token', token).send(b as object);
+const post2 = (app: express.Express, token: string, sid: string, b: unknown) => request(app).post(`/api/fleet/sessions/${sid}/recording`).set('X-Podium-Token', token).send(b as object);
 
 /** A live session of Ed's whose reporter allows recording, with Ed's browser signed in and the orchestrator and a1 chosen. */
 async function chosen(over: Parameters<typeof setup>[0] = {}, loops = [MAIN_LOOP, 'a1']) {
@@ -404,6 +405,23 @@ describe('GET /respond/sessions/:id/recording (the replay)', () => {
     expect(res.body.entries.map((e: { text: string }) => e.text)).toEqual([...[1, 2, 3, 4, 5].map((i) => `${BODY} main ${i}`), `${BODY} agent 1`]);
     expect(res.body).toMatchObject({ olderBefore: null, total: 6, owner: 'Ed', grant: { state: 'recording' } });
     expect(res.body.loops).toEqual(expect.arrayContaining([{ loop: MAIN_LOOP, name: 'Orchestrator', recorded: true }]));
+  });
+
+  it("carries the owner's person id next to the name, to the owner and to an Admin, and null for a session owned by the admin secret (#1291)", async () => {
+    const { a, app, boss, ed } = await recorded();
+    expect((await a.get(BASE)).body).toMatchObject({ owner: 'Ed', ownerId: ed.person.id });
+    const b = await signedIn(app, 'Boss', boss.token);
+    const seen = (await b.get(BASE)).body;
+    expect(seen.ownerId).toBe(ed.person.id);
+    expect(seen.ownerId).not.toBe(boss.person.id);
+    // A session reported with the admin secret has no person: its id is null, and the page must say so rather than leave the key out.
+    const sid2 = 'sess-by-admin-secret';
+    expect((await send(app, SECRET, report(true, { id: sid2 }))).status).toBe(200);
+    const root = await signedIn(app, 'Admin', SECRET);
+    const base2 = `/api/fleet/respond/sessions/${sid2}/recording`;
+    expect((await root.put(base2).set(H).send({ loops: [MAIN_LOOP] })).status).toBe(200);
+    expect((await post2(app, SECRET, sid2, batch(entry(MAIN_LOOP, 1)))).status).toBe(200);
+    expect((await root.get(base2)).body).toMatchObject({ ownerId: null });
   });
 
   it('pages back with before and limit, and limits a page to one loop', async () => {

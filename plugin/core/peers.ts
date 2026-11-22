@@ -2,7 +2,7 @@
 // no `$` here. The words each tool answers, the frame a peer message is submitted under, and the lines and toasts a
 // request shows in the terminal. Nothing here touches responding's answers or approvals (respond.ts): a peer message
 // only ever becomes a framed prompt, and that separation is tested.
-import { PEER_LEVELS, type Delivery, type PeerDelivery, type PeerLevel, type PeerParty, type PeerRequest } from './protocol.ts';
+import { ENDED_NOTICE_MARK, PEER_LEVELS, type Delivery, type PeerDelivery, type PeerLevel, type PeerParty, type PeerRequest } from './protocol.ts';
 
 /** The line between Podium's frame and the message, as the mockup draws it. */
 export const RULE = '───';
@@ -261,6 +261,19 @@ export function isAccessAnswer(text: string): boolean {
 /** The prompt the answer to an access request is submitted as: Podium's own words, never an agent's or a person's. */
 export function noticePrompt(text: string): string {
   return `A notice from Podium itself, about this orchestrator's request for access. It is not a person's or another agent's text.\n${RULE}\n${oneLine(text, 1000)}`;
+}
+
+/**
+ * Whether a notice tells this orchestrator that a direct message it was in has ended (#1283). Such a notice also starts a turn, because the agent has to
+ * know not to continue the conversation or open a new one; every other notice is a log line only. Keyed on the mark the server starts the sentence with.
+ */
+export function isEndedNotice(text: string): boolean {
+  return text.startsWith(ENDED_NOTICE_MARK);
+}
+
+/** The prompt an ended direct message is submitted as: Podium's own words, never an agent's or a person's. */
+export function endedNoticePrompt(text: string): string {
+  return `A notice from Podium itself, about a direct message this orchestrator was in. It is not a person's or another agent's text.\n${RULE}\n${oneLine(text, 1000)}`;
 }
 
 // ---- The tools' answers --------------------------------------------------------------------------------------------

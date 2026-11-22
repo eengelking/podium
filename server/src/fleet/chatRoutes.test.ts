@@ -12,7 +12,7 @@ import { createLogger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
-import type { Report } from './protocol.js';
+import { ENDED_NOTICE_MARK, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 import { ACTIVITY_FEED, PEER_MESSAGING, RESPOND } from '../storage/features.js';
 import { AdminNotices } from './chatAdminNotices.js';
@@ -107,6 +107,16 @@ const deliveriesFor = async (s: S, who: 'tester' | 'dev') => {
   const r = who === 'tester' ? await tester(s) : await dev(s);
   return (r.body.deliveries ?? []) as { id: string; kind: string; text?: string }[];
 };
+/** Long enough that a session that stopped reporting is stale and then dropped, whichever stale limit it has (a hook-only one waits longest). */
+const LOST_HEARTBEAT_MS = DEFAULT_CONFIG.hookStaleAfterMs + DEFAULT_CONFIG.dropAfterMs + 1000;
+/**
+ * Every session that has not reported lately loses its heartbeat and is dropped. A lost heartbeat may be undone by a report, so a conversation is only hidden by it and
+ * can return; a session that finished is concluded for good instead (#1283).
+ */
+async function loseHeartbeat(s: S) {
+  s.tick(LOST_HEARTBEAT_MS);
+  await s.fleet.sweep();
+}
 /** Both agents linked by a right, so there is a conversation to add to. */
 async function linkedConversation(w: W) {
   const set = await w.edB.put('/api/fleet/respond/peers/rights').set(H).send({ from: MAC.id, to: LINUX.id, level: 'send' });
@@ -772,17 +782,16 @@ describe('direct messages', () => {
     await linkedConversation(s);
     const key = (await s.edB.get(CH)).body.directs[0];
     const [x, y] = [key.a.sessionId, key.b.sessionId];
-    await tester(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
+    // Tester loses its heartbeat while dev keeps reporting: the conversation stays, hidden only when no agent is left, and names who is gone.
+    s.tick(LOST_HEARTBEAT_MS);
+    await dev(s);
     await s.fleet.sweep();
     const state = (await s.edB.get(CH)).body.directs[0];
     expect(state.ended).toEqual(['Tester']);
     const some = await s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'still there, dev?' });
     expect(some.status).toBe(202);
     expect(some.body.skipped).toEqual([expect.objectContaining({ sessionId: 'sess-tester', name: 'Tester', why: expect.stringMatching(/will not receive/) })]);
-    await dev(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
-    await s.fleet.sweep();
+    await loseHeartbeat(s);
     expect((await s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'anyone?' })).status).toBe(409);
   });
 
@@ -790,10 +799,7 @@ describe('direct messages', () => {
     const s = await world();
     await linkedConversation(s);
     expect((await s.edB.get(CH)).body.directs).toHaveLength(1);
-    await tester(s, { status: 'done', waitReason: null });
-    await dev(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
-    await s.fleet.sweep();
+    await loseHeartbeat(s);
     expect((await s.edB.get(CH)).body.directs).toEqual([]);
     // The same session reports again: the conversation and its history return.
     await tester(s);
@@ -806,10 +812,7 @@ describe('direct messages', () => {
     const s = await world();
     await linkedConversation(s);
     const key = (await s.edB.get(CH)).body.directs[0];
-    await tester(s, { status: 'done', waitReason: null });
-    await dev(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
-    await s.fleet.sweep();
+    await loseHeartbeat(s);
     s.tick(23 * 3_600_000);
     await s.fleet.retain();
     // A sign-in ends after 12 idle hours, so the person signs in again.
@@ -830,10 +833,10 @@ describe('direct messages', () => {
     const key = (await s.edB.get(CH)).body.directs[0];
     const url = `${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`;
     const close = async () => {
-      await tester(s, { status: 'done', waitReason: null, resumeWindowDays: 7 });
-      await dev(s, { status: 'done', waitReason: null, resumeWindowDays: 7 });
-      s.tick(10_000);
-      await s.fleet.sweep();
+      // The reports carry the window; the heartbeat then goes (a finished session is concluded instead, #1283).
+      await tester(s, { resumeWindowDays: 7 });
+      await dev(s, { resumeWindowDays: 7 });
+      await loseHeartbeat(s);
     };
     await close();
     // Two days on is past the Admin's 24 hour grace period, but inside the window.
@@ -2233,10 +2236,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     await linkedConversation(w);
     const admin = await signedIn(w, 'Admin', SECRET);
     await admin.get(`${AB}/messages`);
-    await tester(w, { status: 'done', waitReason: null });
-    await dev(w, { status: 'done', waitReason: null });
-    w.tick(10_000);
-    await w.fleet.sweep();
+    await loseHeartbeat(w);
     w.tick(23 * 3_600_000);
     await w.fleet.retain();
     expect(await store(w).threads('dm:')).toHaveLength(1);
@@ -2249,10 +2249,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     const adminX = await signedIn(x, 'Admin', SECRET);
     await adminX.get(`${AB}/messages`);
     expect((await x.edB.get(`${AB}/messages`)).body.adminReads).toHaveLength(1);
-    await tester(x, { status: 'done', waitReason: null });
-    await dev(x, { status: 'done', waitReason: null });
-    x.tick(10_000);
-    await x.fleet.sweep();
+    await loseHeartbeat(x);
     x.tick(25 * 3_600_000);
     await x.fleet.retain();
     expect(await store(x).threads('dm:')).toEqual([]);
@@ -2466,10 +2463,7 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     const w = await world();
     await linkedConversation(w);
     const admin = await signedIn(w, 'Admin', SECRET);
-    await tester(w, { status: 'done', waitReason: null });
-    await dev(w, { status: 'done', waitReason: null });
-    w.tick(10_000);
-    await w.fleet.sweep();
+    await loseHeartbeat(w);
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
     await post(w, w.ed.token, report('Ed', 'sess-third', 'third', MAC));
     expect((await admin.get(`${AB}/messages`)).status).toBe(200);
@@ -2489,10 +2483,7 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     const w = await world();
     await linkedConversation(w);
     const admin = await signedIn(w, 'Admin', SECRET);
-    await tester(w, { status: 'done', waitReason: null });
-    await dev(w, { status: 'done', waitReason: null });
-    w.tick(10_000);
-    await w.fleet.sweep();
+    await loseHeartbeat(w);
     const messages = w.fleet.peers.messages;
     const all = vi.spyOn(messages, 'ownerConversations');
     const hiddenAsked = () => all.mock.calls.filter((c) => c[1]?.includeHidden).map((c) => c[1]?.pairs);
@@ -2945,5 +2936,107 @@ describe('the agents list follows the live set (#1110)', () => {
     await s.fleet.sweep();
     const res = await s.edB.get(CH);
     expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01']);
+  });
+});
+
+describe('a Direct Message ends when one of its agents ends (#1283)', () => {
+  const finish = async (s: W, which: 'dev' | 'tester') => {
+    await (which === 'dev' ? dev : tester)(s, { status: 'done', waitReason: null });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+  };
+  const noticesOf = async (s: W, which: 'dev' | 'tester') => {
+    const r = which === 'dev' ? await dev(s, { status: 'running', waitReason: null }) : await tester(s);
+    return ((r.body.peerDeliveries ?? []) as { kind: string; text?: string }[]).filter((d) => d.kind === 'notice');
+  };
+
+  it('deletes a conversation between two agents, with its text, when one ends, and tells the one that remains once', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    await finish(s, 'tester');
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    expect((await s.edB.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).status).toBe(404);
+    const told = (await noticesOf(s, 'dev')).filter((n) => /concluded/.test(n.text ?? ''));
+    expect(told).toHaveLength(1);
+    expect(told[0]!.text).toMatch(/Tester ended/);
+    // The mark every reporter turns into a turn in Podium's own words (#1283).
+    expect(told[0]!.text!.startsWith(ENDED_NOTICE_MARK)).toBe(true);
+    expect(told[0]!.text).toMatch(/do not .*(continue|new direct message)/i);
+  });
+
+  it('tells the remaining agent once, even when the end is seen twice', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await finish(s, 'tester');
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    const concluded = (await noticesOf(s, 'dev')).filter((n) => /concluded/.test(n.text ?? ''));
+    expect(concluded).toHaveLength(1);
+  });
+
+  it("deletes a person's conversation with an agent when the agent ends", async () => {
+    const s = await world();
+    await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'hello tester' });
+    expect((await s.edB.get(CH)).body.directs).toHaveLength(1);
+    await finish(s, 'tester');
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    expect((await s.edB.get(`${CH}/dm/me/sess-tester/messages`)).status).toBe(404);
+  });
+
+  it('refuses a new message to the ended agent, and to a concluded conversation', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    await finish(s, 'tester');
+    const toEnded = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'are you there' });
+    expect(toEnded.status).toBe(409);
+    expect(toEnded.body.error).toMatch(/ended/);
+    expect((await s.edB.post(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`).set(H).send({ text: 'still there?' })).status).toBeGreaterThanOrEqual(400);
+  });
+
+  it('discards a message still waiting for its owner to approve when the agent ends, closes the request, and tells the person who wrote it', async () => {
+    const s = await world();
+    const requestsOf = async (b: ReturnType<typeof request.agent>) => ((await b.get('/api/fleet/respond/peers')).body.requests ?? []) as unknown[];
+    const sent = await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'please look at this' });
+    expect(sent.body.message).toMatchObject({ state: 'approval' });
+    expect(await requestsOf(s.alexB)).toHaveLength(1);
+    await alexOne(s, { status: 'done', waitReason: null });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    expect(await requestsOf(s.alexB)).toEqual([]);
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; undelivered?: number }[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ agent: 'review', undelivered: 1 });
+    expect(JSON.stringify(mine)).not.toMatch(/please look at this/);
+    // Another person's stored session is not Ed's to learn exists or what it is called, so it keeps the answer of a conversation that is not there.
+    expect((await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'again' })).status).toBe(404);
+  });
+
+  it('lists what was concluded for the people in it only, until each is dismissed, and says no text', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    expect((await s.edB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+    await finish(s, 'tester');
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { id: string; agent: string; with: string[] }[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ agent: 'Tester', with: ['dev'] });
+    expect(JSON.stringify(mine)).not.toMatch(/agent hello/);
+    expect((await s.alexB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+    expect((await s.alexB.delete(`${CH}/concluded/${mine[0]!.id}`).set(H)).status).toBe(404);
+    expect((await s.edB.delete(`${CH}/concluded/${mine[0]!.id}`).set(H)).status).toBe(200);
+    expect((await s.edB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+  });
+
+  it('keeps a conversation hidden, not deleted, when an agent only lost its heartbeat, so a resume brings it back (#1113)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await loseHeartbeat(s);
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    await tester(s);
+    const back = (await s.edB.get(CH)).body.directs;
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ messages: 1 });
+    expect(await noticesOf(s, 'dev')).toEqual([]);
   });
 });
