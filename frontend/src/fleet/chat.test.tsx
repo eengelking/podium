@@ -4605,6 +4605,45 @@ describe("the open Direct Message is concluded because its agent ended (#1283)",
     await flush();
     expect(screen.queryByTestId("chat-concluded")).toBeNull();
   });
+
+  // #1340: the text was deleted by the server, so the page shows none of it, reads nothing more, and does not call a deleted conversation a failed read.
+  it("shows no deleted message, no read error and no header of the conversation under the banner, and reads it no more (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    expect(screen.getByText("Also Debian 12.")).toBeInTheDocument();
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    expect(screen.getByTestId("chat-concluded")).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load the messages/)).toBeNull();
+    expect(screen.queryByText("Also Debian 12.")).toBeNull();
+    expect(screen.queryByText(/Please run the tests\./)).toBeNull();
+    expect(screen.queryByText(/The ones below may be out of date/)).toBeNull();
+    // The feed is empty: no count of messages and no "Loading…" (the sidebar has its own "Showing N of M").
+    const feed = screen.getByRole("region", { name: "Messages, oldest first" });
+    expect(within(feed).queryByText(/Showing \d+ of \d+/)).toBeNull();
+    expect(within(feed).queryByText(/Loading…/)).toBeNull();
+    const reads = chat.api.dmMessages.mock.calls.length;
+    p.signal();
+    await flush();
+    expect(chat.api.dmMessages.mock.calls.length).toBe(reads);
+  });
+
+  it("does not show a 404 on a Direct Message as a failed read; the box says the conversation is gone (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    p.signal();
+    await flush();
+    expect(screen.queryByText(/Could not load the messages/)).toBeNull();
+    expect(screen.getByText("That conversation is gone, so nothing can be sent.")).toBeInTheDocument();
+  });
 });
 
 describe("a conversation that keeps going after an agent in it ended (#1283)", () => {
