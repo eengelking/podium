@@ -287,7 +287,7 @@ export class PeerMessages implements PeerMessagesApi {
 
   // ---- Sending -----------------------------------------------------------------------------------------------------
 
-  /** `name@machine`, split at the last `@`, among the orchestrators the sender can reach. `name@machine#id` picks one of several that share the name (#500). */
+  /** `name@machine`, split at the last `@`, among the orchestrators the sender can reach. `name@machine#id` pins one by its never-reused id (#500, #1284). */
   private resolve(sender: LiveOrchestrator, to: string): LiveOrchestrator | Refusal {
     const address = to.trim();
     const unseen = refuse(404, `You cannot see an orchestrator called ${address}. Run podium_peers for the list.`);
