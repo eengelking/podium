@@ -5,7 +5,7 @@
 import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import { jsonBody } from '../jsonBody.js';
-import { sourceAddress } from '../storage/rows.js';
+import { agentGate, refuser } from './routeGate.js';
 import { peersEnabled, type PeerDeps } from './peerRoutes.js';
 import { agentMessageView } from './chatChannels.js';
 import type { Fail } from './chatTypes.js';
@@ -16,29 +16,13 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
   const json = jsonBody({ limit: '128kb' });
 
-  const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('chat.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceAddress(req.ip)}: ${reason}`, { status, reason, source: sourceAddress(req.ip), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason });
-  };
+  const refuse = refuser(logger, 'chat.refused', { session: true });
+  const gate = agentGate(fleet, d.identityOf, refuse, () => peersEnabled(fleet, d.token));
 
   /** The orchestrator a route is about, when messaging is on and the person's token owns its session and it takes part; otherwise answers. */
   const session = async (req: Request, res: Response): Promise<LiveOrchestrator | null> => {
-    const no = (status: number, reason: string): null => {
-      refuse(req, res, status, reason);
-      return null;
-    };
-    if (!peersEnabled(fleet, d.token)) return no(403, 'orchestrator messaging is off');
-    const row = await fleet.db.getSession(String(req.params.id));
-    if (!row || !fleet.isLive(row.id)) {
-      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
-      return null;
-    }
-    const id = d.identityOf(res);
-    if (id.kind !== 'person') return no(403, 'a reporter on the admin secret cannot take part');
-    if (row.owner_id === null || row.owner_id !== id.person.id) return no(403, 'not your session');
-    const o = fleet.peers.messages.live(row.id);
-    if (o?.peers !== true) return no(403, "messaging is off on this machine: turn on the reporter's peers option there");
-    return o;
+    // The gate is the one check that messaging is on; the session is read before it, which costs one read for the refusal when it is off.
+    return gate(req, res, await fleet.db.getSession(String(req.params.id)))?.o ?? null;
   };
 
   /** The channel a route names: General, My group or a public channel that exists (#1035); anything else is answered `404` and never reaches a store. */

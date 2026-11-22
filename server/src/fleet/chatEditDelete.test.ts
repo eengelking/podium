@@ -667,6 +667,20 @@ describe('a person edits and deletes their own direct message (#1269)', () => {
     expect((await dmDel(w.edB, 'me/sess-tester', row.id)).status).toBe(403);
     expect((await thread(w.edB, 'me/sess-tester')).body.messages[0]).toMatchObject({ text: 'from the earlier Ed', canChange: false, changeWhy: null });
   });
+
+  it('refuses a message that is not there, and one already deleted, in the words of a channel and of a Direct Message, with the reason a form reads (#1310)', async () => {
+    const w = await world();
+    const id = (await say(w.edB, 'general', 'to be deleted')).body.message.id as string;
+    const missing = await edit(w.edB, 'general', 'msg_nothere', 'x');
+    expect([missing.status, missing.body.error]).toEqual([404, 'There is no such message in this channel.']);
+    expect((await del(w.edB, 'general', id)).status).toBe(200);
+    for (const res of [await edit(w.edB, 'general', id, 'again'), await del(w.edB, 'general', id)]) expect([res.status, res.body.error, res.body.reason]).toEqual([409, 'This message has already been deleted.', 'deleted']);
+    const m = await toAlex(w);
+    const nope = await dmEdit(w.edB, 'me/sess-alex', 'msg_nothere', 'x');
+    expect([nope.status, nope.body.error]).toEqual([404, 'There is no such message in this conversation.']);
+    expect((await dmDel(w.edB, 'me/sess-alex', m.id)).status).toBe(200);
+    for (const res of [await dmEdit(w.edB, 'me/sess-alex', m.id, 'again'), await dmDel(w.edB, 'me/sess-alex', m.id)]) expect([res.status, res.body.error, res.body.reason]).toEqual([409, 'This message has already been deleted.', 'deleted']);
+  });
 });
 
 describe('a message that waits for another person\'s approval, and the copy Alex is asked about (#1269)', () => {

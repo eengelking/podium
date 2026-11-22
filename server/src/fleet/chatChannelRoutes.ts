@@ -4,7 +4,7 @@ import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
-import { fail, GROUP, GENERAL, isPublicChannel, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
+import { fail, GROUP, GENERAL, isPublicChannel, noOwnMessages, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 /** What Chat's browser routes share: the gate (messaging on, and a signed-in viewer) and how a refusal is answered. */
 export interface ChatBrowserDeps {
@@ -22,6 +22,14 @@ export function limitOf(raw: unknown): number | null {
   if (typeof raw !== 'string' || !/^\d{1,4}$/.test(raw)) return null;
   const n = Number(raw);
   return n >= 1 && n <= PAGE_MAX ? n : null;
+}
+
+/** The page a request asks for: `limit` (`limitOf`) and the `before` cursor. A bad limit is answered 400 here and null returned. */
+export function pageOf(req: Request, res: Response): { before: string | null; limit: number } | null {
+  const limit = limitOf(req.query.limit);
+  if (limit !== null) return { before: typeof req.query.before === 'string' ? req.query.before : null, limit };
+  res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
+  return null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
@@ -83,11 +91,10 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   browser.get('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
     const t = await target(req, res, req.query.owner);
     if (!t) return;
-    const limit = limitOf(req.query.limit);
-    if (limit === null) return void res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
-    const before = typeof req.query.before === 'string' ? req.query.before : null;
+    const page = pageOf(req, res);
+    if (!page) return;
     // The request is checked first (the cursor is, by reading the page), so a refused read records nothing and tells no one.
-    const got = await channels().page(t.v, t.channel, t.owner, { before, limit });
+    const got = await channels().page(t.v, t.channel, t.owner, page);
     if ('status' in got) return void d.refuse(req, res, got);
     // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded; if recording fails the read fails. General is public and never is.
     const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
@@ -124,7 +131,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     const v = await d.viewer(req, res);
     if (!v) return null;
     if (v.personId === null) {
-      d.refuse(req, res, fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.'));
+      d.refuse(req, res, noOwnMessages());
       return null;
     }
     const channel = await channels().resolve(req.params.channel);

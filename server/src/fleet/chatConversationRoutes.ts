@@ -2,7 +2,7 @@
 // agent in it. These routes read and write `conversation_*` only: they never touch a channel or a `peer_messages` row.
 import { type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
-import { limitOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
+import { pageOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
 
 export function mountChatConversationRoutes(browser: Router, d: ChatBrowserDeps): void {
   const conv = () => d.fleet.chat.conversations;
@@ -28,10 +28,9 @@ export function mountChatConversationRoutes(browser: Router, d: ChatBrowserDeps)
   browser.get('/chat/conversations/:id/messages', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
-    const limit = limitOf(req.query.limit);
-    if (limit === null) return void res.status(400).json({ ok: false, error: 'limit must be a whole number from 1 to 100' });
-    const before = typeof req.query.before === 'string' ? req.query.before : null;
-    const out = await conv().thread(v, req.params.id!, { before, limit });
+    const page = pageOf(req, res);
+    if (!page) return;
+    const out = await conv().thread(v, req.params.id!, page);
     if ('status' in out) return void d.refuse(req, res, out);
     res.json(out);
   }));
