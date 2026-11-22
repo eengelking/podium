@@ -2,6 +2,8 @@
 // keyboard (Up in an empty box, Up and Down through your own messages, E, Delete, Escape), the editor in place, the delete confirmation, the
 // tombstone a delete leaves, the live refresh of earlier pages, and an axe pass over each new surface. Against a fake server that keeps what
 // it is told, as chat.test.tsx has.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import axe from "axe-core";
 import { render, screen, fireEvent, cleanup, act, within, renderHook, waitFor } from "@testing-library/react";
@@ -216,6 +218,24 @@ describe("the menu on your own message", () => {
     expect(within(m).getAllByRole("menuitem")[0]).toHaveFocus();
     expect(item("Edit message")).not.toHaveAttribute("aria-disabled");
     expect(msg(0)).toHaveClass("menu-open");
+  });
+
+  it("marks the row with no class that a general .podium rule in fleet.css also matches, so its text keeps its size (#1326)", async () => {
+    await groupPage();
+    fireEvent.contextMenu(msg(0), { clientX: 130, clientY: 210 });
+    const row = msg(0);
+    expect(row).toHaveClass("menu-open", "ch-sel");
+    // jsdom loads no stylesheet, so read the rules: a selector that is exactly `.podium .<class>` applies to that class wherever it is used.
+    const css = readFileSync(resolve(process.cwd(), "src/fleet/fleet.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const general = new Set<string>();
+    for (const m of css.matchAll(/([^{}]+)\{/g)) {
+      for (const s of m[1]!.split(",")) {
+        const one = /^\s*\.podium\s+\.([\w-]+)\s*$/.exec(s);
+        if (one) general.add(one[1]!);
+      }
+    }
+    const used = new Set<string>([...row.classList, ...(row.querySelector(".ch-col")?.classList ?? []), ...(row.querySelector(".ch-tx")?.classList ?? [])]);
+    expect([...used].filter((c) => general.has(c))).toEqual([]);
   });
 
   it("opens beside the message text from Enter, the ContextMenu key and Shift+F10 on the focused message", async () => {
@@ -621,7 +641,7 @@ describe("the delete confirmation", () => {
     const del = within(dlg).getByRole("button", { name: "Delete message" });
     expect(del).toHaveClass("btn", "bad");
     expect(del).not.toHaveClass("pri");
-    expect(msg(4)).toHaveClass("sel");
+    expect(msg(4)).toHaveClass("ch-sel");
   });
 
   it("says who loses it for General, a public channel and a Direct Message", async () => {

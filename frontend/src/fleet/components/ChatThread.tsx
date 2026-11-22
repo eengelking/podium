@@ -459,7 +459,7 @@ const Message = memo(function Message({
   const gone = !!body.deletedAt;
   return (
     <li
-      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}${marked ? " menu-open sel" : ""}${editing ? " editing" : ""}`}
+      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}${marked ? " menu-open ch-sel" : ""}${editing ? " editing" : ""}`}
       data-testid="chat-message"
       aria-haspopup={menu ? "menu" : undefined}
       onContextMenu={menu ? (e) => acts.onContext(m, e) : undefined}

@@ -424,13 +424,13 @@
 .ch-menu .ed-kbd { margin-left: auto; padding-left: 14px; font: 11px var(--font-mono); color: var(--muted); }
 /* The focused message of yours, and the one whose menu or confirmation is open, wear one 2 px ring. */
 .ch-msg.mine:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
-.ch-msg.mine.sel { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-msg.mine.ch-sel { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
 .ch-msg.mine.menu-open { background: var(--hover); }
 /* While a message is edited, the box takes the place of its text: right-aligned like your other messages, one focus ring (the box's own), and nothing
    else on the row competes with it (no delivery line). */
 .ed-box { margin: 2px 0 0 auto; width: min(100%, 560px); }
 .ed-box .ch-box textarea { padding-top: 10px; min-height: 44px; }
-.ch-msg.editing.sel, .ch-msg.editing:focus-visible, .ch-msg.mine.editing { outline: none; background: transparent; }
+.ch-msg.editing.ch-sel, .ch-msg.editing:focus-visible, .ch-msg.mine.editing { outline: none; background: transparent; }
 .ch-msg.editing .ch-st { display: none; }
 .ed-box .cr-tools { flex-wrap: wrap; gap: 8px; }
 .adminv .ed-box .ch-box .hint { flex: 1 1 100%; }
