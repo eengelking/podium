@@ -370,12 +370,6 @@ export class ChannelChat {
 
   // ---- Posting ---------------------------------------------------------------------------------------------------------
 
-  /** The checks that cost nothing: a text, and within Chat's length. The rate limit follows, then `this.core.redact`, which reads every character (#1051). */
-  private checkText(raw: unknown, limits: ChatLimits): { raw: string } | Fail {
-    if (typeof raw !== 'string' || !raw.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    return this.core.tooLong(raw.length, limits) ?? { raw };
-  }
-
   /** The agents and people a typed `@` can mean in this channel, for the address list and for resolving a mention. */
   async addressBook(channel: ChannelId, owner: PersonRef | null): Promise<{ typed: string; label: string; role: 'orchestrator' | 'person' | 'group' | 'everyone'; sessionId: string | null; disabled?: boolean; why?: string }[]> {
     const out: { typed: string; label: string; role: 'orchestrator' | 'person' | 'group' | 'everyone'; sessionId: string | null; disabled?: boolean; why?: string }[] = [];
@@ -438,10 +432,8 @@ export class ChannelChat {
     // An Admin reads and stops a person's group and never writes in it (#1034); only its person writes there.
     if (channel === 'group' && (owner === null || owner.id !== viewer.personId)) return fail(403, ADMIN_NO_WRITE);
     const limits = await this.core.limits();
-    const checked = this.checkText(body.text, limits);
+    const checked = await this.core.screen(body.text, `person:${nameKey(viewer.name)}`, limits);
     if ('ok' in checked) return checked;
-    const limited = this.core.tooFast(`person:${nameKey(viewer.name)}`, limits);
-    if (limited) return limited;
     // A reply to a message that is not in this channel is refused, as an agent's is, so a post never points at an id nothing holds (#1051).
     const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;
     if (replyTo && (replyTo.length > MAX_ID || !(await this.find(channel, owner, replyTo)))) return fail(404, 'There is no such message to reply to in this channel.');
@@ -590,12 +582,10 @@ export class ChannelChat {
     if (flags.disconnected) return fail(403, `${channelName(channel)} is disconnected for your agents. Your person reconnects it.`);
     if (flags.paused) return fail(409, `${channelName(channel)} is paused${flags.pausedForEveryone ? ' for everyone' : ' for your agents'}, so nothing can be posted until it is resumed.`);
     const limits = await this.core.limits();
-    const checked = this.checkText(body.text, limits);
+    // The rate limit comes before the paged lookup below, so an agent that was not called in cannot make it as often as it likes (#1065).
+    const checked = await this.core.screen(body.text, `agent:${o.sessionId}`, limits);
     if ('ok' in checked) return checked;
     const h = this.handle(channel, owner);
-    // The rate limit comes first, so an agent that was not called in cannot make the paged lookup below as often as it likes (#1065).
-    const limited = this.core.tooFast(`agent:${o.sessionId}`, limits);
-    if (limited) return limited;
     // An agent answers a channel that called it in the last hour, the window it reads (#1065). It does not start a conversation nobody asked it to join.
     try {
       if (!(await this.calledInto(h, o, this.core.host.now() - AGENT_READ_WINDOW_MS))) return fail(403, NOT_CALLED);
@@ -704,14 +694,11 @@ export class ChannelChat {
     if (gate) return gate;
     let text = '';
     if (edit) {
-      const limits = await this.core.limits();
-      const checked = this.checkText(edit.text, limits);
+      const checked = await this.core.screen(edit.text, `person:${nameKey(viewer.name)}`);
       if ('ok' in checked) return checked;
-      const limited = this.core.tooFast(`person:${nameKey(viewer.name)}`, limits);
-      if (limited) return limited;
-      text = this.core.redact(checked.raw);
-      // The text a post stores is what is left after cleaning, so a text of nothing but characters that draw nothing is as empty as a blank one.
-      if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+      const cleaned = this.core.cleaned(checked.raw);
+      if (typeof cleaned !== 'string') return cleaned;
+      text = cleaned;
     }
     const h = this.handle(channel, owner);
     const found = id.length <= MAX_ID ? await h.getMessage(id) : null;

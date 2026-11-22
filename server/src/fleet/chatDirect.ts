@@ -8,7 +8,7 @@ import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, changeRefusal, changeState, endedNotice, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
 import { readSubject, type AdminReads, type ReadSubject, type Told } from './chatAdminReads.js';
-import { dmThread, fail, isPersonId, noConversation, noOwnMessages, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
+import { dmThread, emptyMessage, fail, isPersonId, noConversation, noOwnMessages, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 export interface PartyView {
   sessionId: string;
@@ -507,11 +507,10 @@ export class DirectChat {
       return noConversation();
     }
     if (fresh && !fresh.own) return this.sendAcrossDm(viewer, fresh.sessionId, body);
-    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     // The checks that cost nothing come before the scan for secrets, which reads every character: type, length, then rate (#1051).
-    const early = await this.early(viewer, body.text, true);
-    if (early) return early;
-    const text = this.core.redact(body.text);
+    const checked = await this.core.screen(body.text, `person:${nameKey(viewer.name)}`);
+    if ('ok' in checked) return checked;
+    const text = this.core.redact(checked.raw);
     const agents = [a, b].filter((id) => !isPersonId(id));
     const want = Array.isArray(body.to) ? body.to.filter((x): x is string => typeof x === 'string') : agents;
     if (!want.length || want.some((id) => !agents.includes(id))) return fail(400, 'to must name an agent of this conversation.');
@@ -617,14 +616,12 @@ export class DirectChat {
     const by = () => ({ author: viewer.personId as number, now: this.core.host.now() });
     let out;
     if (edit) {
-      if (typeof edit.text !== 'string' || !edit.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
-      // The same order as a new message: length, then the person's limit, then the scan for secrets.
-      const early = await this.early(viewer, edit.text, true);
-      if (early) return early;
-      const text = this.core.redact(edit.text);
-      // A send refuses what is empty once cleaned; so does an edit, or it would leave a message with no text that is not a tombstone.
-      if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
-      out = await this.peers.editMessage(id, { ...by(), text });
+      // The same order as a new message: length, then the person's limit, then the scan for secrets. An edit also refuses what is empty once cleaned, or it would leave a message with no text that is not a tombstone.
+      const checked = await this.core.screen(edit.text, `person:${nameKey(viewer.name)}`);
+      if ('ok' in checked) return checked;
+      const cleaned = this.core.cleaned(checked.raw);
+      if (typeof cleaned !== 'string') return cleaned;
+      out = await this.peers.editMessage(id, { ...by(), text: cleaned });
     } else out = await this.peers.deleteMessage(id, by());
     if (!out.ok) return this.refused(out, scope);
     this.changed(edit ? 'message_edited' : 'message_deleted', viewer, scope.c, id);
@@ -678,8 +675,8 @@ export class DirectChat {
   /** The text of a person's message to another person's agent: stored and held for the agent's owner, or sent at once over a link the owner opened. */
   private async acrossRow(viewer: ChatViewer, sessionId: string, text: string, rate: boolean, redact = false): Promise<{ ok: true; row: MessageRow } | Fail> {
     if (viewer.personId === null) return fail(403, "Only a signed-in person can write to another person's agent.");
-    const early = await this.early(viewer, text, rate);
-    if (early) return early;
+    const checked = await this.core.screen(text, rate ? `person:${nameKey(viewer.name)}` : null);
+    if ('ok' in checked) return checked;
     const refused = await this.acrossTarget(sessionId);
     if (refused) return refused;
     // The text comes in raw from a direct message (checked above first) and already redacted from a channel post.
@@ -688,15 +685,6 @@ export class DirectChat {
     this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
     this.tell(viewer.name, row.owner);
     return { ok: true, row };
-  }
-
-  /**
-   * What is checked of a person's text before anything reads it (#1051): its length against Chat's limit, then, for a message written in a conversation, the
-   * person's per-minute limit. The scan for secrets runs after both, so a text that is refused costs nothing to refuse.
-   */
-  private async early(viewer: ChatViewer, text: string, rate: boolean): Promise<Fail | null> {
-    const limits = await this.core.limits();
-    return this.core.tooLong(text.length, limits) ?? (rate ? this.core.tooFast(`person:${nameKey(viewer.name)}`, limits) : null);
   }
 
   /**
@@ -725,7 +713,7 @@ export class DirectChat {
   }
 
   private async sendAcrossDm(viewer: ChatViewer, agentId: string, body: Record<string, unknown>) {
-    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    if (typeof body.text !== 'string' || !body.text.trim()) return emptyMessage();
     if (Array.isArray(body.to) && body.to.some((x) => x !== agentId)) return fail(400, 'to must name an agent of this conversation.');
     const out = await this.acrossRow(viewer, agentId, body.text, true, true);
     if ('status' in out) return out;

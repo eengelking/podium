@@ -35,6 +35,8 @@ export interface Fail {
 export const fail = (status: number, error: string, reason?: string): Fail => ({ ok: false, status, error, ...(reason ? { reason } : {}) });
 /** A conversation that is not there, and one the viewer may not read, are answered in the same words, so nothing says which (#1051). */
 export const noConversation = (): Fail => fail(404, 'There is no such conversation.');
+/** A text with nothing in it, or nothing left once it is cleaned. */
+export const emptyMessage = (): Fail => fail(400, 'The message is empty. Write the text to send.');
 /** The admin secret has no person, so it has no messages of its own to change. */
 export const noOwnMessages = (): Fail => fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
 
