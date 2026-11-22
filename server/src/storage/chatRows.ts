@@ -180,7 +180,7 @@ export const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(
 
 /** The answer of `bumpMany`: the new state of each person in `folded` (what `foldBumps` returned), in that order, from the rows the adapter read back for all of them. */
 export function bumpAnswers(folded: readonly { personId: number }[], rows: readonly DbReadState[]): ThreadReadState[] {
-  // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
+  // order-insensitive: the rows are put into a map by person, and the answer follows `folded`, which is in ascending person id.
   const by = new Map(rows.map((r) => [Number(r.person_id), toState(r)]));
   return folded.map((b) => by.get(b.personId) as ThreadReadState);
 }

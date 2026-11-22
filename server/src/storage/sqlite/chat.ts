@@ -246,7 +246,7 @@ class ReadState {
            ON CONFLICT(person_id, thread) DO UPDATE SET unread = unread + excluded.unread, mentions = mentions + excluded.mentions`,
         )
         .run(...part.flatMap((b) => [b.personId, thread, b.unread, b.mentions]));
-      // order-insensitive: `bumpAnswers` puts the rows into a map by person, and the answer follows the order the people were given.
+      // order-insensitive: `bumpAnswers` puts the rows into a map by person, and the answer follows `folded`, which is in ascending person id.
       read.push(...(this.db.prepare(`SELECT person_id, thread, unread, mentions FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`).all(thread, ...part.map((b) => b.personId)) as unknown as DbReadState[]));
     }
     return bumpAnswers(folded, read);

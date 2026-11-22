@@ -241,7 +241,7 @@ class PgReadState {
          ON CONFLICT(person_id, thread) DO UPDATE SET unread = chat_read_state.unread + excluded.unread, mentions = chat_read_state.mentions + excluded.mentions`,
         part.flatMap((b) => [b.personId, thread, b.unread, b.mentions]),
       );
-      // order-insensitive: `bumpAnswers` puts the rows into a map by person, and the answer follows the order the people were given.
+      // order-insensitive: `bumpAnswers` puts the rows into a map by person, and the answer follows `folded`, which is in ascending person id.
       read.push(...(await this.db.all<DbReadState>(`SELECT person_id, thread, unread, mentions FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`, [thread, ...part.map((b) => b.personId)])));
     }
     return bumpAnswers(folded, read);
