@@ -10,7 +10,7 @@ import { createLogger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
-import type { Report } from './protocol.js';
+import { ENDED_NOTICE_MARK, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 import { ACTIVITY_FEED, PEER_MESSAGING, RESPOND } from '../storage/features.js';
 
@@ -219,6 +219,38 @@ describe('a conversation with an agent in it', () => {
   });
 });
 
+// An Admin never reads in silence (PROJECT.md): each person in a conversation is told in the console (the record line and the live reading), in every live reporter session
+// (the callout), and the Admin log gets a row without the text. The same path serves the ping an open page sends (#1310).
+describe('an Admin reads a conversation with an agent in it', () => {
+  it('tells every person in it in the console and in their reporter sessions, and writes the Admin log row, and tells no one else', async () => {
+    const w = await world();
+    const admins = (await w.people.allGroups()).find((g) => g.name === 'Administrators')!;
+    const root = await w.people.createPerson('Root', admins.id);
+    const rootB = await signedIn(w, 'Root', root.token);
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-dev' }], 'a private plan');
+    const id = res.body.conversation.id as string;
+    const callouts = async (s: 'dev' | 'tester' | 'alex') => (((await (s === 'dev' ? dev(w) : s === 'tester' ? tester(w) : alexOne(w))).body.adminNotices ?? []) as { text: string }[]).map((n) => n.text);
+    expect(await callouts('dev')).toEqual([]);
+    expect((await page(rootB, id)).status).toBe(200);
+    const words = 'Root (an Admin) is reading your Podium conversation with dev, Ed, Alex.';
+    expect(await callouts('dev')).toEqual([words]);
+    expect(await callouts('tester')).toEqual([words]);
+    expect(await callouts('alex')).toEqual([words]);
+    for (const b of [w.edB, w.alexB]) {
+      expect(((await b.get(CH)).body.conversations[0] as { adminReading: { admin: string }[] }).adminReading.map((r) => r.admin)).toEqual(['Root']);
+      expect(((await page(b, id)).body.adminReads as { admin: string }[]).map((r) => r.admin)).toEqual(['Root']);
+    }
+    const reads = (await logRows(w)).filter((r) => r.kind === 'chat_admin_read');
+    expect(reads).toHaveLength(1);
+    expect(JSON.stringify(reads)).not.toContain('a private plan');
+    // A ping keeps the reading live and adds no second log row; a stranger is told nothing.
+    w.tick(15_000);
+    expect((await rootB.post(`${CH}/conversations/${id}/reading`).set(H).send({})).status).toBe(200);
+    expect((await logRows(w)).filter((r) => r.kind === 'chat_admin_read')).toHaveLength(1);
+    expect(JSON.stringify(await callouts('dev'))).toContain(words);
+  });
+});
+
 describe('a conversation ends when an agent in it ends (#1283)', () => {
   const finish = async (s: S, id: 'sess-tester' | 'sess-dev') => {
     const r = fixtureReport();
@@ -261,6 +293,16 @@ describe('a conversation ends when an agent in it ends (#1283)', () => {
     expect(concluded[0]).toMatchObject({ agent: 'Tester' });
     const told = ((await dev(w)).body.peerDeliveries ?? []) as { kind: string; text?: string }[];
     expect(told.filter((n) => n.kind === 'notice' && /Tester ended/.test(n.text ?? '') && /concluded/.test(n.text ?? ''))).toHaveLength(1);
+    expect(told.map((n) => n.text)).toEqual([`${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`]);
+  });
+
+  it('tells the agent that remains, once, in its own words when the conversation stays because two people are still in it', async () => {
+    const w = await world();
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-tester' }, { kind: 'agent', sessionId: 'sess-dev' }], 'all of you');
+    expect(res.status).toBe(201);
+    await finish(w, 'sess-tester');
+    const told = ((await dev(w)).body.peerDeliveries ?? []) as { kind: string; text?: string }[];
+    expect(told.filter((n) => n.kind === 'notice').map((n) => n.text)).toEqual([`${ENDED_NOTICE_MARK} Tester ended. It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.`]);
   });
 });
 

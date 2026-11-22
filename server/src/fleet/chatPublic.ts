@@ -104,8 +104,7 @@ export class PublicChannels {
     this.core.onEvent({ kind: 'channel_removed', channel: c.name, by: viewer.actor, messages: out.messages });
     const settings = this.store.settings;
     for (const scope of Object.keys(await settings.allFlags())) if (scope.startsWith(channelScopePrefix(c.name))) await settings.setFlags(scope, { paused: false, disconnected: false });
-    await this.store.readState.forget(channelThread(c.name));
-    await this.reads.forget(channelThread(c.name));
+    await this.reads.drop(channelThread(c.name));
     this.core.signal('public');
     return { ok: true, removed: out.messages };
   }

@@ -2994,7 +2994,7 @@ describe('a Direct Message ends when one of its agents ends (#1283)', () => {
     expect(told[0]!.text).toMatch(/Tester ended/);
     // The mark every reporter turns into a turn in Podium's own words (#1283).
     expect(told[0]!.text!.startsWith(ENDED_NOTICE_MARK)).toBe(true);
-    expect(told[0]!.text).toMatch(/do not .*(continue|new direct message)/i);
+    expect(told[0]!.text).toBe(`${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`);
   });
 
   it('tells the remaining agent once, even when the end is seen twice', async () => {

@@ -5,8 +5,8 @@
 import { isSentToAgent, mergesAsOne } from '../storage/peerEdit.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
-import { ENDED_NOTICE_MARK, PEER_DROP_WORDS } from './protocol.js';
-import { ChatCore, changeRefusal, changeState, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
+import { PEER_DROP_WORDS } from './protocol.js';
+import { ChatCore, changeRefusal, changeState, endedNotice, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
@@ -831,8 +831,7 @@ export class DirectChat {
     if (role !== 'owner' && role !== 'sender') return fail(403, 'Only the people in a conversation can delete it.');
     if (c.ownerId === null) return fail(404, 'There is no such conversation.');
     const removed = await this.peers.deleteConversation(c.ownerId, a, b);
-    await this.core.store.readState.forget(dmThread(a, b));
-    await this.reads.forget(dmThread(a, b));
+    await this.reads.drop(dmThread(a, b));
     this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });
     this.core.signal('dm');
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
@@ -884,11 +883,10 @@ export class DirectChat {
       const undelivered = (await this.peers.conversation(c.a.sessionId, c.b.sessionId)).filter((m) => m.author === 'person' && m.state === 'dropped').length;
       const removed = await this.peers.deleteConversation(c.ownerId, c.a.sessionId, c.b.sessionId);
       if (removed === 0) continue;
-      await this.core.store.readState.forget(thread);
-      await this.reads.forget(thread);
+      await this.reads.drop(thread);
       if (!isPersonId(other.sessionId) && !told.has(other.sessionId) && this.core.host.isLive(other.sessionId)) {
         told.add(other.sessionId);
-        await this.peers.notice(other.sessionId, `${ENDED_NOTICE_MARK} ${gone.name} ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone.name}.`);
+        await this.peers.notice(other.sessionId, endedNotice(gone.name));
       }
       await this.remember(c, gone, other, thread, undelivered);
       this.core.onEvent({ kind: 'dm_concluded', owner: nameKey(c.owner), a: c.a.sessionId, b: c.b.sessionId, count: removed });

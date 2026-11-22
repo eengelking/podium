@@ -7,7 +7,7 @@ import { scrubStored } from '../logging/redact.js';
 import { CHAT_EVERYONE } from '../storage/features.js';
 import { nameKey } from '../storage/rows.js';
 import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '../storage/types.js';
-import type { Delivery } from './protocol.js';
+import { ENDED_NOTICE_MARK, type Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
 import { AdminNotices } from './chatAdminNotices.js';
 import { ConcludedList } from './chatConcluded.js';
@@ -105,6 +105,15 @@ export function changeState(mine: boolean, locked: boolean, lockedWords: () => s
   if (!mine) return { canChange: false, changeWhy: null };
   const why = locked ? lockedWords() : waiting;
   return { canChange: why === null, changeWhy: why };
+}
+
+/**
+ * What an agent still in a Direct Message is told, once, when the agent it was written with ended (#1283), in Podium's own voice: the conversation was concluded, or (`stays`,
+ * a conversation of two or more people) goes on without the one that ended.
+ */
+export function endedNotice(gone: string, stays = false): string {
+  const rest = stays ? 'It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.' : `This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone}.`;
+  return `${ENDED_NOTICE_MARK} ${gone} ended. ${rest}`;
 }
 
 /** The longest issue, project or milestone a post may carry, in characters. */

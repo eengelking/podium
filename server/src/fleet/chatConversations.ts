@@ -5,11 +5,10 @@
 // that read is recorded before it is answered and every person in it is told (the shared `AdminReads`). A conversation of people alone answers an Admin with `404`, as it
 // answers any stranger, so nothing says whether it exists, who is in it or how many messages it has.
 import { nameKey } from '../storage/rows.js';
-import { ENDED_NOTICE_MARK } from './protocol.js';
 import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage, ConversationTargetInput } from '../storage/types.js';
 import type { AdminReads, ReadSubject } from './chatAdminReads.js';
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
-import { changeRefusal, changeState, type ChangeWords, type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
+import { changeRefusal, changeState, endedNotice, type ChangeWords, type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import type { LiveOrchestrator } from './peerTypes.js';
 import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
@@ -524,13 +523,12 @@ export class ConversationChat {
       if (!stays) {
         const out = await this.store.remove(c.id);
         if (!out.removed) continue;
-        await this.core.store.readState.forget(conversationThread(c.id));
-        await this.reads.forget(conversationThread(c.id));
+        await this.reads.drop(conversationThread(c.id));
         const withNames = c.members.filter((m) => m.leftAt === null && m.ref !== sessionId).map((m) => m.name);
         this.core.concluded.add(people, { thread: conversationThread(c.id), agent: gone.name, with: withNames });
         this.core.onEvent({ kind: 'dm_concluded', owner: people.map(String).join(','), a: c.id, b: sessionId, count: out.messages });
       }
-      const told = `${ENDED_NOTICE_MARK} ${stays ? `${gone.name} ended. It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.` : `${gone.name} ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone.name}.`}`;
+      const told = endedNotice(gone.name, stays);
       // A conversation that stays is found again by a later end of the same session (finished, then deleted), so each agent is told once per conversation.
       for (const m of others) {
         const key = `${c.id}|${sessionId}|${m.ref}`;

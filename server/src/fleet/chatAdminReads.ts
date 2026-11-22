@@ -398,6 +398,12 @@ export class AdminReads {
     return n;
   }
 
+  /** A thread is gone for good (its conversation or channel was deleted): every person's counts for it go, and so do the records nobody is still owed (`forget`). */
+  async drop(thread: string): Promise<void> {
+    await this.core.store.readState.forget(thread);
+    await this.forget(thread);
+  }
+
   /**
    * Retention: the records last read before `olderThan` go, and so do those of a conversation that no longer exists (`dmThreads` are the ones that do), except
    * a record a person has not seen yet (#1051). The purge of a hidden conversation's messages never reaches the records.
