@@ -430,6 +430,39 @@ describe('an agent answering in a conversation', () => {
   });
 });
 
+// What a conversation says when it refuses to change a message: its own words for a message that is not there, that is not the person's, that is deleted already and that an agent
+// has been handed, with the reason a form reads, and the same words in the message's own `changeWhy` (#1310).
+describe('the refusals of a change in a conversation', () => {
+  const HANDED = 'Podium has already sent this to an agent, so it can no longer be changed.';
+  it('says each one in the conversation\'s words, and shows a locked message as one the author cannot change', async () => {
+    const w = await world();
+    const res = await OPEN(w.edB, [person('Alex'), { kind: 'agent', sessionId: 'sess-dev' }]);
+    expect(res.status).toBe(201);
+    const id = res.body.conversation.id as string;
+    const send = async (text: string) => (await w.edB.post(`${CH}/conversations/${id}/messages`).set(H).send({ text })).body.message.id as string;
+    const patch = (b: B, mid: string, text = '@Alex@console x') => b.patch(`${CH}/conversations/${id}/messages/${mid}`).set(H).send({ text });
+    const remove = (b: B, mid: string) => b.delete(`${CH}/conversations/${id}/messages/${mid}`).set(H);
+    const words = (r: { status: number; body: { error: string; reason?: string } }) => [r.status, r.body.error, r.body.reason];
+    const quiet = await send('@Alex@console to a person only');
+    expect(words(await patch(w.edB, 'cmg_00000000_000000000000000000000000'))).toEqual([404, 'There is no such message.', undefined]);
+    expect(words(await remove(w.edB, 'cmg_00000000_000000000000000000000000'))).toEqual([404, 'There is no such message.', undefined]);
+    const handed = await send('hello dev');
+    // The check of who a message is for runs before the store's check of the author, so another member's edit of a message that names someone is refused for that first.
+    expect(words(await patch(w.alexB, quiet))).toEqual([422, 'An edit cannot change who a message is for. Delete it and write it again to address someone else.', undefined]);
+    expect(words(await patch(w.alexB, handed))).toEqual([403, 'You can change only your own messages.', undefined]);
+    expect(words(await remove(w.alexB, quiet))).toEqual([403, 'You can change only your own messages.', undefined]);
+    expect((await remove(w.edB, quiet)).status).toBe(200);
+    expect(words(await patch(w.edB, quiet))).toEqual([409, 'That message was already deleted.', 'deleted']);
+    expect(words(await remove(w.edB, quiet))).toEqual([409, 'That message was already deleted.', 'deleted']);
+    expect(words(await patch(w.edB, handed, 'hello dev again'))).toEqual([409, HANDED, 'locked']);
+    expect(words(await remove(w.edB, handed))).toEqual([409, HANDED, 'locked']);
+    const view = (await page(w.edB, id)).body.messages as { id: string; canChange: boolean; changeWhy: string | null }[];
+    expect(view.find((m) => m.id === handed)).toMatchObject({ canChange: false, changeWhy: HANDED });
+    expect(view.find((m) => m.id === quiet)).toMatchObject({ canChange: false, changeWhy: null });
+    expect((await page(w.alexB, id)).body.messages.find((m: { id: string }) => m.id === handed)).toMatchObject({ canChange: false, changeWhy: null });
+  });
+});
+
 // What a conversation says when it refuses a text for its length or its rate: its own words (shorter than a channel's and a Direct Message's), the same on a send, an edit and an
 // agent's answer, with the limits the Admin set (#1310).
 describe('the length and rate refusals of a conversation', () => {
