@@ -515,7 +515,7 @@ CREATE TABLE chat_read_state (person_id INTEGER NOT NULL, thread TEXT NOT NULL, 
 CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
 ```
 
-The name key `person`, the second index on the same two columns (`chat_read_state_person`), `last_read` and `updated_at` are gone. Nothing read the last-read cursor, so `POST /chat/read` still checks `upTo` and no longer keeps it. A row at zero says what no row says, so reading a thread deletes the row, and the upgrade drops the rows at zero and the rows of no person (`person_id` NULL, which nothing could read or clear); every count that is not zero is kept.
+The name key `person`, the second index on the same two columns (`chat_read_state_person`), `last_read` and `updated_at` are gone. Nothing read the last-read cursor and no route returned it, so the maintainer approved dropping it: `POST /chat/read` still checks `upTo` and no longer keeps it. A row at zero says what no row says, so reading a thread deletes the row, and the upgrade drops the rows at zero and the rows of no person (`person_id` NULL, which nothing could read or clear); every count that is not zero is kept.
 
 Migration 48 (#1284; PostgreSQL and MariaDB main step 24) gives every agent an id the server assigns and never reuses:
 
