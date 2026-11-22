@@ -313,13 +313,14 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
 export function useThread(api: ChatApi, sel: Selection | null, rev: number, owner: string | null, landing: Landing): ThreadRead {
   const readPage = useCallback(
     async (before: string | null): Promise<Page<ThreadMessage, { head: ThreadHead | null; reads: AdminRead[] }>> => {
-      if (!sel) throw new Error("no thread");
+      // Nothing is read while there is no thread (`usePaged` has no key then).
+      const open = sel!;
       const o = { before, limit: PAGE_SIZE };
-      if (sel.kind === "channel") {
-        const r = await api.channelMessages(sel.id, owner ? { ...o, owner } : o);
+      if (open.kind === "channel") {
+        const r = await api.channelMessages(open.id, owner ? { ...o, owner } : o);
         return { messages: r.messages.map(fromChannel), older: r.older, total: r.total, extra: { head: null, reads: r.adminReads ?? [] } };
       }
-      const r: DirectPageRead = await api.dmMessages(sel.a, sel.b, o);
+      const r: DirectPageRead = await api.dmMessages(open.a, open.b, o);
       const head = { a: r.a, b: r.b, owner: r.owner, paused: r.paused, ended: r.ended, roundTrips: r.roundTrips, cross: r.cross ?? null, pausedBy: r.pausedBy ?? null, pausedByAdmin: r.pausedByAdmin ?? null };
       return { messages: r.messages.map(fromDirect), older: r.older, total: r.total, extra: { head, reads: r.adminReads ?? [] } };
     },
@@ -373,8 +374,8 @@ export interface ConversationRead {
 export function useConversation(api: ChatApi, id: string | null, rev: number, landing: Landing): ConversationRead {
   const readPage = useCallback(
     async (before: string | null): Promise<Page<ConversationMessage, { info: ConversationInfo; reads: AdminRead[] }>> => {
-      if (!id) throw new Error("no conversation");
-      const r = await api.conversationMessages(id, { before, limit: PAGE_SIZE });
+      // Nothing is read while there is no conversation (`usePaged` has no key then).
+      const r = await api.conversationMessages(id!, { before, limit: PAGE_SIZE });
       return { messages: r.messages, older: r.older, total: r.total, extra: { info: r.conversation, reads: r.adminReads ?? [] } };
     },
     [api, id],

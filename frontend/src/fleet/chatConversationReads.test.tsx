@@ -6,7 +6,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { Landing } from "./landing";
 import { RespondError } from "./respondApi";
 import { useChatOverview, useConversation, useLanding } from "./useChat";
-import type { ChatApi, ChatOverview, ConversationInfo, ConversationMessage } from "./chatData";
+import type { AdminRead, ChatApi, ChatOverview, ConversationInfo, ConversationMessage } from "./chatData";
 
 const ID = "cnv_1";
 const T0 = new Date(2026, 9, 12, 14, 30).getTime();
@@ -50,7 +50,7 @@ function paged() {
     const list = asc();
     const end = o.before ? list.findIndex((m) => m.id === o.before) : list.length;
     const start = Math.max(0, end - 2);
-    return { ok: true as const, conversation: structuredClone(INFO), messages: structuredClone(list.slice(start, end)), older: start > 0 ? list[start]!.id : null, total: list.length, adminReads: [] };
+    return { ok: true as const, conversation: structuredClone(INFO), messages: structuredClone(list.slice(start, end)), older: start > 0 ? list[start]!.id : null, total: list.length, adminReads: [] as AdminRead[] };
   });
   return { all, conversationMessages, api: { conversationMessages } as unknown as ChatApi };
 }
@@ -162,6 +162,41 @@ describe("what the open conversation keeps between reads", () => {
     rerender({ rev: 1 });
     await settle();
     expect(result.current.messages.map((m) => m.text)).toEqual(["text m3, edited here", "text m4", "text m5", "text m6, edited here"]);
+  });
+
+  it("carries the Admin reads the newest page came with, and none when it came with none", async () => {
+    const s = paged();
+    const read = { admin: "Root", startedAt: T0, lastSeenAt: T0 };
+    s.conversationMessages.mockImplementationOnce(async () => ({ ok: true as const, conversation: structuredClone(INFO), messages: [row("m6", "text m6")], older: null, total: 1, adminReads: [read] }));
+    const { result, rerender } = await loaded(s, 0);
+    expect(result.current.reads).toEqual([read]);
+    rerender({ rev: 1 });
+    await waitFor(() => expect(result.current.reads).toEqual([]));
+  });
+
+  it("says why earlier messages could not be read, and takes no second request while one is out", async () => {
+    const s = paged();
+    const { result } = await loaded(s, 0);
+    s.conversationMessages.mockClear();
+    s.conversationMessages.mockRejectedValueOnce(new RespondError(500, { ok: false, error: "the store is busy" }));
+    await act(async () => void (await result.current.loadEarlier()));
+    expect(result.current.error?.text).toContain("the store is busy");
+    expect(result.current.loadingEarlier).toBe(false);
+    expect(ids(result)).toEqual(["m5", "m6"]);
+    let answer!: () => void;
+    s.conversationMessages.mockImplementationOnce(() => new Promise((done) => (answer = () => done({ ok: true as const, conversation: INFO, messages: [row("m3", "text m3"), row("m4", "text m4")], older: null, total: 6, adminReads: [] }))));
+    s.conversationMessages.mockClear();
+    let first!: Promise<void>;
+    act(() => void (first = result.current.loadEarlier()));
+    await waitFor(() => expect(result.current.loadingEarlier).toBe(true));
+    await act(async () => void (await result.current.loadEarlier()));
+    expect(s.conversationMessages).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      answer();
+      await first;
+    });
+    expect(ids(result)).toEqual(["m3", "m4", "m5", "m6"]);
+    expect(result.current.error).toBeNull();
   });
 
   it("shows nothing of the old conversation under another one", async () => {
