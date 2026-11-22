@@ -88,22 +88,6 @@ export class ConversationChat {
     return this.core.store.conversations;
   }
 
-  private get people() {
-    return this.core.people;
-  }
-
-  /** The people who can sign in, with ids, for turning names into members. */
-  private async directory(): Promise<{ id: number; name: string; key: string }[]> {
-    const out: { id: number; name: string; key: string }[] = [];
-    if (!this.people) return out;
-    for (let page = 1; page <= 20; page++) {
-      const got = await this.people.list({ page, pageSize: 100 });
-      for (const p of got.rows) if (p.revokedAt === null) out.push({ id: p.id, name: p.name, key: nameKey(p.name) });
-      if (got.rows.length < 100) break;
-    }
-    return out;
-  }
-
   private memberOf(viewer: ChatViewer, c: Conversation): ConversationMember | null {
     if (viewer.personId === null) return null;
     return c.members.find((m) => m.leftAt === null && m.kind === 'person' && m.ref === String(viewer.personId)) ?? null;
@@ -186,7 +170,7 @@ export class ConversationChat {
    * is left out, so it is not even named (decision 74). The counts are 0: they are not the Admin's to see.
    */
   async listAbout(viewer: ChatViewer, name: string): Promise<ConversationInfo[]> {
-    const person = (await this.directory()).find((p) => p.key === nameKey(name));
+    const person = (await this.core.persons()).find((p) => p.key === nameKey(name));
     if (!person) return [];
     const mine = await this.store.listFor({ kind: 'person', ref: String(person.id) });
     const withAgent = mine.filter((c) => this.hasAgent(c));
@@ -231,7 +215,7 @@ export class ConversationChat {
       const other = now.length === 2 && now.every((m) => m.kind === 'person') ? now.find((m) => m.ref !== String(viewer.personId)) : undefined;
       if (other && !pair.has(other.ref)) pair.set(other.ref, c.id);
     }
-    const people = (await this.directory())
+    const people = (await this.core.persons())
       .filter((p) => p.id !== viewer.personId && (!needle || p.name.toLowerCase().includes(needle)))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => ({ name: p.name, conversation: pair.get(String(p.id)) ?? null }));
@@ -244,7 +228,7 @@ export class ConversationChat {
    */
   private async resolve(viewer: ChatViewer, raw: unknown): Promise<{ ok: true; members: ConversationMemberInput[] } | Fail> {
     if (!Array.isArray(raw) || raw.length === 0 || raw.length > 49) return fail(400, 'members must be a list of 1 to 49 people or agents.');
-    const dir = await this.directory();
+    const dir = await this.core.persons();
     const out: ConversationMemberInput[] = [];
     for (const item of raw as unknown[]) {
       const m = (item ?? {}) as Record<string, unknown>;

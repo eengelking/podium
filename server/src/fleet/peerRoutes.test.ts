@@ -276,6 +276,51 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
   });
 });
 
+// The gate a reporter's token passes to act for one of its person's live orchestrators is one function for the peer routes and the Chat agent routes: same order of
+// checks, same words, each logged under its own name with the session it was about.
+describe('the session gate of the mod routes and the Chat agent routes', () => {
+  const routes = [
+    { name: 'a peer route', path: (sid: string) => `/api/fleet/sessions/${sid}/peers`, kind: 'peers.refused' },
+    { name: 'a Chat agent route', path: (sid: string) => `/api/fleet/sessions/${sid}/chat/channels`, kind: 'chat.refused' },
+  ];
+  const refused = (s: S, kind: string) => s.lines.map((l) => JSON.parse(l) as { event?: string; message?: string; status?: number; reason?: string; session_id?: string | null }).filter((l) => l.event === kind);
+
+  it.each(routes)('answers $name in the same order of checks, and logs each refusal with its session', async ({ path, kind }) => {
+    const off = await setup({ flag: false });
+    expect((await devReport(off)).status).toBe(200);
+    const none = await request(off.app).get(path('sess-dev')).set('X-Podium-Token', off.ed.token);
+    expect([none.status, none.body]).toEqual([403, { ok: false, error: 'orchestrator messaging is off' }]);
+    expect(refused(off, kind)).toHaveLength(1);
+    expect(refused(off, kind)[0]).toMatchObject({ status: 403, reason: 'orchestrator messaging is off', session_id: 'sess-dev' });
+
+    const s = await linked('send');
+    const get = (sid: string, token: string) => request(s.app).get(path(sid)).set('X-Podium-Token', token);
+    const unknown = await get('sess-none', s.ed.token);
+    expect([unknown.status, unknown.body]).toEqual([404, { ok: false, error: 'unknown session', path: '$.id' }]);
+    const admin = await get('sess-dev', SECRET);
+    expect([admin.status, admin.body]).toEqual([403, { ok: false, error: 'a reporter on the admin secret cannot take part' }]);
+    const other = await get('sess-dev', s.alex.token);
+    expect([other.status, other.body]).toEqual([403, { ok: false, error: 'not your session' }]);
+    await devReport(s, { peers: false });
+    const noPeers = await get('sess-dev', s.ed.token);
+    expect([noPeers.status, noPeers.body]).toEqual([403, { ok: false, error: "messaging is off on this machine: turn on the reporter's peers option there" }]);
+    expect(refused(s, kind).map((l) => l.reason)).toEqual(['a reporter on the admin secret cannot take part', 'not your session', "messaging is off on this machine: turn on the reporter's peers option there"]);
+    expect(refused(s, kind).every((l) => l.session_id === 'sess-dev')).toBe(true);
+    expect((await get('sess-tester', s.ed.token)).status).toBe(200);
+  });
+
+  it('logs a refusal of a browser route with no session, under the route file\'s own name', async () => {
+    const s = await linked('send');
+    const chat = await request(s.app).get('/api/fleet/respond/chat');
+    expect([chat.status, chat.body]).toEqual([403, { ok: false, error: 'sign in to use Chat' }]);
+    const mine = await request(s.app).get('/api/fleet/respond/peers');
+    expect([mine.status, mine.body]).toEqual([403, { ok: false, error: 'sign in to manage your reporters' }]);
+    expect(refused(s, 'chat.refused')).toEqual([expect.objectContaining({ status: 403, reason: 'sign in to use Chat' })]);
+    expect(refused(s, 'peers.refused')).toEqual([expect.objectContaining({ status: 403, reason: 'sign in to manage your reporters' })]);
+    expect([...refused(s, 'chat.refused'), ...refused(s, 'peers.refused')].some((l) => 'session_id' in l)).toBe(false);
+  });
+});
+
 describe('the flag going off (#412)', () => {
   it('drops what is held, makes every reply say peers: false, and refuses a send', async () => {
     const s = await linked('ask');

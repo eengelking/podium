@@ -9,7 +9,8 @@ import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
-import { sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { refuser, sourceOf } from './routeGate.js';
 import { replayThread } from './chatAdminReads.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
@@ -19,8 +20,6 @@ import { asyncHandler } from './asyncHandler.js';
 
 /** The mod's batch is at most 480,000 bytes of JSON; the router's body limit is the report's. */
 const BATCH_BODY_LIMIT = '512kb';
-
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
 /** Authentication on and the Admin's flag (#353). The reporter's `sessionRecording` option is checked per session. */
 export const recordingEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.recordings.enabled();
@@ -92,10 +91,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   const { fleet, logger, people } = d;
   const now = fleet.now;
 
-  const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason, ...extra });
-  };
+  const refuse = refuser(logger, 'recording.refused', { session: true });
 
   /**
    * The signed-in viewer and the session they may use (its owner, or an Admin); otherwise answers and returns null. The viewer is
