@@ -51,7 +51,10 @@ Traffic mockup shows them per line. Notices to a sender ride the same reply list
 mod has one list, one result route and one dedupe. SPEC 7.7 records both.
 
 **The mod (#414).** `plugin/core/peers.ts` is pure: the tools' words, the frame a peer message is submitted under, the
-request lines and toasts, and short ids. The messaging block in `register.ts` is kept apart from responding: peer
+request lines and toasts, and short ids. `plugin/core/peerTools.ts` defines the four tools once (name, description, input
+schema, what each does with a call and how its outcome reads), and `RequestBook` there keeps the open requests,
+so a harness only registers the tools, says who called and whether the session takes part, and makes the one HTTP call
+(#1312). The messaging block in `register.ts` is kept apart from responding: peer
 deliveries and requests have their own `Transport` fields (`peers`, `peerDeliveries`, `peerRequests`), and a message
 only ever becomes a framed `$.prompt.submit`. Results share responding's outbox and `acted` dedupe but post to the
 peers result route. A tool call waits on a `PeerCall` queue that `flush` drains (`sendPeerCalls`), so the call is
@@ -123,7 +126,7 @@ channel's flags decide: disconnected is Not delivered, paused is Held (kept in t
 `deliver` hands "From Podium Chat, <channel>, <name> wrote:" and the text to the session, and the mention is Waiting. The
 message is stored with its mentions, and `core.watch` follows each delivery's trail so the mention moves to Working, Done, Not
 delivered or Dropped. A mention of another person's agent is stored as `approval` and asked of its owner (below). The counts of
-every person it concerns are bumped (`readState.bump`), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
+every person it concerns are bumped (`readState.bumpMany`, one store call for all of them), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
 
 **Public channels (#1035).** A `ChannelId` is a string: `general`, `group` or a public channel's name (`chatTypes.ts`; `resolve` in `ChannelChat` says whether a name is a channel that exists, and every route passes its `:channel` through it, so a name that is
 none answers `404` before it reaches a store). The audience is still the table (DECISIONS 61, 69): a public channel's messages are rows of `public_messages` keyed by the channel, so `ChannelChat` reaches them through the same public handle as General's

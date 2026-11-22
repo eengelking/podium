@@ -149,6 +149,10 @@ export interface ChannelState {
 /** The folded name the Admin log and the console's signals carry for a person (#1284). It is text for people to read and is never what a group, a count or a notice is found by. */
 const oname = (owner: PersonRef | null): string | null => (owner === null ? null : nameKey(owner.name));
 
+/** The held mentions in these messages, each with its place in its message; with `sessionId`, only that session's. */
+const heldIn = (messages: ChannelMessage[], sessionId?: string): { message: ChannelMessage; index: number }[] =>
+  messages.flatMap((message) => message.mentions.flatMap((m, index) => (m.state === 'held' && (sessionId === undefined || m.sessionId === sessionId) ? [{ message, index }] : [])));
+
 /** A mention worked out: what to store, the person it gives a mention badge (`people.id`, #1284), and the agent to hand it to. */
 type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump: number | null; deliver: LiveOrchestrator | null };
 
@@ -235,11 +239,6 @@ export class ChannelChat {
     const refs = [...new Set(messages.filter((m) => m.authorKind !== 'person').map((m) => m.authorRef))];
     const owners = await Promise.all(refs.map(async (ref) => [ref, (await this.core.host.sessionOf(ref))?.owner ?? null] as const));
     return new Map(owners);
-  }
-
-  /** General and every public channel that exists, by key: the places a mention or a held message of the public audience can be. */
-  private async publicIds(): Promise<string[]> {
-    return [GENERAL, ...(await this.store.channels.list()).map((c) => c.name)];
   }
 
   /** The channel a request is about: the group of the person asking, or the owner an Admin names. Fails when there is none to use. */
@@ -566,11 +565,11 @@ export class ChannelChat {
     const thread = this.threadOf(channel, owner);
     const audience: PersonRef[] = channel === 'group' ? (owner ? [owner] : []) : await this.core.persons();
     const mentioned = new Set(planned.flatMap((p) => (p.bump !== null ? [p.bump] : [])));
-    for (const who of audience) {
-      if (who.id === authorId) continue;
-      await this.store.readState.bump(who.id, thread, mentioned.has(who.id));
-      if (mentioned.has(who.id)) this.core.signal(scopeOf(channel));
-    }
+    const counted = audience.filter((who) => who.id !== authorId);
+    const rows = counted.length === 0 ? [] : await this.store.readState.bumpMany(thread, counted.map((who) => ({ personId: who.id, mention: mentioned.has(who.id) })));
+    // One signal for each person who was mentioned and whose count came back, then the one for the post.
+    const got = new Set(rows.map((r) => r.personId));
+    this.core.signal(scopeOf(channel), counted.filter((who) => got.has(who.id) && mentioned.has(who.id)).length);
     this.core.signal(scopeOf(channel));
   }
 
@@ -735,8 +734,7 @@ export class ChannelChat {
 
   /** Every held mention of a channel, oldest first; with `sessionId`, only those of that session. One query for the held ones, not a read of the channel's pages (#1046). */
   private async held(channel: ChannelId, owner: PersonRef | null, sessionId?: string): Promise<{ message: ChannelMessage; index: number }[]> {
-    const messages = await this.handle(channel, owner).heldMentions(sessionId === undefined ? {} : { sessionId });
-    return messages.flatMap((message) => message.mentions.flatMap((m, index) => (m.state === 'held' && (sessionId === undefined || m.sessionId === sessionId) ? [{ message, index }] : [])));
+    return heldIn(await this.handle(channel, owner).heldMentions(sessionId === undefined ? {} : { sessionId }), sessionId);
   }
 
   /** The live session a stored mention reaches: the one it named, else the one live session with the same peer key and name. */
@@ -789,17 +787,16 @@ export class ChannelChat {
 
   /** A target left the live set: the mentions held for it are dropped, unless another live session can take its place. */
   async sessionLeft(sessionId: string, owner: PersonRef | null): Promise<void> {
-    // An agent with no person has no group, so only the public channels can hold a message held for it (#1284).
-    for (const channel of [GROUP, ...(await this.publicIds())]) {
-      if (channel === GROUP && owner === null) continue;
-      const scope = channel === GROUP ? owner : null;
-      const h = this.handle(channel, scope);
-      for (const { message, index } of await this.held(channel, scope, sessionId)) {
-        const m = message.mentions[index]!;
-        if (this.retarget(m)) continue;
-        await h.setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
-        this.core.signal(scopeOf(channel));
-      }
+    // The group and every public channel at once: two reads however many channels there are (#1309). An agent with no person has no group, so only the public channels can hold a message held for it (#1284).
+    const found = [
+      ...(owner === null ? [] : (await this.held(GROUP, owner, sessionId)).map((h) => ({ ...h, channel: GROUP, scope: owner }))),
+      ...heldIn(await this.store.public.heldMentionsAcross({ sessionId }), sessionId).map((h) => ({ ...h, channel: h.message.channel as ChannelId, scope: null })),
+    ];
+    for (const { message, index, channel, scope } of found) {
+      const m = message.mentions[index]!;
+      if (this.retarget(m)) continue;
+      await this.handle(channel, scope).setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
+      this.core.signal(scopeOf(channel));
     }
   }
 

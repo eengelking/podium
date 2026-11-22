@@ -2,7 +2,7 @@
 // Three audiences, three stores, never shown in one list: Channels (General for everyone signed in, My group for a person and
 // their own agents), Direct Messages (read only by their owner and an Admin) and People and agents (to start a message with).
 // The page reads again whenever the console's content-free `chat` signal moves `rev`. Message text is only ever drawn as text.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import "./chat.css";
 import "./admin/admin.css";
 import { Blank } from "./components/Blank";
@@ -12,12 +12,12 @@ import { agentState } from "./components/ChatSidebar";
 import { ChatThread, DeleteMessageDialog } from "./components/ChatThread";
 import { ChatConversation } from "./components/ChatConversation";
 import { ConcludedBanner } from "./components/ChatEnded";
-import { useConcluded } from "./useConcluded";
+import type { ConcludedRead } from "./useConcluded";
 import { ChannelModal, DirectModal, type DirectDone } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct, MenuAt } from "./components/ChatMenu";
 import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
-import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
+import { useAddresses, useChatOverview, useLanding, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
 import type { RespondMe, SessionView } from "./types";
@@ -38,7 +38,21 @@ function sendFailure(err: unknown): string {
   return `Could not send: ${plain(failReason(err))}. Nothing was sent. Try again.`;
 }
 
-export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number; openWith?: string | null }) {
+interface ChatPageProps {
+  me: RespondMe | null;
+  peersOn: boolean;
+  sessions: Record<string, SessionView>;
+  rev: number;
+  api: ChatApi;
+  /** Moves with the date, not the 2 second tick: the page prints a time only as a time of day or a day's name (#1311). */
+  now: number;
+  /** What was concluded, read once by the console for the wall and this page (#1311). */
+  concluded: ConcludedRead;
+  openWith?: string | null;
+}
+
+// Memoized so a commit of the console that changes nothing this page draws (the top bar's count, the tick) leaves it alone (#1311).
+export const ChatPage = memo(function ChatPage(props: ChatPageProps) {
   const { me, peersOn } = props;
   let body: React.ReactNode;
   if (!peersOn) body = <Blank title="Orchestrator messaging is off">An Admin turns it on in Admin &gt; Settings &gt; Feature flags. Until then no orchestrator can message another, and Chat has nothing to show.</Blank>;
@@ -55,19 +69,22 @@ export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessio
       </div>
     </main>
   );
-}
+});
 
-function ChatBody(props: { me: RespondMe | null; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number; openWith?: string | null }) {
+function ChatBody(props: ChatPageProps) {
   const { api, sessions, rev } = props;
   // An Admin reads a person's conversations by choosing the person: the overview and the open thread are then that person's.
   const [readAs, setReadAs] = useState<string | null>(null);
-  const overview = useChatOverview(api, true, rev, readAs);
+  // The overview and the open thread answer one signal and land together, so the page is drawn once for the two (#1311).
+  const landing = useLanding();
+  const overview = useChatOverview(api, true, rev, readAs, landing);
   const o = overview.data;
   // The data on hand belongs to the person last read; until the chosen person's own list lands, none of it is drawn (#1051).
   const stale = !!o && overview.owner !== readAs;
   const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
   // A reading is hidden when its time has passed and a read has landed since, never on the clock alone (#1051).
-  const serverNow = Math.min(props.now + overview.skew, overview.readAt || Number.MAX_SAFE_INTEGER);
+  // A reading's end is judged by the server's clock at the last read that landed (the browser's before the first, or when the server sends none).
+  const serverNow = overview.readAt || Date.now();
   // The records of a conversation that has since been deleted come once, and the server marks them seen; they stay while this page is open (#1051).
   const gone = overview.gone;
   const [picked, setPicked] = useState<((Selection & { fresh?: boolean }) | ConvoSel) | null>(null);
@@ -104,7 +121,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
   let sel: Selection = picked && picked.kind !== "convo" ? picked : GENERAL;
   // A Direct Message that was concluded because an agent in it ended stays open with a banner that says so, until the person leaves it (#1283).
-  const concluded = useConcluded(api, true, rev);
+  const { concluded } = props;
   const endedHere = picked?.kind === "dm" && !picked.fresh ? (concluded.items.find((c) => c.thread === picked.key) ?? null) : null;
   if (o && picked?.kind === "dm" && !picked.fresh && !endedHere && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
   // A channel an Admin removed leaves the list, and the page falls back to General.
@@ -123,7 +140,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const rowKey = cv ? key : direct ? `d:${dmKey(direct)}` : key;
   // An Admin with no person of their own, who has not chosen anything, has no thread open: the area says what to do (#1238).
   const idle = !!o && o.me.admin && !o.me.person && readAs === null && picked === null;
-  const thread = useThread(api, o && !stale && !idle && !cv ? sel : null, rev, ro ? readAs : null);
+  const thread = useThread(api, o && !stale && !idle && !cv ? sel : null, rev, ro ? readAs : null, landing);
   const addrs = useAddresses(api, sel.kind === "channel" && !idle ? sel.id : null);
 
   const refresh = useCallback(async () => {

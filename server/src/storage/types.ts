@@ -286,6 +286,8 @@ export interface PeerStoreApi {
     deleteConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
     conversationOf(a: string, b: string): Promise<ConversationSummary | null>;
+    /** Every conversation that exists, each pair of sessions once with its two ids in order (#1309): what the Chat page needs to know which Direct Message threads are there, from one read of the distinct pairs, with no message and no rights read. */
+    conversationPairs(): Promise<[string, string][]>;
     /** How many conversations each of the people with these ids takes part in, hidden ones left out, keyed by the id (#1046). One grouped read for all of them; the same number as `ownerConversations(id).length`. */
     conversationCounts(ownerIds: number[]): Promise<Record<number, number>>;
     /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. `pairs` limits it to those pairs, each `<session id>|<session id>` in id order, as in a Direct Message thread's name (#1063); an empty list gives none. */
@@ -490,13 +492,22 @@ export interface ThreadReadState {
   updatedAt: number;
 }
 
+/** One person a post counts for in a thread, and whether it is also a mention for them. */
+export interface ReadBump {
+  personId: number;
+  mention: boolean;
+}
+
 export interface ChatReadStateApi {
   /** Zeros (and `updatedAt` 0) for a thread never counted. */
   get(personId: number, thread: string): Promise<ThreadReadState>;
   /** Every thread the person has a row for, by thread. */
   list(personId: number): Promise<ThreadReadState[]>;
-  /** One more unread message for the person, and one more mention when `mention`. */
-  bump(personId: number, thread: string, mention: boolean): Promise<ThreadReadState>;
+  /**
+   * One more unread message for each person in one thread, and one more mention for each with `mention`, in a number of statements that does not grow with the people (#1309): a post to General or a public channel counts for everyone but its author.
+   * Returns the new state of each person, in the order first listed. A person listed twice is counted twice; an empty list does nothing and returns [].
+   */
+  bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]>;
   /** The person read up to `upTo` (the cursor of the newest message they saw, or null): unread and mentions go to 0. */
   markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
@@ -734,10 +745,12 @@ export interface ChatStoreOptions {
   now: () => number;
 }
 
-/** The public audience's store: a channel store with two reads across every channel, each one query, so the server never loops over up to 51 channels (#1213). */
+/** The public audience's store: a channel store with three reads across every channel, each one query, so the server never loops over up to 51 channels (#1213). */
 export type PublicStoreApi = ChannelStoreApi<[string]> & {
   /** The message count of General and of every public channel, in one grouped query. A channel with no message is absent. */
   counts(): Promise<Record<string, number>>;
+  /** `heldMentions` over every public channel at once (#1309), each message with its `channel`: what a session that left needs, in one read and not one per channel. Oldest first. */
+  heldMentionsAcross(filter: { sessionId?: string }): Promise<ChannelMessage[]>;
   /** The person-written messages of every channel that hold a mention of `sessionId` in one of `states`, oldest first (time, then insertion number), each with its `channel`. One query, whichever channels the mentions are in. */
   mentionsAcross(filter: { sessionId: string; states: MentionState[] }): Promise<ChannelMessage[]>;
 };

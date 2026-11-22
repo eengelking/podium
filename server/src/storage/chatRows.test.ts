@@ -1,6 +1,6 @@
 // The rule that says when a person can no longer change a Chat message (#1269): an agent was handed it and has started or finished with it.
 import { describe, expect, it } from 'vitest';
-import { lockedByDelivery, peerPersonKey, refuseChange, toChannelMessage, type DbChannelRow } from './chatRows.js';
+import { foldBumps, lockedByDelivery, peerPersonKey, refuseChange, toChannelMessage, type DbChannelRow } from './chatRows.js';
 import type { ChannelMention, MentionState } from './types.js';
 
 const m = (sessionId: string | null, state: MentionState): ChannelMention => ({ sessionId, peerKey: null, typed: 'x@box', state, why: null, stateAt: 0 });
@@ -62,5 +62,15 @@ describe('peerPersonKey', () => {
   it('is the folded name after person: when the message is to or from a person\'s own key, else the folded owner', () => {
     expect(peerPersonKey('person:ed  smith', 'zoe')).toBe('ed smith');
     expect(peerPersonKey('session-1', ' Ed  Smith ')).toBe('ed smith');
+  });
+});
+
+describe('foldBumps (#1309)', () => {
+  it('has one entry for each person in the order first listed, counting a person listed twice twice', () => {
+    expect(foldBumps([])).toEqual([]);
+    expect(foldBumps([{ personId: 2, mention: false }, { personId: 1, mention: true }, { personId: 2, mention: true }, { personId: 2, mention: false }])).toEqual([
+      { personId: 2, unread: 3, mentions: 1 },
+      { personId: 1, unread: 1, mentions: 1 },
+    ]);
   });
 });

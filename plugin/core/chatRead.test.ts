@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'claude-code/testing';
-import { CHAT_ANSWER_HINT, CONVO_ADDRESS_REFUSAL, convoSendAnswer, convoSendTarget, CHANNEL_ADDRESS_REFUSAL, channelAddress, channelOfAddress, channelSendTarget, channelSendAnswer, SEND_TO_DESCRIPTION, CHAT_READ_HINT, PEER_MESSAGE_END, RULE, peerPrompt, SUBAGENT_CHAT_READ, TOOL_DESCRIPTIONS, chatReadAnswer, chatReadFrame, channelArgument, withChatHint, channelListAnswer, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_BEFORE_DESCRIPTION, chatReadTarget, CHAT_READ_REFUSAL } from './peers.ts';
+import { CHAT_ANSWER_HINT, CONVO_ADDRESS_REFUSAL, convoSendAnswer, convoSendTarget, CHANNEL_ADDRESS_REFUSAL, channelAddress, channelOfAddress, channelSendTarget, channelSendAnswer, CHAT_READ_HINT, PEER_MESSAGE_END, RULE, peerPrompt, SUBAGENT_CHAT_READ, chatReadAnswer, chatReadFrame, channelArgument, withChatHint, channelListAnswer, chatReadTarget, CHAT_READ_REFUSAL } from './peers.ts';
+import { PEER_TOOLS } from './peerTools.ts';
 
 const at = Date.UTC(2026, 10, 6, 14, 5, 59);
 const body = (over: Record<string, unknown> = {}) => ({
@@ -74,10 +75,10 @@ describe('podium_chat_read: the frame and the answer (#1034)', () => {
   });
 
   test('the tool is described as read only, for the main loop, and the subagent refusal says so', () => {
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/last hour/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/called you into/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/Only the main loop can list or read, not a subagent/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/cannot post/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/last hour/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/called you into/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/Only the main loop can list or read, not a subagent/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/read only; to post, use podium_send/);
     expect(SUBAGENT_CHAT_READ).toMatch(/^Not read\. Only an orchestrator/);
   });
 });
@@ -160,7 +161,7 @@ describe('the sentence that points an addressed agent at the tool (#1034)', () =
     expect(convoSendTarget('person:Ed')).toBeNull();
     expect(convoSendTarget('dev@mac')).toBeNull();
     expect(convoSendAnswer({ owner: 'Ed', redactions: 2 })).toContain('2 values that looked like secrets');
-    expect(SEND_TO_DESCRIPTION).toContain('convo:<id>');
+    expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('convo:<id>');
   });
 });
 
@@ -202,12 +203,11 @@ describe('answering in the channel that called the agent (#1065)', () => {
   });
 
   test('the tool descriptions tell the agent it can post to the channel', () => {
-    expect(SEND_TO_DESCRIPTION).toContain('"channel:group"');
-    expect(SEND_TO_DESCRIPTION).toContain('"channel:general"');
-    expect(TOOL_DESCRIPTIONS.send).toMatch(/channel:group/);
-    expect(TOOL_DESCRIPTIONS.send).toMatch(/last hour/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/cannot post/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/podium_send to "channel:group", "channel:general" or "channel:<name>"/);
+    expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('"channel:group"');
+    expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('"channel:general"');
+    expect(PEER_TOOLS.podium_send.description).toMatch(/To a Chat channel/);
+    expect(PEER_TOOLS.podium_send.description).toMatch(/last hour/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/read only; to post, use podium_send/);
   });
 
   test('what podium_send answers after a channel post says where it went and who can read it', () => {
@@ -329,25 +329,24 @@ describe('public channels: addressing, listing and paging for an agent (#1035)',
   });
 
   test('the descriptions say channels are public, that only the main loop posts, and that a new message does not interrupt a running turn', () => {
-    for (const d of [TOOL_DESCRIPTIONS.send, TOOL_DESCRIPTIONS.chatRead]) {
-      expect(d).toMatch(/everyone signed in to Podium/i);
-      expect(d).toMatch(/does not interrupt/);
-      expect(d).toMatch(/channel:<name>/);
-    }
-    expect(TOOL_DESCRIPTIONS.send).toMatch(/Only the main loop can send, not a subagent/);
-    expect(TOOL_DESCRIPTIONS.send).toMatch(/replaced with \[redacted\] before the text leaves this machine/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/With no "channel" it lists/);
+    for (const d of [PEER_TOOLS.podium_send.description, PEER_TOOLS.podium_chat_read.description]) expect(d).toMatch(/does not interrupt/);
+    // That everyone signed in can read a public channel is told where an agent posts and by the list of channels it reads (#1312).
+    expect(PEER_TOOLS.podium_send.description).toMatch(/everyone signed in to Podium/i);
+    expect(channelListAnswer({ channels: [] }, { owner: 'Ed' })).toContain('Everyone signed in to Podium can read General and the public channels');
+    expect(PEER_TOOLS.podium_send.description).toMatch(/Only the main loop can send, not a subagent/);
+    expect(PEER_TOOLS.podium_send.description).toMatch(/replaced with \[redacted\] before the text leaves this machine/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/With no "channel" it lists/);
     // The rule is the same for General, My group and a public channel: called in by an @, the last hour, nothing older, and the list needs no call.
-    expect(TOOL_DESCRIPTIONS.send).toMatch(/A channel \(General, My group or a public one\) takes a post only from an agent that was called into it with an @ in the last hour/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/only when an @ called you into it in the last hour/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/Nothing older than an hour is ever returned, and a channel you were not called into is refused/);
-    expect(TOOL_DESCRIPTIONS.chatRead).toMatch(/it needs no call into a channel, so you can learn the names/);
-    expect(TOOL_DESCRIPTIONS.chatRead).not.toMatch(/need not have been called|whole history|from its newest end/);
-    expect(TOOL_DESCRIPTIONS.send).not.toMatch(/takes a post from any orchestrator/);
-    expect(CHAT_READ_CHANNEL_DESCRIPTION).toContain('called into in the last hour');
-    expect(CHAT_READ_CHANNEL_DESCRIPTION).toContain('Leave it out to list the channels');
-    expect(CHAT_READ_BEFORE_DESCRIPTION).toContain('still inside the last hour');
-    expect(SEND_TO_DESCRIPTION).toContain('"channel:<name>"');
+    expect(PEER_TOOLS.podium_send.description).toMatch(/A channel \(General, My group or a public one\) takes a post only from an agent that was called into it with an @ in the last hour/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/only when an @ called you into it in the last hour/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/Nothing older than an hour is ever returned, and a channel you were not called into is refused/);
+    expect(PEER_TOOLS.podium_chat_read.description).toMatch(/it needs no call into a channel, so you can learn the names/);
+    expect(PEER_TOOLS.podium_chat_read.description).not.toMatch(/need not have been called|whole history|from its newest end/);
+    expect(PEER_TOOLS.podium_send.description).not.toMatch(/takes a post from any orchestrator/);
+    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description).toContain('"general" (General), "group" (My group)');
+    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description).toContain('Leave it out to list the channels');
+    expect(PEER_TOOLS.podium_chat_read.inputSchema.properties.before.description).toContain('to read the messages before those');
+    expect(PEER_TOOLS.podium_send.inputSchema.properties.to.description).toContain('"channel:<name>"');
   });
 });
 

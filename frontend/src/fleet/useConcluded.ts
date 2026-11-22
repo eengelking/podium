@@ -1,7 +1,7 @@
 // What was concluded for the signed-in person (#1283): a Direct Message deleted because an agent in it ended. The server keeps the list in memory and moves the
-// console's content-free `chat` signal when it grows, so this reads again whenever `rev` moves. It holds names and times, never text. Shared by the wall (a
-// notice) and the Chat page (the line in an open thread).
-import { useCallback, useEffect, useState } from "react";
+// console's content-free `chat` signal when it grows, so this reads again whenever `rev` moves. It holds names and times, never text. The console reads it once,
+// for the wall (a notice) and the Chat page (the line in an open thread) alike (#1311).
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ChatApi, Concluded } from "./chatData";
 
 export interface ConcludedRead {
@@ -22,7 +22,8 @@ export function useConcluded(api: Pick<ChatApi, "concluded" | "dismissConcluded"
     let live = true;
     api
       .concluded()
-      .then((r) => live && setItems(r.concluded))
+      // The same list keeps its identity, so nothing that draws from it is drawn again.
+      .then((r) => live && setItems((cur) => (JSON.stringify(cur) === JSON.stringify(r.concluded) ? cur : r.concluded)))
       // A read that failed keeps what was shown: the next signal reads again.
       .catch(() => undefined);
     return () => {
@@ -41,5 +42,5 @@ export function useConcluded(api: Pick<ChatApi, "concluded" | "dismissConcluded"
     },
     [api],
   );
-  return { items, dismiss };
+  return useMemo(() => ({ items, dismiss }), [items, dismiss]);
 }

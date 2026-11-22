@@ -219,9 +219,16 @@ export class ChatCore {
   }
 
   /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal. The count is kept under the person's id (#1284). */
-  async count(who: PersonRef, thread: string, scope: ChatScope, mention: boolean): Promise<void> {
-    await this.store.readState.bump(who.id, thread, mention);
-    this.signal(scope);
+  count(who: PersonRef, thread: string, scope: ChatScope, mention: boolean): Promise<void> {
+    return this.countMany([{ who, mention }], thread, scope);
+  }
+
+  /** `count` for several people at once, in one store call (#1309): one signal for each whose count came back. */
+  async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: ChatScope): Promise<void> {
+    if (people.length === 0) return;
+    const rows = await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })));
+    const counted = new Set(rows.map((r) => r.personId));
+    this.signal(scope, people.filter((p) => counted.has(p.who.id)).length);
   }
 
   /**

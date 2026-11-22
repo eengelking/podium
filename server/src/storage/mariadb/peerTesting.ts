@@ -17,6 +17,7 @@ export function fakeReporters(startedAt: number): FakeReporters {
   const lookup: AsyncPeerReporterLookup = {
     startedAt,
     get: async (key) => reps.get(key) ?? null,
+    getMany: async (keys) => [...new Set(keys)].flatMap((k) => reps.get(k) ?? []),
     ofOwner,
     ofOwnerSeen: async (ownerId) => (await ofOwner(ownerId)).map((r) => ({ ...r, state: 'live', lastSeenAt: startedAt, compat: { level: 'ok' } }) as unknown as SeenReporterRef),
   };

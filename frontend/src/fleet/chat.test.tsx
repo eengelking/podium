@@ -10,8 +10,15 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer, LEAVE_MS } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
+import { messageParts } from "./chatData";
 import type { Address, AdminRead, ChannelLink, Concluded,ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
+
+// A pass-through, so a test can count how many messages the thread parsed (#1311).
+vi.mock("./chatData", async (orig) => {
+  const m = await orig<typeof import("./chatData")>();
+  return { ...m, messageParts: vi.fn(m.messageParts) };
+});
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
@@ -341,7 +348,7 @@ function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersF
     current = fleetReducer(current, { type: "chat" });
     view.rerender(<FleetView {...props} state={current} />);
   };
-  return { chat, state, signal, ...view };
+  return { chat, state, signal, peers: props.peersApi, ...view };
 }
 
 const row = (key: string) => screen.getByTestId(`chat-row-${key}`);
@@ -4528,5 +4535,113 @@ describe("a conversation that keeps going after an agent in it ended (#1283)", (
     await flush();
     expect(screen.queryByTestId("chat-conversation-ended")).toBeNull();
     expect(screen.queryByTestId("chat-conversation-ended-line")).toBeNull();
+  });
+});
+
+// #1311: a chat signal makes the console read what changed once each, and a tick or an unrelated change does not draw the thread again.
+describe("a chat signal and the clock (#1311)", () => {
+  const seen = (p: ReturnType<typeof page>) => ({ overview: p.chat.api.overview.mock.calls.length, thread: p.chat.api.channelMessages.mock.calls.length, concluded: p.chat.api.concluded.mock.calls.length, peers: (p.peers.read as ReturnType<typeof vi.fn>).mock.calls.length });
+  const since = (a: ReturnType<typeof seen>, b: ReturnType<typeof seen>) => ({ overview: b.overview - a.overview, thread: b.thread - a.thread, concluded: b.concluded - a.concluded, peers: b.peers - a.peers });
+  const longThread = (n: number) => Array.from({ length: n }, (_, i) => cmsg(`g${i}`, `Message ${i}: \`inline\` and @Maya, then\n\`\`\`ts\nconst x = ${i};\n\`\`\``, { mine: i % 2 === 0, authorName: i % 2 === 0 ? "Ed" : "Maya", authorRef: i % 2 === 0 ? "Ed" : "Maya", createdAt: T0 - (n - i) * 60_000 }));
+
+  it("reads the overview, the open thread, what was concluded and My reporters once each, and shows what each returned", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(4);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const before = seen(p);
+    expect(before.concluded).toBe(1);
+    w.channels.general!.messages = [...w.channels.general!.messages, cmsg("g-new", "A message that came with the signal.")];
+    p.signal();
+    await flush();
+    expect(since(before, seen(p))).toEqual({ overview: 1, thread: 1, concluded: 1, peers: 1 });
+    expect(screen.getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("reads what was concluded once on the wall, and the notice shows what it returned", async () => {
+    window.location.hash = "#/";
+    const p = page({ view: "wall" });
+    await flush();
+    const before = seen(p);
+    p.chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    expect(since(before, seen(p))).toEqual({ overview: 0, thread: 0, concluded: 1, peers: 1 });
+    expect(screen.getByText("Tester ended.")).toBeInTheDocument();
+  });
+
+  it("shows the banner of an open Direct Message that was concluded, from the one read the wall and the page share", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0, undelivered: 2 }];
+    const was = chat.api.concluded.mock.calls.length;
+    p.signal();
+    await flush();
+    expect(chat.api.concluded.mock.calls.length - was).toBe(1);
+    expect(screen.getByTestId("chat-concluded")).toHaveTextContent("Tester ended.");
+    expect(screen.getByTestId("chat-concluded")).toHaveTextContent("2 messages you wrote to it were not delivered.");
+  });
+
+  it("parses only the message that arrived, not the ones already on screen", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    w.channels.general!.messages = [...w.channels.general!.messages, cmsg("g-new", "Only this one is new.")];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses again a message that was edited, and only that one", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    const msgs = structuredClone(w.channels.general!.messages);
+    msgs[2] = { ...msgs[2]!, text: "This one was edited on another console.", updatedAt: T0 };
+    w.channels.general!.messages = msgs;
+    p.signal();
+    await flush();
+    expect(screen.getByText("This one was edited on another console.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not parse a message on the 2 second clock, and still moves a time that shows the date when the day changes", async () => {
+    const jest = vi.useFakeTimers({ toFake: ["Date", "setInterval", "setTimeout"] });
+    jest.setSystemTime(T0);
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    const log = () => screen.getByRole("log", { name: "Messages" });
+    expect(within(log()).getByText("Today")).toBeInTheDocument();
+    expect(within(log()).getAllByText(/^14:\d\d$/).length).toBeGreaterThan(0);
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(parse).not.toHaveBeenCalled();
+    expect(within(log()).getByText("Today")).toBeInTheDocument();
+    // The next day: the divider says Yesterday and a stamp says the day it was written, as it did when every tick drew the page.
+    jest.setSystemTime(T0 + 86_400_000);
+    await act(async () => {
+      jest.advanceTimersByTime(2_000);
+    });
+    expect(within(log()).queryByText("Today")).toBeNull();
+    expect(within(log()).getByText("Yesterday")).toBeInTheDocument();
+    expect(within(log()).queryAllByText(/^14:\d\d$/)).toHaveLength(0);
+    expect(within(log()).getAllByText(/^Mon 14:\d\d$/).length).toBeGreaterThan(0);
+    p.unmount();
   });
 });

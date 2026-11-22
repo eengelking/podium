@@ -73,6 +73,8 @@ export type MachineName = (key: string) => string;
 /** Looks a reporter up by key, and lists one owner's reporters (by the owner's `people.id`, #1284). */
 export interface ReporterLookup {
   get(key: string): ReporterRef | null;
+  /** `get` for many keys in one read (#1309): the reporters found, in any order; a key with none is left out. */
+  getMany(keys: readonly string[]): ReporterRef[];
   /** The reporters of the person with this id (#1284); none for null. */
   ofOwner(ownerId: number | null): ReporterRef[];
 }
@@ -269,8 +271,12 @@ export const takesMessages = (o: Pick<LiveOrchestrator, 'status' | 'waitReason'>
 /** What the message store needs from the rights store: a narrow view, so either can be tested alone. */
 export interface PeerRightsView {
   effective(from: string, to: string): EffectiveRight;
+  /** `effective` for many links in a number of statements that does not grow with them (#1309), one answer for each, in order. */
+  effectiveMany(links: readonly (readonly [string, string])[]): EffectiveRight[];
   personLink: PeerRightsApi['personLink'];
   limits(ownerId: number | null): PeerLimits;
+  /** `limits` for many owners in one read (#1309), one answer for each, in order. */
+  limitsMany(ownerIds: readonly (number | null)[]): PeerLimits[];
   openMessageRequest: PeerRightsApi['openMessageRequest'];
   closeMessageRequest: PeerRightsApi['closeMessageRequest'];
 }
@@ -539,6 +545,8 @@ export interface PeerMessagesApi {
   deleteConversation(ownerId: number, a: string, b: string): number;
   /** The summary of the one conversation between two sessions (either order), or null when they have no messages (#1046). */
   conversationOf(a: string, b: string): ConversationSummary | null;
+  /** Every conversation that exists, each pair of sessions once with its two ids in order (#1309): what the Chat page needs to know which Direct Message threads are there, with no message and no rights read. */
+  conversationPairs(): [string, string][];
   /** How many conversations each of the people with these ids takes part in, hidden ones left out, keyed by the id (#1046). */
   conversationCounts(ownerIds: number[]): Record<number, number>;
   /** The conversations the person owns, newest first, hidden ones only when `includeHidden`; and those they took part in as the person who wrote to another person's agent (#1034). Never another person's other conversations. */

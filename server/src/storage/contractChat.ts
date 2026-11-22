@@ -3,8 +3,9 @@
 // a channel's text is never kept with, copied into or returned with a direct message's (`peer_messages`), and the reverse.
 import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
-import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState } from './types.js';
+import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState, ThreadReadState } from './types.js';
 import { setUp } from './contractPeers.js';
+import { counted } from './statementCount.js';
 import { personKeyOf } from '../fleet/peerTypes.js';
 
 const T0 = 1_800_000_000_000;
@@ -25,13 +26,16 @@ const G = { ownerId: 11 };
 const input = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostInput => ({ authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, ...over });
 const texts = (p: ChannelPage): string[] => p.messages.map((m) => m.text);
 
+/** One person counted for one post in a thread, the answer the person's new state (what a single `bumpMany` entry gives). */
+const bump = async (rs: ChatStoreApi['readState'], personId: number, thread: string, mention: boolean) => (await rs.bumpMany(thread, [{ personId, mention }]))[0] as ThreadReadState;
+
 export function chatCases(o: Openers): void {
   chatChangeCases(o);
   onEachAdapter(o, 'gives a person who takes a deleted person\'s name none of their group channel, read counts, flags, owed Admin records or opened channels (#1284)', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const first = (await s.people.createPerson('Ed', null, T0 - 1)).person;
     await chat.group.post({ ownerId: first.id }, input('EDS-GROUP', { authorId: first.id }));
-    await chat.readState.bump(first.id, `group:${first.id}`, true);
+    await bump(chat.readState, first.id, `group:${first.id}`, true);
     await chat.settings.setFlags(`group:${first.id}`, { paused: true });
     await chat.settings.setFlags(`public:person:${first.id}`, { disconnected: true });
     await chat.adminReads.mark(`group:${first.id}`, 'Root', null, 'cleared', [first.id]);
@@ -48,7 +52,7 @@ export function chatCases(o: Openers): void {
     const again = (await s.people.createPerson('Ed', null, T0 + 1)).person;
     expect(again.id).not.toBe(first.id);
     await chat.group.post({ ownerId: first.id }, input('LEFT-BEHIND', { authorId: first.id }));
-    await chat.readState.bump(first.id, 'public', false);
+    await bump(chat.readState, first.id, 'public', false);
     expect(await chat.group.page({ ownerId: again.id }, { limit: 10 })).toEqual({ messages: [], older: null });
     expect(await chat.readState.list(again.id)).toEqual([]);
     expect(await chat.adminReads.unseenFor(again.id)).toEqual([]);
@@ -202,6 +206,81 @@ export function chatCases(o: Openers): void {
     expect(texts({ messages: t.get('group: held for sa (one taken)') as ChannelMessage[], older: null })).toEqual(['held for both']);
   });
 
+  onEachAdapter(o, 'counts one post for many people with the counts one bump each gives, in a number of statements that does not grow with the people (#1309)', async (s) => {
+    const clock = { now: T0 };
+    const rs = s.chat({ now: () => clock.now }).readState;
+    const bumps = (from: number, n: number): { personId: number; mention: boolean }[] => Array.from({ length: n }, (_, i) => ({ personId: from + i, mention: i % 4 === 0 }));
+    // Some people already have a row in the thread (and one has a mention), the rest do not.
+    await bump(rs, 300, 'public', true);
+    await bump(rs, 301, 'public', false);
+    clock.now += 5;
+    const small = await counted(() => rs.bumpMany('public', bumps(300, 3)));
+    const large = await counted(() => rs.bumpMany('public', bumps(400, 60)));
+    expect(small.value.map((r) => [r.personId, r.unread, r.mentions, r.updatedAt])).toEqual([[300, 2, 2, T0 + 5], [301, 2, 0, T0 + 5], [302, 1, 0, T0 + 5]]);
+    expect(large.value).toHaveLength(60);
+    expect(large.value.every((r) => r.thread === 'public' && r.unread === 1 && r.lastRead === null && r.updatedAt === T0 + 5)).toBe(true);
+    expect(large.value.filter((r) => r.mentions === 1)).toHaveLength(15);
+    // What the call returned is what the store holds, and another thread and another person are left alone.
+    expect(await rs.list(405)).toEqual([large.value[5]]);
+    expect(await rs.list(300)).toEqual([small.value[0]]);
+    expect(await rs.bumpMany('group:g1', [])).toEqual([]);
+    // A person listed twice is counted twice, as two bumps would.
+    expect((await rs.bumpMany('dm:a|b', [{ personId: 500, mention: true }, { personId: 501, mention: false }, { personId: 500, mention: false }])).map((r) => [r.personId, r.unread, r.mentions])).toEqual([[500, 2, 1], [501, 1, 0]]);
+    expect(small.statements).toBeLessThanOrEqual(2);
+    expect(large.statements).toBe(small.statements);
+    // Past one batch of people the statements grow by one pair for each 500 more, and nobody is missed or counted twice.
+    const crowd = await counted(() => rs.bumpMany('general', bumps(2000, 1100)));
+    expect(crowd.value).toHaveLength(1100);
+    expect(new Set(crowd.value.map((r) => r.personId)).size).toBe(1100);
+    expect(crowd.statements).toBe(2 * 3);
+    expect((await rs.list(3099))[0]).toMatchObject({ thread: 'general', unread: 1 });
+  });
+
+  onEachAdapter(o, 'finds the held mentions of every public channel in one statement, the same ones a read of each channel gives (#1309)', async (s) => {
+    const clock = { now: T0 };
+    const chat = s.chat({ now: () => clock.now });
+    const held = (sessionId: string, state: 'held' | 'working' = 'held'): ChannelPostInput['mentions'] => [{ sessionId, peerKey: 'k', typed: `${sessionId}@box`, state }];
+    const across = async (sessionId?: string): Promise<{ messages: ChannelMessage[]; statements: number }> => {
+      const r = await counted(() => chat.public.heldMentionsAcross(sessionId === undefined ? {} : { sessionId }));
+      return { messages: r.value, statements: r.statements };
+    };
+    // The same ones each channel gives, oldest first over all of them (the clock moves with every post, so no two share a time).
+    const perChannel = async (names: string[], sessionId?: string): Promise<ChannelMessage[]> =>
+      (await Promise.all(names.map((n) => chat.public.heldMentions(n, sessionId === undefined ? {} : { sessionId })))).flat().sort((a, b) => a.createdAt - b.createdAt);
+    const names = ['general'];
+    const post = async (channel: string, text: string, sessionId: string, state: 'held' | 'working' = 'held'): Promise<void> => {
+      clock.now += 1;
+      await chat.public.post(channel, input(text, { mentions: held(sessionId, state) }));
+    };
+    for (let i = 0; i < 3; i++) {
+      await chat.channels.create({ name: `room-${i}`, createdBy: 'Ed', createdById: 11 }, T0);
+      names.push(`room-${i}`);
+    }
+    await post('general', 'g held sa', 'sa');
+    await post('room-1', 'r1 held sa', 'sa');
+    await post('room-0', 'r0 held sb', 'sb');
+    await post('room-2', 'r2 working sa', 'sa', 'working');
+    await post('room-2', 'r2 held sa', 'sa');
+    await chat.group.post(G, input('group held sa', { mentions: held('sa') }));
+    const small = await across('sa');
+    expect(small.messages.map((m) => [m.channel, m.text])).toEqual([['general', 'g held sa'], ['room-1', 'r1 held sa'], ['room-2', 'r2 held sa']]);
+    expect(small.messages).toEqual(await perChannel(names, 'sa'));
+    expect((await across()).messages).toEqual(await perChannel(names));
+    expect((await across('sb')).messages.map((m) => m.text)).toEqual(['r0 held sb']);
+    expect((await across('nobody')).messages).toEqual([]);
+    // More channels, the same one read.
+    for (let i = 3; i < 30; i++) {
+      await chat.channels.create({ name: `room-${i}`, createdBy: 'Ed', createdById: 11 }, T0);
+      names.push(`room-${i}`);
+      await post(`room-${i}`, `r${i} held sa`, 'sa');
+    }
+    const large = await across('sa');
+    expect(large.messages).toHaveLength(3 + 27);
+    expect(large.messages).toEqual(await perChannel(names, 'sa'));
+    expect(small.statements).toBe(1);
+    expect(large.statements).toBe(1);
+  });
+
   onEachAdapter(o, 'finds the held mentions of a channel without reading the pages of a large history (#1046)', async (s) => {
     const clock = { now: T0 };
     const pub = s.chat({ now: () => clock.now }).public;
@@ -233,12 +312,12 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const rs = s.chat({ now: () => clock.now }).readState;
       await rec('get (never seen)', rs.get(pid('ed'), 'public'));
-      await rec('bump', rs.bump(pid('ed'), 'public', false));
+      await rec('bump', bump(rs, pid('ed'), 'public', false));
       clock.now += 1;
-      await rec('bump (again)', rs.bump(pid('ED'), 'public', false));
-      await rec('bump (a mention)', rs.bump(pid('ed'), 'public', true));
-      await rec('bump (another thread)', rs.bump(pid('ed'), 'group:g1', true));
-      await rec('bump (another person)', rs.bump(pid('eve'), 'public', false));
+      await rec('bump (again)', bump(rs, pid('ED'), 'public', false));
+      await rec('bump (a mention)', bump(rs, pid('ed'), 'public', true));
+      await rec('bump (another thread)', bump(rs, pid('ed'), 'group:g1', true));
+      await rec('bump (another person)', bump(rs, pid('eve'), 'public', false));
       await rec('list', rs.list(pid('ed')));
       clock.now += 1;
       await rec('mark read', rs.markRead(pid('ed'), 'public', '1800000000005.7'));
@@ -667,8 +746,8 @@ export function chatCases(o: Openers): void {
       const edGroup = { ownerId: ed.id };
       await chat.group.post(edGroup, input('ED GROUP'));
       await chat.group.post({ ownerId: eveP.id }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
-      await chat.readState.bump(ed.id, 'group:ed', true);
-      await chat.readState.bump(eveP.id, 'group:eve', false);
+      await bump(chat.readState, ed.id, 'group:ed', true);
+      await bump(chat.readState, eveP.id, 'group:eve', false);
       await rec('before: person link', peers.rights.personLink(edKey, eve));
       await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
       await rec('group (Ed)', chat.group.page(edGroup, { limit: 10 }).then(texts));
@@ -702,7 +781,7 @@ export function chatCases(o: Openers): void {
     const chat = s.chat({ now: () => clock.now });
     await chat.group.post(G, input('GROUP-ONLY-TEXT'));
     await chat.public.post('general', input('PUBLIC-ONLY-TEXT'));
-    await chat.readState.bump(pid('ed'), 'public', true);
+    await bump(chat.readState, pid('ed'), 'public', true);
     const channelReads = JSON.stringify([
       await chat.group.page(G, { limit: 100 }), await chat.group.count(G), await chat.public.page('general', { limit: 100 }), await chat.public.count('general'),
       await chat.readState.list(pid('ed')),

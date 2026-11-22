@@ -3,10 +3,15 @@
 import pg from 'pg';
 import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
 import type { Storage } from '../types.js';
+import { countCalls } from '../statementCount.js';
+import { PgDb } from './conn.js';
 import { openPostgresStorage } from './index.js';
 import { openUpgradedPostgres } from './upgradeTesting.js';
 import { postgresSamplesPerf } from './samplesPerf.js';
 import { TEST_PG, createTestDatabase, type TestDatabase } from './testing.js';
+
+// Every statement the stores send goes through `PgDb.statement` (#1309).
+countCalls(PgDb.prototype, ['statement']);
 
 const target = (td: TestDatabase): string => td.url.replace(/^postgres:\/\//, '');
 

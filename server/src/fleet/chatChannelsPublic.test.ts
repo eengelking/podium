@@ -428,6 +428,43 @@ describe('posting and reading in a public channel', () => {
     expect((await agentPost(w, 'sess-dev', 'general', { text: 'not called in' })).status).toBe(403);
   });
 
+  it('drops what General and a named channel held for an agent when it ends, and keeps what is held for another agent (#1309)', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'quiet' });
+    expect((await w.secretB.put(`${CH}/channels/general/pause`).set(H).send({ paused: true, everyone: true })).status).toBe(200);
+    expect((await w.edB.put(`${CH}/channels/quiet/pause`).set(H).send({ paused: true })).status).toBe(200);
+    for (const channel of ['general', 'quiet']) {
+      expect((await say(w.edB, channel, `@Tester@ci-runner-01 for tester in ${channel}`)).body.message.mentions[0].state).toBe('held');
+      expect((await say(w.edB, channel, `@dev@ed-mbp for dev in ${channel}`)).body.message.mentions[0].state).toBe('held');
+    }
+    // The tester ends; the dev stays live.
+    await tester(w, { status: 'done', waitReason: null });
+    w.tick(10_000);
+    await w.fleet.sweep();
+    const state = async (channel: string, text: string) => {
+      const m = (await read(w.edB, channel)).body.messages.find((x: { text: string }) => x.text.endsWith(text));
+      return [m.mentions[0].state, m.mentions[0].why] as const;
+    };
+    for (const channel of ['general', 'quiet']) {
+      expect(await state(channel, `for tester in ${channel}`)).toEqual(['dropped', 'the agent ended while the message was held']);
+      expect(await state(channel, `for dev in ${channel}`)).toEqual(['held', channel === 'general' ? 'General is paused' : 'quiet is paused']);
+    }
+  });
+
+  it('keeps what a channel held for an agent that ends when another live agent of the same name and reporter can take it (#1309)', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'quiet' });
+    expect((await w.edB.put(`${CH}/channels/quiet/pause`).set(H).send({ paused: true })).status).toBe(200);
+    expect((await say(w.edB, 'quiet', '@Tester@ci-runner-01 for whoever is Tester')).body.message.mentions[0].state).toBe('held');
+    // The first Tester ends, and the same agent is back under a new session before the sweep.
+    await tester(w, { status: 'done', waitReason: null });
+    expect((await post(w, w.ed.token, report('Ed', 'sess-tester-2', 'Tester', LINUX))).status).toBe(200);
+    w.tick(10_000);
+    await w.fleet.sweep();
+    const m = (await read(w.edB, 'quiet')).body.messages[0].mentions[0];
+    expect(m).toMatchObject({ state: 'held', why: 'quiet is paused' });
+  });
+
   it('tells the console a channel changed, with only a revision and a scope', async () => {
     const w = await world();
     const sse: string[] = [];

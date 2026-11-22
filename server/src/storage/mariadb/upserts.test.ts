@@ -273,10 +273,9 @@ describe.skipIf(!TEST_MARIADB)('the upsert and insert-ignore sites on a database
 
   it('chat read state: the (person, thread) pair', async () => {
     const chat = s.chat({ now: () => 5 });
-    await chat.readState.bump(1, 'grp_a', true);
-    await chat.readState.bump(1, 'grp_a', false);
-    await chat.readState.bump(1, 'grp_b', false);
-    await chat.readState.bump(2, 'grp_a', false);
+    await chat.readState.bumpMany('grp_a', [{ personId: 1, mention: true }]);
+    await chat.readState.bumpMany('grp_a', [{ personId: 1, mention: false }, { personId: 2, mention: false }]);
+    await chat.readState.bumpMany('grp_b', [{ personId: 1, mention: false }]);
     await chat.readState.markRead(1, 'grp_b', 'm9');
     expect(await db.all('SELECT person, thread, unread, mentions, last_read FROM chat_read_state ORDER BY person, thread')).toEqual([
       { person: '#1', thread: 'grp_a', unread: 2, mentions: 1, last_read: null }, { person: '#1', thread: 'grp_b', unread: 0, mentions: 0, last_read: 'm9' },

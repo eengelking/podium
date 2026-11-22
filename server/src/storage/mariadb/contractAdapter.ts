@@ -2,11 +2,16 @@
 // Each storage gets a database of its own on the server `PODIUM_TEST_MARIADB` names; closing the storage drops it, and `dispose` drops what a failed test left.
 import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
 import type { Storage } from '../types.js';
+import { countCalls } from '../statementCount.js';
+import { MariaDbConn } from './conn.js';
 import { openMariaDbStorage } from './index.js';
 import { openUpgradedMariaDb } from './upgradeTesting.js';
 import { mariadbSamplesPerf } from './samplesPerf.js';
 import { ACTIVITY_MIGRATIONS, CONSTRAINT_INDEX, MAIN_MIGRATIONS } from './schema.js';
 import { TEST_MARIADB, createTestDatabase, withConnection, type TestDatabase } from './testing.js';
+
+// Every statement the stores send goes through `MariaDbConn.statement` (#1309).
+countCalls(MariaDbConn.prototype, ['statement']);
 
 const target = (td: TestDatabase): string => td.url.replace(/^mariadb:\/\//, '');
 

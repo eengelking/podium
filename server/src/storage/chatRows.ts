@@ -3,7 +3,7 @@
 // conversation's text are kept in different tables and read by different methods on purpose.
 import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
-import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal } from './types.js';
+import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal, ReadBump } from './types.js';
 
 const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
 const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
@@ -146,6 +146,18 @@ export function withMentionState(mentions: ChannelMention[], index: number, patc
   if (!MENTION_STATES.includes(patch.state)) throw new Error('The delivery state is not one of waiting, working, done, not-delivered, held, dropped or approval.');
   // A copy id stays across later state changes; the patch sets it when it names one (#1269).
   return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at, ...(patch.copyId ? { copyId: patch.copyId } : {}) } : m));
+}
+
+/** One entry per person, in the order first seen: a person listed twice has the unread and the mentions of both, as two bumps would give. */
+export function foldBumps(bumps: readonly ReadBump[]): { personId: number; unread: number; mentions: number }[] {
+  const by = new Map<number, { personId: number; unread: number; mentions: number }>();
+  for (const b of bumps) {
+    const e = by.get(b.personId) ?? { personId: b.personId, unread: 0, mentions: 0 };
+    e.unread++;
+    if (b.mention) e.mentions++;
+    by.set(b.personId, e);
+  }
+  return [...by.values()];
 }
 
 /** What a read state row says before anything was counted for the thread. */

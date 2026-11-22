@@ -9,43 +9,52 @@ export interface LeavingRow<T> {
   leaving: boolean;
 }
 
+/** The rows for `items`, with each item of `prev` that is not in them kept at its old place, marked `leaving`. */
+function rowsFor<T>(prev: LeavingRow<T>[], items: T[], key: (item: T) => string): LeavingRow<T>[] {
+  const now = new Set(items.map(key));
+  const next: LeavingRow<T>[] = items.map((item) => ({ item, leaving: false }));
+  prev.forEach((r, i) => {
+    if (!now.has(key(r.item))) next.splice(Math.min(i, next.length), 0, { item: r.item, leaving: true });
+  });
+  return next;
+}
+
 /** `items` as rows, with each item that just left kept at its old place, marked `leaving`, until the leave animation is over. */
 export function useLeaving<T>(items: T[], keyOf: (item: T) => string): LeavingRow<T>[] {
   const [rows, setRows] = useState<LeavingRow<T>[]>(() => items.map((item) => ({ item, leaving: false })));
+  const [seen, setSeen] = useState(items);
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const keyRef = useRef(keyOf);
   keyRef.current = keyOf;
 
+  // Rows are made while drawing, not by an effect, so a new list is drawn once (#1311).
+  if (seen !== items) {
+    setSeen(items);
+    setRows(rowsFor(rows, items, keyOf));
+  }
+
+  // A leaving row is removed when its animation is over; one that came back before then must not be.
   useEffect(() => {
     const key = keyRef.current;
-    const now = new Set(items.map(key));
-    setRows((prev) => {
-      const next: LeavingRow<T>[] = items.map((item) => ({ item, leaving: false }));
-      prev.forEach((r, i) => {
-        const k = key(r.item);
-        if (now.has(k)) return;
-        next.splice(Math.min(i, next.length), 0, { item: r.item, leaving: true });
-        if (!timers.current.has(k)) {
-          timers.current.set(
-            k,
-            setTimeout(() => {
-              timers.current.delete(k);
-              setRows((cur) => cur.filter((x) => !(x.leaving && key(x.item) === k)));
-            }, LEAVE_MS),
-          );
-        }
-      });
-      // An item that came back before its animation ended is a live row again, and its timer must not remove it.
-      for (const k of now) {
+    for (const r of rows) {
+      const k = key(r.item);
+      if (!r.leaving) {
         const t = timers.current.get(k);
         if (t) {
           clearTimeout(t);
           timers.current.delete(k);
         }
+      } else if (!timers.current.has(k)) {
+        timers.current.set(
+          k,
+          setTimeout(() => {
+            timers.current.delete(k);
+            setRows((cur) => cur.filter((x) => !(x.leaving && key(x.item) === k)));
+          }, LEAVE_MS),
+        );
       }
-      return next;
-    });
-  }, [items]);
+    }
+  }, [rows]);
 
   useEffect(() => {
     const held = timers.current;

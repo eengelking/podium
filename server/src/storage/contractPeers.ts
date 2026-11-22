@@ -8,6 +8,7 @@ import { personKeyOf, type Actor, type MessageRow, type PeerChange } from '../fl
 import type { ReporterSeen } from './rows.js';
 import type { PeerStoreApi, Storage } from './types.js';
 import { session } from './contract.js';
+import { counted } from './statementCount.js';
 import type { SessionRow } from './rows.js';
 /** A stored session of ed (or eve), bound to the person's id as a report from their token binds it (#1284). */
 const sess = (over: Partial<SessionRow> & { id: string }): SessionRow => session({ owner_id: over.owner === 'eve' ? EVE_ID : ED_ID, ...over });
@@ -1395,5 +1396,67 @@ export function peerCases(o: Openers): void {
     expect(t.get('the reporter after Ed is deleted')).toMatchObject({ owner: 'ed', ownerId: null });
     expect(t.get('the reporter after the newcomer reports')).toMatchObject({ owner: 'ed' });
     expect((t.get('the newcomer\'s reporters') as string[]).length).toBe(1);
+  });
+
+  onEachAdapter(o, 'lists the conversations with their rights and limits in a number of statements that does not grow with the conversations (#1309)', async (s) => {
+    const clock = { now: T0 };
+    const { peers, a, b, c } = await setUp(s, clock);
+    const m = peers.messages;
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
+    await peers.rights.setRight(ED_ID, a, c, 'ask', ED);
+    await peers.setDefaults(ED_ID, { limits: { roundTrips: 3 } }, ED);
+    expect((await peers.reporters.getMany([a, c, 'nope'])).map((r) => r.key).sort()).toEqual([a, c].sort());
+    // One conversation waits for approval, and one more is a person's own with an agent.
+    expect((await m.send('sa', 'gamma@box-c', 'may I?')) as { ok: boolean }).toMatchObject({ ok: true });
+    expect(await m.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', text: 'from ed' })).toMatchObject({ author: 'person' });
+    let made = 0;
+    const make = async (n: number): Promise<void> => {
+      for (let k = 0; k < n; k++, made++) {
+        await peers.note(`x${made}`, a, 'ed', ED_ID, waiting(`xa${made}`, 'box-a'));
+        await peers.note(`y${made}`, b, 'ed', ED_ID, waiting(`yb${made}`, 'box-b'));
+        clock.now += 61_000; // past the rate window of the sender
+        expect(await m.send(`x${made}`, `yb${made}@box-b`, `hi ${made}`)).toMatchObject({ ok: true });
+      }
+    };
+    const measure = async (): Promise<Record<string, number>> => {
+      const cost: Record<string, number> = {};
+      const run = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+        const r = await counted(fn);
+        cost[name] = r.statements;
+        return r.value;
+      };
+      const mine = await run('ownerConversations', () => m.ownerConversations(ED_ID));
+      const owned = await run('conversations (owner)', () => m.conversations({ ownerId: ED_ID }));
+      await run('conversations (every owner)', () => m.conversations({}));
+      await run('conversations (live only, since)', () => m.conversations({ liveOnly: true, since: T0 }));
+      await run('conversationOf', () => m.conversationOf('x0', 'y0'));
+      await run('conversationPairs', () => m.conversationPairs());
+      // The conversations of a person are the ones they own (a person's own with an agent is theirs too), and each is the summary `conversationOf` gives.
+      expect(mine.map((x) => x.a.sessionId + '|' + x.b.sessionId).sort()).toEqual(owned.map((x) => x.a.sessionId + '|' + x.b.sessionId).sort());
+      for (const x of mine) {
+        const { hiddenAt, ...summary } = x;
+        expect(hiddenAt).toBeNull();
+        expect(await m.conversationOf(x.a.sessionId, x.b.sessionId)).toEqual(summary);
+      }
+      return cost;
+    };
+    await make(3);
+    const small = await measure();
+    await make(27);
+    const large = await measure();
+    const list = await m.ownerConversations(ED_ID);
+    // Rights, limits and state as each conversation has them: the owner's own limit of 3 round trips, an open link both ways, the one that asks for approval waiting, the person's own with no link to read.
+    expect(list).toHaveLength(30 + 2);
+    expect(list.find((x) => x.a.sessionId === 'x0')).toMatchObject({ messages: 1, state: 'active', paused: false, aToB: true, bToA: true, owner: 'ed', ownerId: ED_ID, roundTrips: { used: 0, cap: 3 } });
+    expect(list.find((x) => x.a.sessionId === 'sa' && x.b.sessionId === 'sc')).toMatchObject({ state: 'waiting', aToB: true, bToA: false });
+    expect(list.find((x) => x.a.sessionId === ED_KEY)).toMatchObject({ messages: 1, state: 'active' });
+    expect(await m.conversationPairs()).toEqual(list.map((x): [string, string] => [x.a.sessionId, x.b.sessionId]).sort((p, q) => (p.join('|') < q.join('|') ? -1 : 1)));
+    expect(large, 'statements at 32 conversations against 5').toEqual(small);
+    // One link is one read of its own right row, the reporters and the owner\'s trust (it was four statements, one each); a person\'s link is its row alone.
+    const one = await counted(() => peers.rights.effective(a, b));
+    expect(one.value).toEqual({ level: 'send', paused: false });
+    expect(one.statements).toBe(3);
+    expect((await counted(() => peers.rights.effective(ED_KEY, a))).statements).toBe(1);
+    for (const [name, n] of Object.entries(small)) expect(n, name).toBeLessThanOrEqual(6);
   });
 }

@@ -3,6 +3,7 @@
 // copied into or returned with a channel's or a `peer_messages` row.
 import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import { counted } from './statementCount.js';
 import type { Conversation, ConversationChange, ConversationMemberInput, ConversationMessage, ConversationPage } from './types.js';
 
 const T0 = 1_800_000_000_000;
@@ -308,6 +309,38 @@ export function conversationCases(o: Openers): void {
     expect(t.get('maya is deleted: her agent goes with her and the conversation with it')).toBe(1);
     expect(t.get('get after')).toBeNull();
     expect((t.get('ids after') as string[]).length).toBe(1);
+  });
+
+  onEachAdapter(o, 'lists a member\'s conversations as `get` gives each, in a number of statements that does not grow with the conversations (#1309)', async (s) => {
+    const c = s.chat({ now: () => T0 }).conversations;
+    const ids: string[] = [];
+    const withAgent: string[] = [];
+    // Each conversation has a different set of people, some messages (ed's, then the other's) and a different last time; one is left by ed, one has an agent, one has no message.
+    const make = async (n: number): Promise<void> => {
+      for (let i = 0; i < n; i++) {
+        const other: ConversationMemberInput = { kind: 'person', ref: String(1000 + ids.length), name: `P${ids.length}` };
+        const { conversation } = await c.open({ members: i % 3 === 2 ? [ED, other, TESTER] : [ED, other], createdBy: 1 }, T0 + ids.length);
+        ids.push(conversation.id);
+        if (i % 3 === 2) withAgent.push(conversation.id);
+        for (let k = 0; k < i % 4; k++) await c.post(conversation.id, say(k % 2 === 0 ? ED : other, `m${ids.length}-${k}`), T0 + 1000 + ids.length * 10 + k);
+      }
+    };
+    const check = async (): Promise<number> => {
+      const { value, statements } = await counted(() => c.listFor({ kind: 'person', ref: '1' }));
+      const each = (await Promise.all(ids.map((id) => c.get(id)))).filter((x): x is Conversation => x !== null);
+      expect(value).toEqual(each.sort((a, b) => b.lastAt - a.lastAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+      return statements;
+    };
+    await make(3);
+    const small = await check();
+    await make(27);
+    await c.leave(ids[4]!, { kind: 'person', ref: '1' }, T0 + 5000);
+    ids.splice(4, 1);
+    const large = await check();
+    // The agent sees only its own, with the same members as `get` gives.
+    expect((await c.listFor({ kind: 'agent', ref: 'sess-tester' })).map((x) => x.id).sort()).toEqual([...withAgent].sort());
+    expect(small).toBeLessThanOrEqual(3);
+    expect(large).toBe(small);
   });
 
   onEachAdapter(o, 'keeps a conversation out of every other audience: a channel and a direct message never hold its text, and it never holds theirs', async (s) => {

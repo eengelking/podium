@@ -342,6 +342,9 @@ function ownCases(adapter: ContractAdapter): void {
       expect(by[claude]).toEqual(['podium-reporter-claudecode', 'newer']);
       expect(by[other]).toEqual(['podium-reporter-opencode', 'newer']);
       expect(await lookup.get(other)).toMatchObject({ reporterName: 'podium-reporter-opencode' });
+      // Many at once (#1309): the ones that exist, each once, and nothing for a key with none or for no keys.
+      expect((await lookup.getMany([claude, other, 'nope', claude])).map((r) => r.key).sort()).toEqual([claude, other].sort());
+      expect(await lookup.getMany([])).toEqual([]);
       await store.close();
     });
 
