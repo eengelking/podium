@@ -894,6 +894,34 @@ describe("live refresh of earlier pages", () => {
     expect(hook.result.current.loadingEarlier).toBe(false);
   });
 
+  it("asks for no earlier page of a thread that was left for another while it waited behind a read for a signal (#1296)", async () => {
+    const s = paged();
+    vi.useRealTimers();
+    const landing = new Landing();
+    const hook = renderHook(({ sel, rev }) => useThread(s.api, sel, rev, null, landing), { initialProps: { sel: SEL, rev: 0 } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    await act(async () => void (await hook.result.current.loadEarlier()));
+    let release: () => void = () => undefined;
+    void landing.run(() => new Promise((done) => (release = () => done(null))), () => () => undefined);
+    hook.rerender({ sel: SEL, rev: 1 });
+    await flush();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await flush();
+    hook.rerender({ sel: { kind: "channel", id: "other" }, rev: 1 });
+    await flush();
+    s.channelMessages.mockClear();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(ids(hook.result)).toEqual(["m5", "m6"]);
+    expect(hook.result.current.loadingEarlier).toBe(false);
+    expect(s.channelMessages.mock.calls.filter(([, o]) => o?.before)).toEqual([]);
+  });
+
   it("still sees a clear: fewer messages than are shown drops the earlier pages", async () => {
     const s = paged();
     const { result, rerender } = await loaded(s, 1);

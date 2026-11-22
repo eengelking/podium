@@ -6,7 +6,7 @@ import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
 import { PAGE_SIZE, mergeGone, plain, type ConversationInfo, type ConversationMessage, type GoneRead, type AdminRead, type Address, type Cross, type CrossRole, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
 import { ReadGate } from "./readGate";
-import { Landing } from "./landing";
+import { Landing, LANDING_WAIT_MS } from "./landing";
 
 export interface OverviewRead {
   data: ChatOverview | null;
@@ -179,6 +179,16 @@ interface View<T, X> {
 
 const EMPTY: View<never, never> = { latest: [], earlier: [], pages: 0, older: null, total: 0, extra: null, loaded: false, error: null, loadingEarlier: false };
 
+/** Waits for `p`, and no longer than a Landing waits for a read that has not answered; the timer never outlives the wait. */
+async function within(p: Promise<unknown>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([p, new Promise((done) => (timer = setTimeout(done, LANDING_WAIT_MS)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** A page as the view holds it: a message already held and unchanged stays the same object, so a memoized row is not drawn again (#1311). */
 function reuse<T extends { id: string }>(page: T[], held: readonly T[]): T[] {
   const was = new Map(held.map((h) => [h.id, h]));
@@ -205,7 +215,10 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
   }, []);
   const [gate] = useState(() => new ReadGate());
   const shown = useRef<string | null>(null);
+  // Counts the threads opened, so a page asked for in one is never put in a later one, even when the person comes back to the same thread.
+  const epoch = useRef(0);
   // The read for the latest signal until it has landed, and the page Earlier messages is reading: each lands before the other starts from the view, so neither replaces the other's.
+  // Each waits for the other for the Landing's bound at most, so a request that is slow or never answers holds nothing for good.
   const reading = useRef<Promise<unknown>>(Promise.resolve());
   const loading = useRef<Promise<unknown>>(Promise.resolve());
 
@@ -213,7 +226,7 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
   const read = useCallback(
     async (at: number): Promise<(() => void) | null> => {
       const r = await readPage(null);
-      await loading.current;
+      await within(loading.current);
       if (!gate.land(at)) return null;
       const was = now.current;
       const held = [...was.latest, ...was.earlier];
@@ -279,6 +292,8 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
     if (key !== shown.current) {
       // Another thread: nothing of the old one shows under the new heading.
       shown.current = key;
+      epoch.current += 1;
+      reading.current = loading.current = Promise.resolve();
       put(EMPTY);
     }
     if (key === null) return;
@@ -290,13 +305,17 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
   const loadEarlier = useCallback(async () => {
     if (key === null || !now.current.older || now.current.loadingEarlier) return;
     put({ loadingEarlier: true });
-    const opened = shown.current;
+    const opened = epoch.current;
     // A read for a signal that is still out lands first, and this page is read from the cursor it leaves.
-    for (let out = reading.current; ; out = reading.current) {
-      await out;
-      if (out === reading.current) break;
-    }
-    if (shown.current !== opened) return;
+    await within(
+      (async () => {
+        for (let out = reading.current; ; out = reading.current) {
+          await out;
+          if (out === reading.current) return;
+        }
+      })(),
+    );
+    if (epoch.current !== opened) return;
     const before = now.current.older;
     // The read cleared the earlier pages: there is nothing before them to ask for.
     if (!before) return put({ loadingEarlier: false });
@@ -305,11 +324,11 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
     try {
       const r = await fetching;
       // Another thread opened while this page was out: it is not this one's page, and the new view is already clear.
-      if (shown.current !== opened) return;
+      if (epoch.current !== opened) return;
       const cur = now.current;
       put({ earlier: [...r.messages, ...cur.earlier], pages: cur.pages + 1, older: r.older, error: null, loadingEarlier: false });
     } catch (err) {
-      if (shown.current === opened) put({ error: readError(err), loadingEarlier: false });
+      if (epoch.current === opened) put({ error: readError(err), loadingEarlier: false });
     }
   }, [key, readPage, put]);
 
