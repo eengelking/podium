@@ -80,7 +80,7 @@ function setup() {
     trails,
     tick: (ms = 1) => (now += ms),
     count: () => (db.prepare('SELECT COUNT(*) AS n FROM peer_messages').get() as { n: number }).n,
-    stateOf: (id: string) => db.prepare('SELECT state, why, approved, handed FROM peer_messages WHERE id = ?').get(id) as { state: string; why: string | null; approved: number; handed: number },
+    stateOf: (id: string) => db.prepare('SELECT state, why, approved FROM peer_messages WHERE id = ?').get(id) as { state: string; why: string | null; approved: number },
   };
 }
 
@@ -127,7 +127,7 @@ describe('PeerMessages: sending', () => {
     const r = ok(s.send('s-mbp', 'Tester@ci-runner-01', 'Please run the systemd unit tests'));
     expect(r.id).toMatch(ID);
     expect(r).toMatchObject({ state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: 'Tester', machine: 'ci-runner-01' }, roundTrips: { used: 0, cap: 10 } });
-    expect(stateOf(r.id)).toEqual({ state: 'ready', why: null, approved: 0, handed: 0 });
+    expect(stateOf(r.id)).toEqual({ state: 'ready', why: null, approved: 0 });
     expect(trails).toHaveLength(1);
     expect(trails[0]).toMatchObject({ kind: 'sent', state: 'sent', approvalWhy: null, message: { id: r.id, owner: 'Ed', link: linkKey('r-mbp', 'r-ci'), fromName: 'claude-dashboard', toName: 'Tester', sentAt: T0 } });
   });
@@ -352,8 +352,8 @@ describe('PeerMessages: delivery and results', () => {
     const d = s.deliveriesFor('s-ci', true);
     expect(d.map((x) => x.kind)).toEqual(['message', 'notice', 'message']);
     expect(d[0]).toEqual({ id: a.id, kind: 'message', at: T0, from: { name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: '1' }, text: 'first' });
-    expect(stateOf(a.id)).toMatchObject({ state: 'handed', handed: 1 });
-    expect(stateOf(b.id)).toMatchObject({ state: 'handed', handed: 1 });
+    expect(stateOf(a.id)).toMatchObject({ state: 'handed' });
+    expect(stateOf(b.id)).toMatchObject({ state: 'handed' });
     // No result yet: handed again.
     expect(s.deliveriesFor('s-ci', true).filter((x) => x.kind === 'message').map((x) => x.id)).toEqual([a.id, b.id]);
   });

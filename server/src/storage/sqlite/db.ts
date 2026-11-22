@@ -962,6 +962,51 @@ CREATE TABLE IF NOT EXISTS conversation_deliveries (
   PRIMARY KEY (conversation_id, message_id, member_kind, member_ref)
 );`,
   },
+  {
+    version: 54,
+    // Every fact in one place (#1296): the columns and the index that nothing reads, or that hold what another column holds, go. `group_messages.owner` and `group_id` held the
+    // id's key (`#<id>`) beside `owner_id`, and `group_messages_channel` was built on them and no query used it; `public_channels.created_by` was always empty beside `created_by_id`
+    // and `created_by_name`; `peer_messages.handed` said once handed what `state` says; `peer_requests_owner` served no query; `conversations.created_by` is only what each other member's
+    // `added_by` records. `updated_at` on the three message tables is the newest of the row's other times (`created_at`, `edited_at`, `deleted_at` and a mention's `stateAt`), so it is
+    // worked out where a message is read. The earlier steps that read `group_messages.owner`, `public_channels.created_by` and `chat_read_state.person` have already run when this one does.
+    // `DROP COLUMN` rewrites the whole table each time, so `group_messages`, which loses three, is made again once and its rows copied, as migration 52 does; the others lose one column each.
+    // The same step is PostgreSQL step 30 and MariaDB step 30.
+    sql: `
+CREATE TABLE group_messages_new (
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL,
+  issue TEXT, project TEXT, milestone TEXT, reply_to TEXT, mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL,
+  edited_at INTEGER, deleted_at INTEGER, author_id INTEGER, owner_id INTEGER
+);
+INSERT INTO group_messages_new (id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, edited_at, deleted_at, author_id, owner_id)
+  SELECT id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, edited_at, deleted_at, author_id, owner_id FROM group_messages;
+DROP TABLE group_messages;
+ALTER TABLE group_messages_new RENAME TO group_messages;
+CREATE INDEX group_messages_owner ON group_messages(owner_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
+ALTER TABLE public_messages DROP COLUMN updated_at;
+ALTER TABLE conversation_messages DROP COLUMN updated_at;
+ALTER TABLE public_channels DROP COLUMN created_by;
+ALTER TABLE peer_messages DROP COLUMN handed;
+DROP INDEX IF EXISTS peer_requests_owner;
+ALTER TABLE conversations DROP COLUMN created_by;`,
+  },
+  {
+    version: 55,
+    // A person's counts in a thread, in one place (#1296). The row is found by the person's id and the thread, which is its key now: `person` (`#<id>`, the older name key still in the key) goes with the second
+    // index on the same two columns, and so do `last_read` and `updated_at`, which were written and never read. A row at zero says what no row says (`emptyReadState` answers a thread with none), so
+    // those are not copied, and nor is a row that names no person (`person_id` NULL: nothing can read, bump or clear it). Every count that is not zero is kept. SQLite cannot change a key, so the table is
+    // made again and its rows copied, as migration 52 does. The same step is PostgreSQL step 31 and MariaDB step 31.
+    sql: `
+CREATE TABLE chat_read_state_new (
+  person_id INTEGER NOT NULL, thread TEXT NOT NULL, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (person_id, thread)
+);
+INSERT INTO chat_read_state_new (person_id, thread, unread, mentions)
+  SELECT person_id, thread, unread, mentions FROM chat_read_state WHERE person_id IS NOT NULL AND (unread > 0 OR mentions > 0);
+DROP TABLE chat_read_state;
+ALTER TABLE chat_read_state_new RENAME TO chat_read_state;
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

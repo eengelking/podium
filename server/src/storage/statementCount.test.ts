@@ -13,4 +13,8 @@ describe('countCalls and counted', () => {
     expect(statementCount.n - before).toBe(2);
     expect((await counted(async () => 'nothing')).statements).toBe(0);
   });
+
+  it('throws for a method the target does not have, so a renamed driver call fails at load', () => {
+    expect(() => countCalls({ run: () => 1 }, ['run', 'runAll'])).toThrow('no method "runAll"');
+  });
 });

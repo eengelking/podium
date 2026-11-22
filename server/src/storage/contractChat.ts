@@ -207,18 +207,16 @@ export function chatCases(o: Openers): void {
   });
 
   onEachAdapter(o, 'counts one post for many people with the counts one bump each gives, in a number of statements that does not grow with the people (#1309)', async (s) => {
-    const clock = { now: T0 };
-    const rs = s.chat({ now: () => clock.now }).readState;
+    const rs = s.chat({ now: () => T0 }).readState;
     const bumps = (from: number, n: number): { personId: number; mention: boolean }[] => Array.from({ length: n }, (_, i) => ({ personId: from + i, mention: i % 4 === 0 }));
     // Some people already have a row in the thread (and one has a mention), the rest do not.
     await bump(rs, 300, 'public', true);
     await bump(rs, 301, 'public', false);
-    clock.now += 5;
     const small = await counted(() => rs.bumpMany('public', bumps(300, 3)));
     const large = await counted(() => rs.bumpMany('public', bumps(400, 60)));
-    expect(small.value.map((r) => [r.personId, r.unread, r.mentions, r.updatedAt])).toEqual([[300, 2, 2, T0 + 5], [301, 2, 0, T0 + 5], [302, 1, 0, T0 + 5]]);
+    expect(small.value.map((r) => [r.personId, r.unread, r.mentions])).toEqual([[300, 2, 2], [301, 2, 0], [302, 1, 0]]);
     expect(large.value).toHaveLength(60);
-    expect(large.value.every((r) => r.thread === 'public' && r.unread === 1 && r.lastRead === null && r.updatedAt === T0 + 5)).toBe(true);
+    expect(large.value.every((r) => r.thread === 'public' && r.unread === 1)).toBe(true);
     expect(large.value.filter((r) => r.mentions === 1)).toHaveLength(15);
     // What the call returned is what the store holds, and another thread and another person are left alone.
     expect(await rs.list(405)).toEqual([large.value[5]]);
@@ -307,41 +305,46 @@ export function chatCases(o: Openers): void {
     expect(large).toBeLessThan(Math.max(small * 5, 250));
   }, 300_000);
 
-  it('agrees on every adapter for the unread and mention counts and the last-read cursor of one person in one thread', async () => {
+  it('agrees on every adapter for the unread and mention counts of one person in one thread, and keeps no row for a thread at zero (#1296)', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
-      const clock = { now: T0 };
-      const rs = s.chat({ now: () => clock.now }).readState;
+      const rs = s.chat({ now: () => T0 }).readState;
       await rec('get (never seen)', rs.get(pid('ed'), 'public'));
       await rec('bump', bump(rs, pid('ed'), 'public', false));
-      clock.now += 1;
       await rec('bump (again)', bump(rs, pid('ED'), 'public', false));
       await rec('bump (a mention)', bump(rs, pid('ed'), 'public', true));
       await rec('bump (another thread)', bump(rs, pid('ed'), 'group:g1', true));
       await rec('bump (another person)', bump(rs, pid('eve'), 'public', false));
       await rec('list', rs.list(pid('ed')));
-      clock.now += 1;
-      await rec('mark read', rs.markRead(pid('ed'), 'public', '1800000000005.7'));
-      await rec('mark read (a thread never bumped)', rs.markRead(pid('ed'), 'dm:a|b', null));
+      await rec('mark read', rs.markRead(pid('ed'), 'public'));
+      await rec('mark read (a thread never bumped)', rs.markRead(pid('ed'), 'dm:a|b'));
+      await rec('mark read (again)', rs.markRead(pid('ed'), 'public'));
       await rec('get (read)', rs.get(pid('ed'), 'public'));
       await rec('list (after)', rs.list(pid('ed')));
       await rec('list (another person)', rs.list(pid('eve')));
       await rec('threads that start with dm:', rs.threads('dm:'));
       await rec('threads that start with group:', rs.threads('group:'));
       await rec('threads that start with nothing there', rs.threads('zz'));
+      await rec('bump (after it was read)', bump(rs, pid('ed'), 'public', false));
       await rec('forget the thread', rs.forget('public'));
       await rec('list (after forget)', rs.list(pid('ed')));
       await rec('list (another person, after forget)', rs.list(pid('eve')));
     });
-    expect(t.get('threads that start with dm:')).toEqual(['dm:a|b']);
+    const zeros = (thread: string) => ({ personId: 11, thread, unread: 0, mentions: 0 });
+    expect(t.get('threads that start with dm:')).toEqual([]);
     expect(t.get('threads that start with group:')).toEqual(['group:g1']);
     expect(t.get('threads that start with nothing there')).toEqual([]);
-    expect(t.get('get (never seen)')).toEqual({ personId: 11, thread: 'public', lastRead: null, unread: 0, mentions: 0, updatedAt: 0 });
-    expect(t.get('bump (a mention)')).toEqual({ personId: 11, thread: 'public', lastRead: null, unread: 3, mentions: 1, updatedAt: T0 + 1 });
+    expect(t.get('get (never seen)')).toEqual(zeros('public'));
+    expect(t.get('bump (a mention)')).toEqual({ personId: 11, thread: 'public', unread: 3, mentions: 1 });
     expect((t.get('list') as { thread: string }[]).map((r) => r.thread)).toEqual(['group:g1', 'public']);
-    expect(t.get('get (read)')).toEqual({ personId: 11, thread: 'public', lastRead: '1800000000005.7', unread: 0, mentions: 0, updatedAt: T0 + 2 });
-    expect((t.get('list (after)') as { thread: string }[]).map((r) => r.thread)).toEqual(['dm:a|b', 'group:g1', 'public']);
+    // Reading a thread answers the zeros, and the zeros are what a thread with no row answers, so the two are the same.
+    expect(t.get('mark read')).toEqual(zeros('public'));
+    expect(t.get('mark read (a thread never bumped)')).toEqual(zeros('dm:a|b'));
+    expect(t.get('mark read (again)')).toEqual(zeros('public'));
+    expect(t.get('get (read)')).toEqual(t.get('get (never seen)'));
+    expect((t.get('list (after)') as { thread: string }[]).map((r) => r.thread)).toEqual(['group:g1']);
+    expect(t.get('bump (after it was read)')).toEqual({ personId: 11, thread: 'public', unread: 1, mentions: 0 });
     expect(t.get('forget the thread')).toBe(2);
-    expect((t.get('list (after forget)') as { thread: string }[]).map((r) => r.thread)).toEqual(['dm:a|b', 'group:g1']);
+    expect((t.get('list (after forget)') as { thread: string }[]).map((r) => r.thread)).toEqual(['group:g1']);
     expect(t.get('list (another person, after forget)')).toEqual([]);
   });
 
@@ -1185,6 +1188,32 @@ const mine = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostIn
 const mention = (sessionId: string | null, state: MentionState): NonNullable<ChannelPostInput['mentions']>[number] => ({ sessionId, peerKey: sessionId ? 'k' : null, typed: `${sessionId ?? 'zoe'}@box`, state });
 
 function chatChangeCases(o: Openers): void {
+  onEachAdapter(o, 'gives a message the time of its newest change as updatedAt: its post, an edit, a mention changing state, a delete (#1296)', async (s) => {
+    const clock = { now: T0 };
+    const chat = s.chat({ now: () => clock.now });
+    for (const c of await surfaces(chat)) {
+      clock.now = T0;
+      const m = await c.post(mine('x', { mentions: [mention(null, 'held')] }));
+      const at = async (label: string, when: number): Promise<void> => {
+        const page = await c.page({ limit: 50 });
+        expect([label, page.messages.find((x) => x.id === m.id)?.updatedAt, (await c.getMessage(m.id))?.updatedAt]).toEqual([label, when, when]);
+      };
+      await at(`${c.label}: posted`, T0);
+      clock.now = T0 + 10;
+      await c.setMention(m.id, 0, { state: 'dropped' });
+      await at(`${c.label}: a mention changed`, T0 + 10);
+      clock.now = T0 + 20;
+      await c.edit(m.id, { author: ED_ID, text: 'y', now: clock.now });
+      await at(`${c.label}: edited`, T0 + 20);
+      clock.now = T0 + 30;
+      await c.setMention(m.id, 0, { state: 'held' });
+      await at(`${c.label}: a mention changed after the edit`, T0 + 30);
+      clock.now = T0 + 40;
+      await c.del(m.id, { author: ED_ID, now: clock.now });
+      await at(`${c.label}: deleted`, T0 + 40);
+    }
+  });
+
   it('edits and deletes the author\'s own message in place on every adapter, keeping its place in the pages and the count, for the group channel and a public channel (#1269)', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const clock = { now: T0 };
