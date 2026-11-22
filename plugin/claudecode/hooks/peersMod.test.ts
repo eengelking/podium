@@ -2,7 +2,8 @@ import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { ENDED_NOTICE_MARK, type AdminNotice, type Ask, type Delivery, type PeerDelivery, type PeerRequest, type Report } from '../../core/protocol.ts'
 import { HELD_LEAD } from './midTurn.ts'
-import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
+import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND } from '../../core/peers.ts'
+import { PEER_TOOLS, peerToolDefinitions } from '../../core/peerTools.ts'
 import { assertKeptApart, assertSubmittedFramed, type AfterPeerMessage } from './peerChecks.ts'
 
 // Orchestrator messaging in the reporter (#414, SPEC 5.3). The world beneath the plugin is a fake Podium server whose
@@ -289,6 +290,8 @@ describe('peers: when the mod takes part', () => {
     await nextReply(w)
     await nextReply(w)
     expect(w.registered.tools.filter((t) => t.startsWith('podium_'))).toEqual(['podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read'])
+    // The four are what core defines, in its order, and nothing else is added to them (#1312).
+    expect(w.registered.defs.filter((d) => d.name.startsWith('podium_'))).toEqual(peerToolDefinitions())
   })
 })
 
@@ -492,6 +495,16 @@ describe('peers: the tools', () => {
     expect(await callTool($, w, 'podium_request_access', { to: 'build-pi', right: 'admin', reason: 'x' })).toBe('Not asked. right must be see or send.')
     expect(await callTool($, w, 'podium_request_access', { to: ' ', right: 'see', reason: 'x' })).toMatch(/^Not asked\. Say which machine/)
     expect(peerCallsTo(w, '/access')).toHaveLength(1)
+  })
+
+  test("Podium's own reason follows the tool's prefix for an access request two reporters share a name for, and for an address Podium finds too long (#1312)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/access'] = { status: 409, body: { ok: false, error: 'Two of your reporters are called pi. Use the name of one.' } }
+    w.server.routes['POST /peers/messages'] = { status: 400, body: { ok: false, error: 'to is too long' } }
+    await started($, w)
+    expect(await callTool($, w, 'podium_request_access', { to: 'pi', right: 'send', reason: 'x' })).toBe('Not asked. Two of your reporters are called pi. Use the name of one.')
+    expect(await callTool($, w, 'podium_send', { to: 'a'.repeat(201), text: 'x' })).toBe('Not sent. To is too long.')
+    expect(peerCallsTo(w, '/messages')[0]!.body).toEqual({ to: 'a'.repeat(201), text: 'x' })
   })
 })
 
@@ -1011,12 +1024,12 @@ describe('podium_chat_read: an addressed agent reads the last hour of its channe
     const w = world(on)
     await started($, w)
     const def = w.registered.defs.find((d) => d.name === 'podium_chat_read')!
-    expect(def.description).toBe(TOOL_DESCRIPTIONS.chatRead)
+    expect(def.description).toBe(PEER_TOOLS.podium_chat_read.description)
     expect(def.inputSchema).toEqual({
       type: 'object',
       properties: {
-        channel: { type: 'string', description: CHAT_READ_CHANNEL_DESCRIPTION },
-        before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION },
+        channel: { type: 'string', description: PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description },
+        before: { type: 'string', description: PEER_TOOLS.podium_chat_read.inputSchema.properties.before.description },
       },
     })
     expect(w.registered.defs.find((d) => d.name === 'podium_send')!.description).toContain('podium_chat_read')

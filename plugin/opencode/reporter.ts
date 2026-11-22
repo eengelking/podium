@@ -14,6 +14,7 @@ import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeToast } from '../cor
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
+import type { PeerToolName } from '../core/peerTools.ts';
 import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
@@ -675,18 +676,12 @@ export class Reporter {
    * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`) from the session it ran in. A call from a subagent's
    * session is refused: only an orchestrator takes part. The answer is the tool's text, never a thrown error.
    */
-  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access' | 'podium_chat_read', sessionId: string, input: unknown): Promise<string> {
+  async peerTool(name: PeerToolName, sessionId: string, input: unknown): Promise<string> {
     const peers = this.peers;
     if (!peers) return 'Not taking part. Orchestrator messaging is off on this machine.';
     const rootId = this.store.rootOf.get(sessionId);
     const root = rootId ? this.store.roots.get(rootId) : undefined;
-    const t = root ? this.transportOf(root) : undefined;
-    const sub = !!root && root.id !== sessionId;
-    const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-    if (name === 'podium_peers') return peers.list(root, t, sub);
-    if (name === 'podium_send') return peers.send(root, t, sub, args);
-    if (name === 'podium_chat_read') return peers.chatRead(root, t, sub, args);
-    return peers.access(root, t, sub, args);
+    return peers.tool(name, root, root ? this.transportOf(root) : undefined, !!root && root.id !== sessionId, input);
   }
 
   /** `/podium allow|decline|deliver <id>` typed in a session, and the waiting requests `/podium` lists. */

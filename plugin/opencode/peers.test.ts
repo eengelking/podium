@@ -3,7 +3,8 @@ import { ENDED_NOTICE_MARK, type AdminNotice, type PeerDelivery, type PeerReques
 import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
-import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../core/peers.ts';
+import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND } from '../core/peers.ts';
+import { PEER_TOOLS, peerToolDefinitions } from '../core/peerTools.ts';
 import { podiumTools } from './tools.ts';
 import type { BusEvent } from './state.ts';
 
@@ -128,6 +129,8 @@ describe('messaging is the person\'s to allow (#969)', () => {
     expect(podiumTools(x.r).map((t) => t.name)).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read']);
     expect(last(x.server).session.peers).toBe(true);
     for (const t of podiumTools(x.r)) expect(t.input).toMatchObject({ type: 'object' });
+    // The four are what core defines, in its order, and nothing else is added to them (#1312).
+    expect(podiumTools(x.r).slice(1).map((t) => ({ name: t.name, description: t.description, inputSchema: t.input }))).toEqual(peerToolDefinitions());
   });
 
   it('takes nothing from a reply that says the session does not take part, and tools say why', async () => {
@@ -398,7 +401,7 @@ describe('the messaging tools (#969)', () => {
     expect(text).toBe('Sent to Eve, a person using Podium Chat. Ed can read the conversation too. Before it left this machine, 1 value that looked like a secret was replaced with [redacted].');
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', body: { to: 'person:Eve', text: 'fixed, token=[redacted]' } });
     const send = podiumTools(x.r).find((t) => t.name === 'podium_send')!;
-    expect(send.description).toContain('"person:name"');
+    expect((send.input.properties as { to: { description: string } }).to.description).toContain('"person:name"');
     expect(JSON.stringify(send.input)).toContain('person:name');
   });
 
@@ -452,12 +455,12 @@ describe('the messaging tools (#969)', () => {
     const x = rig();
     await reported(x);
     const read = podiumTools(x.r).find((t) => t.name === 'podium_chat_read')!;
-    expect(read.description).toBe(TOOL_DESCRIPTIONS.chatRead);
+    expect(read.description).toBe(PEER_TOOLS.podium_chat_read.description);
     expect(read.input).toEqual({
       type: 'object',
       properties: {
-        channel: { type: 'string', description: CHAT_READ_CHANNEL_DESCRIPTION },
-        before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION },
+        channel: { type: 'string', description: PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description },
+        before: { type: 'string', description: PEER_TOOLS.podium_chat_read.inputSchema.properties.before.description },
       },
     });
     expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.description).toContain('podium_chat_read');
@@ -472,7 +475,7 @@ describe('the messaging tools (#969)', () => {
   it('answers in the channel that called it: the route, the credential, the answer, the secret replaced (#1065)', async () => {
     const x = rig();
     await reported(x);
-    expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.description).toContain('channel:group');
+    expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.input.properties).toMatchObject({ to: { description: expect.stringContaining('"channel:group"') } });
     x.server.answer = () => ({ status: 201, text: JSON.stringify({ ok: true, id: 'grp_2', createdAt: 1 }) });
     expect(await tool(x, 'podium_send', { to: 'channel:group', text: 'Done, 14 of 14 pass.' })).toBe('Posted in My group. Everyone who can read the channel sees it, and Ed can too.');
     expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/chat/channels/group/messages', token: 'tok', body: { text: 'Done, 14 of 14 pass.' } });
@@ -631,6 +634,16 @@ describe('the messaging tools (#969)', () => {
     expect(await tool(x, 'podium_send', { to: 'a@b', text: 'x' }, KID)).toContain('Only an orchestrator can send');
     expect(await tool(x, 'podium_request_access', { to: 'a', right: 'see', reason: 'r' }, KID)).toContain('Only an orchestrator can ask');
     expect(x.server.calls).toEqual([]);
+  });
+
+  it("answers Podium's own reason after the tool's prefix for an access request two reporters share a name for, and for an address Podium finds too long (#1312)", async () => {
+    const x = rig();
+    await reported(x);
+    x.server.answer = () => ({ status: 409, text: JSON.stringify({ ok: false, error: 'Two of your reporters are called pi. Use the name of one.' }) });
+    expect(await tool(x, 'podium_request_access', { to: 'pi', right: 'send', reason: 'x' })).toBe('Not asked. Two of your reporters are called pi. Use the name of one.');
+    x.server.answer = () => ({ status: 400, text: JSON.stringify({ ok: false, error: 'to is too long' }) });
+    expect(await tool(x, 'podium_send', { to: 'a'.repeat(201), text: 'x' })).toBe('Not sent. To is too long.');
+    expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/peers/messages', body: { to: 'a'.repeat(201), text: 'x' } });
   });
 
   it('answers in the tool\'s words when Podium refuses, cannot be reached, is slow, or sends something unreadable', async () => {

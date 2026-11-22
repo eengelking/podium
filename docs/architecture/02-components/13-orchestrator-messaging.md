@@ -51,7 +51,10 @@ Traffic mockup shows them per line. Notices to a sender ride the same reply list
 mod has one list, one result route and one dedupe. SPEC 7.7 records both.
 
 **The mod (#414).** `plugin/core/peers.ts` is pure: the tools' words, the frame a peer message is submitted under, the
-request lines and toasts, and short ids. The messaging block in `register.ts` is kept apart from responding: peer
+request lines and toasts, and short ids. `plugin/core/peerTools.ts` defines the four tools once (name, description, input
+schema, what each does with a call and how its outcome reads), and `RequestBook` there keeps the open requests,
+so a harness only registers the tools, says who called and whether the session takes part, and makes the one HTTP call
+(#1312). The messaging block in `register.ts` is kept apart from responding: peer
 deliveries and requests have their own `Transport` fields (`peers`, `peerDeliveries`, `peerRequests`), and a message
 only ever becomes a framed `$.prompt.submit`. Results share responding's outbox and `acted` dedupe but post to the
 peers result route. A tool call waits on a `PeerCall` queue that `flush` drains (`sendPeerCalls`), so the call is
