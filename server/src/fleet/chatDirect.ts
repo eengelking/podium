@@ -7,7 +7,7 @@ import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, changeRefusal, changeState, endedNotice, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
-import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
+import { readSubject, type AdminReads, type ReadSubject, type Told } from './chatAdminReads.js';
 import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 export interface PartyView {
@@ -418,20 +418,15 @@ export class DirectChat {
 
   /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners, in every live reporter session of each. */
   private async subject(c: ConversationSummary): Promise<ReadSubject> {
-    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: this.peopleOf(c), people: this.peopleIdsOf(c), phrase: `is reading your Podium conversation between ${c.a.name} and ${c.b.name}` };
-  }
-
-  /** The people of a conversation, folded: its owner, and the person who wrote when it is across owners. Names, for the Admin log and the console's signals. */
-  private peopleOf(c: ConversationSummary): string[] {
     const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    return [...new Set([nameKey(c.owner), ...(person ? [nameKey(person.name)] : [])])];
+    return readSubject('dm', dmThread(c.a.sessionId, c.b.sessionId), `is reading your Podium conversation between ${c.a.name} and ${c.b.name}`, { names: [c.owner, ...(person ? [person.name] : [])], ids: this.peopleIdsOf(c) });
   }
 
   /**
    * The people of a conversation by `people.id` (#1284), who are told and owed the record: the owner by the id the conversation kept, and the person who wrote by the id in their end of the link
    * (`person:<id>`). An end that is no person (`person:gone:<name>`, a deleted person) is no one, never a newcomer who has since taken the name.
    */
-  private peopleIdsOf(c: ConversationSummary): number[] {
+  private peopleIdsOf(c: Pick<ConversationSummary, 'a' | 'b' | 'ownerId'>): number[] {
     const ids = new Set<number>();
     if (c.ownerId !== null) ids.add(c.ownerId);
     for (const p of [c.a, c.b]) {
@@ -898,12 +893,7 @@ export class DirectChat {
 
   /** Records a conclusion for the people in it: the conversation's owner, a person in the pair, and the owner of the agent that remains. */
   private async remember(c: OwnerConversation | ConversationSummary, gone: { name: string }, other: { sessionId: string; name: string }, thread: string, undelivered: number): Promise<void> {
-    const people = new Set<number>();
-    if (c.ownerId !== null) people.add(c.ownerId);
-    for (const p of [c.a, c.b]) {
-      const id = isPersonId(p.sessionId) ? Number(p.sessionId.slice('person:'.length)) : Number.NaN;
-      if (Number.isInteger(id)) people.add(id);
-    }
+    const people = new Set(this.peopleIdsOf(c));
     if (!isPersonId(other.sessionId)) {
       const owner = (await this.core.host.sessionOf(other.sessionId))?.ownerId ?? null;
       if (owner !== null) people.add(owner);

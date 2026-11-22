@@ -4,7 +4,7 @@
 import { nameKey } from '../storage/rows.js';
 import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { ACT_PREFIX } from './adminActs.js';
-import { AdminReads, LIST_PHRASE, listThread } from './chatAdminReads.js';
+import { AdminReads, listSubject, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
@@ -175,7 +175,7 @@ export class ChatService {
     // The person's list is theirs: an Admin looking at it is recorded and the person is told, in the console and in podium-reporter (#1051). It names
     // who they talk to and how many messages, never what they say. Recorded before it is answered; the Admin log gets `chat_admin_browse` once a session.
     // The person is the one with this id (#1284): the record and the notice are found by it, so a person who takes a deleted person's name is told of nothing.
-    await this.adminReads.note(viewer, { scope: 'list', thread: listThread(subject.id), owners: [key], people: [subject.id], phrase: LIST_PHRASE, person: subject.name });
+    await this.adminReads.note(viewer, listSubject(subject.id, subject.name));
     return this.overview(viewer, { id: subject.id, name: subject.name });
   }
 

@@ -6,7 +6,7 @@ import type { LiveOrchestrator } from './peerTypes.js';
 import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
 import { ChatCore, changeRefusal, changeState, sentWords, type AcrossUpdate, type ChangeRefusal, type ChangeWords, type ChatLimits } from './chatCore.js';
-import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
+import { groupSubject, type AdminReads, type Told } from './chatAdminReads.js';
 import { CHANNEL_NAME, lockedByDelivery } from '../storage/chatRows.js';
 import {
   GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, scopeOf, type ChannelId, type ChatViewer, type Fail, type PersonRef,
@@ -289,11 +289,6 @@ export class ChannelChat {
     }
   }
 
-  /** The subject of an Admin's reading of a person's group: the person is told in the console and in each of their reporter sessions. */
-  private groupSubject(owner: PersonRef): ReadSubject {
-    return { scope: 'group', thread: groupThread(owner.id), owners: [nameKey(owner.name)], people: [owner.id], phrase: 'is reading your Podium group' };
-  }
-
   /**
    * An Admin read a person's group: recorded (and the person told) before it is answered. Returns the thread's records, which its person and an Admin may read:
    * for the group, the readings and the Admin's stops; for General and every other public channel, which are public and never read-recorded, only the Admin's stops
@@ -302,7 +297,7 @@ export class ChannelChat {
   async readRecord(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null) {
     if (isPublicChannel(channel)) return this.reads.list(channelThread(channel));
     if (owner === null) return [];
-    if (viewer.admin && owner.id !== viewer.personId) await this.reads.note(viewer, this.groupSubject(owner));
+    if (viewer.admin && owner.id !== viewer.personId) await this.reads.note(viewer, groupSubject(owner.id, owner.name));
     const records = await this.reads.list(groupThread(owner.id));
     // The records go to the person's own console here, so what is owed to them is seen (#1051).
     if (viewer.personId !== null && owner.id === viewer.personId) await this.reads.seen(groupThread(owner.id), viewer.personId);
@@ -313,7 +308,7 @@ export class ChannelChat {
   async reading(viewer: ChatViewer, owner: PersonRef | null): Promise<{ ok: true } | Fail> {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a group that is not their own.');
     if (owner === null || owner.id === viewer.personId) return fail(400, 'That group is yours, so reading it is not recorded.');
-    await this.reads.note(viewer, this.groupSubject(owner), true);
+    await this.reads.note(viewer, groupSubject(owner.id, owner.name), true);
     return { ok: true };
   }
 

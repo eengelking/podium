@@ -6,7 +6,7 @@
 // answers any stranger, so nothing says whether it exists, who is in it or how many messages it has.
 import { nameKey } from '../storage/rows.js';
 import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage, ConversationTargetInput } from '../storage/types.js';
-import type { AdminReads, ReadSubject } from './chatAdminReads.js';
+import { readSubject, type AdminReads, type ReadSubject } from './chatAdminReads.js';
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
 import { changeRefusal, changeState, endedNotice, type ChangeWords, type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import type { LiveOrchestrator } from './peerTypes.js';
@@ -106,10 +106,6 @@ export class ConversationChat {
     return null;
   }
 
-  private peopleOf(c: Conversation): string[] {
-    return [...new Set(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => nameKey(m.name)))];
-  }
-
   /** The people in it by `people.id` (a person member's `ref`, #1284): who is told and owed the record, whatever they are called now. */
   private personIdsOf(c: Conversation): number[] {
     return [...new Set(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => Number(m.ref)))];
@@ -117,8 +113,8 @@ export class ConversationChat {
 
   /** Who is told when an Admin reads it: every person in it, in every live reporter session. */
   private subject(c: Conversation): ReadSubject {
-    const names = c.members.filter((m) => m.leftAt === null).map((m) => m.name).join(', ');
-    return { scope: 'dm', thread: conversationThread(c.id), owners: this.peopleOf(c), people: this.personIdsOf(c), phrase: `is reading your Podium conversation with ${names}` };
+    const here = c.members.filter((m) => m.leftAt === null);
+    return readSubject('dm', conversationThread(c.id), `is reading your Podium conversation with ${here.map((m) => m.name).join(', ')}`, { names: here.filter((m) => m.kind === 'person').map((m) => m.name), ids: this.personIdsOf(c) });
   }
 
   /** The thread's subject for the Admin records, from its conversation. Null when there is none, or none an Admin may read. */

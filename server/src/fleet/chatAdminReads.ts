@@ -6,7 +6,7 @@ import { NOTICE_TTL_MS, type AdminNotice } from './chatAdminNotices.js';
 import { nameKey } from '../storage/rows.js';
 import { LOOP_ID, parseSessionThread, readNeedsLoop, sessionPhrase, sessionSubject, sessionThreadPrefix, type ParsedSessionThread, type SessionReadKind } from './sessionReads.js';
 import type { ChatCore } from './chatCore.js';
-import type { AdminReading, ChatViewer } from './chatTypes.js';
+import { groupThread, type AdminReading, type ChatViewer } from './chatTypes.js';
 
 /** Reads of one thread by one Admin this close together are one reading session. */
 export const SESSION_GAP_MS = 30 * 60_000;
@@ -48,6 +48,18 @@ export interface ReadSubject {
 /** Whose recorded session an Admin is replaying: the person told, and what the callout says. */
 export type ReplaySubject = Omit<ReadSubject, 'scope'> & { scope: 'replay' };
 
+/**
+ * The one builder of a read's subject, for every path an Admin reads a person's content by (a group, a Direct Message, a conversation, a list, a session's ask or Activity, a replay):
+ * the people told, by id (`ids`, who is told and owed the record), and the names the Admin log and the signals carry (`names`, folded and each once). A path that has no name
+ * for them passes none. Nothing here decides who is told by name.
+ */
+export function readSubject<S extends ReadSubject['scope'] | 'replay'>(scope: S, thread: string, phrase: string, who: { names?: readonly string[]; ids: readonly number[] }): Omit<ReadSubject, 'scope'> & { scope: S } {
+  return { scope, thread, owners: [...new Set((who.names ?? []).map(nameKey))], people: [...new Set(who.ids)], phrase };
+}
+
+/** The subject of an Admin's reading of a person's group: the person is told in the console and in each of their reporter sessions. */
+export const groupSubject = (ownerId: number, name?: string): ReadSubject => readSubject('group', groupThread(ownerId), 'is reading your Podium group', { names: name === undefined ? [] : [name], ids: [ownerId] });
+
 /** The thread an Admin's replay of a person's recorded session is recorded under (#1075). */
 export const replayThread = (sessionId: string): string => `replay:${sessionId}`;
 
@@ -56,6 +68,9 @@ const replayPhrase = (name: string): string => `is replaying your recorded Podiu
 
 /** The thread an Admin's look at a person's list of conversations is recorded under: the person's `people.id` (#1284). */
 export const listThread = (ownerId: number): string => `list:${ownerId}`;
+
+/** The subject of an Admin's look at a person's list of conversations; with the person's name (as typed) when the Admin log is to name them. */
+export const listSubject = (ownerId: number, name?: string): ReadSubject => ({ ...readSubject('list', listThread(ownerId), LIST_PHRASE, { names: name === undefined ? [] : [name], ids: [ownerId] }), ...(name === undefined ? {} : { person: name }) });
 
 /** The person a `group:<id>` or `list:<id>` thread names, or null for any other thread and for one that still holds a name the upgrade left alone. */
 const personOfThread = (thread: string, prefix: string): number | null => {
@@ -145,7 +160,7 @@ export class AdminReads {
   async noteReplay(viewer: ChatViewer, session: { id: string; name: string; owner: string | null; owner_id: number | null }): Promise<boolean> {
     // Whose a session is, is its owner's id (#1284): one with none (the admin secret's, or whose person was deleted) has no person to tell.
     if (!viewer.admin || session.owner === null || session.owner_id === null || session.owner_id === viewer.personId) return false;
-    const subject: ReplaySubject = { scope: 'replay', thread: replayThread(session.id), owners: [nameKey(session.owner)], people: [session.owner_id], phrase: replayPhrase(session.name) };
+    const subject = readSubject('replay', replayThread(session.id), replayPhrase(session.name), { names: [session.owner], ids: [session.owner_id] });
     await this.store.touch(subject.thread, viewer.actor, viewer.personId, SESSION_GAP_MS, subject.people);
     this.changed();
     this.known.set(subject.thread, { subject, at: this.core.host.now() });
@@ -181,17 +196,17 @@ export class AdminReads {
     // A group's or a list's person is the id in the thread's name (#1284). A thread that still holds a name (an old record the upgrade could not tie to a person) has no one to tell.
     const group = personOfThread(thread, 'group:');
     const list = personOfThread(thread, 'list:');
-    if (group !== null) subject = { scope: 'group', thread, owners: [], people: [group], phrase: 'is reading your Podium group' };
-    else if (list !== null) subject = { scope: 'list', thread, owners: [], people: [list], phrase: LIST_PHRASE };
+    if (group !== null) subject = groupSubject(group);
+    else if (list !== null) subject = listSubject(list);
     else if (thread.startsWith('dm:') || thread.startsWith('convo:')) subject = await this.resolve(thread);
     else if (thread.startsWith('replay:')) {
       const row = await this.core.host.sessionOf(thread.slice('replay:'.length));
-      if (row && row.owner !== null && row.ownerId !== null) subject = { scope: 'replay', thread, owners: [nameKey(row.owner)], people: [row.ownerId], phrase: replayPhrase(row.name) };
+      if (row && row.owner !== null && row.ownerId !== null) subject = readSubject('replay', thread, replayPhrase(row.name), { names: [row.owner], ids: [row.ownerId] });
     } else {
       // A session read (an ask, stored Activity): whose it is comes from the stored session, so a session peer messaging does not know is still told.
       const parsed = parseSessionThread(thread);
       const row = parsed ? await this.core.host.sessionOf(parsed.sessionId) : null;
-      if (parsed && row && row.owner !== null && row.ownerId !== null) subject = { scope: 'session', thread, owners: [nameKey(row.owner)], people: [row.ownerId], phrase: sessionPhrase(parsed.kind, row.name) };
+      if (parsed && row && row.owner !== null && row.ownerId !== null) subject = readSubject('session', thread, sessionPhrase(parsed.kind, row.name), { names: [row.owner], ids: [row.ownerId] });
     }
     this.known.set(thread, { subject, at: now });
     return subject;
@@ -241,7 +256,7 @@ export class AdminReads {
     const got = await this.store.touch(s.thread, viewer.actor, viewer.personId, SESSION_GAP_MS, [session.owner_id]);
     this.changed();
     this.replayAt = this.core.host.now();
-    this.known.set(s.thread, { subject: { scope: 'session', thread: s.thread, owners: [s.owner], people: [session.owner_id], phrase: s.phrase }, at: this.core.host.now() });
+    this.known.set(s.thread, { subject: readSubject('session', s.thread, s.phrase, { names: [s.owner], ids: [session.owner_id] }), at: this.core.host.now() });
     // a read that lapsed (no ping for LIVE_MS) and resumes is live again, which no console holds an end for, so it wakes them like a start
     const resumed = got.previousSeenAt !== null && this.core.host.now() - got.previousSeenAt > LIVE_MS;
     let logDue = false;
