@@ -3,7 +3,8 @@ import { ENDED_NOTICE_MARK, type AdminNotice, type PeerDelivery, type PeerReques
 import type { FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { Reporter } from './reporter.ts';
-import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../core/peers.ts';
+import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_REFUSAL, MID_TURN_NOTE, PEER_MESSAGE_END, SUBAGENT_CHAT_READ, SUBAGENT_SEND } from '../core/peers.ts';
+import { PEER_TOOLS, peerToolDefinitions } from '../core/peerTools.ts';
 import { podiumTools } from './tools.ts';
 import type { BusEvent } from './state.ts';
 
@@ -128,6 +129,8 @@ describe('messaging is the person\'s to allow (#969)', () => {
     expect(podiumTools(x.r).map((t) => t.name)).toEqual(['plan', 'podium_peers', 'podium_send', 'podium_request_access', 'podium_chat_read']);
     expect(last(x.server).session.peers).toBe(true);
     for (const t of podiumTools(x.r)) expect(t.input).toMatchObject({ type: 'object' });
+    // The four are what core defines, in its order, and nothing else is added to them (#1312).
+    expect(podiumTools(x.r).slice(1).map((t) => ({ name: t.name, description: t.description, inputSchema: t.input }))).toEqual(peerToolDefinitions());
   });
 
   it('takes nothing from a reply that says the session does not take part, and tools say why', async () => {
@@ -452,12 +455,12 @@ describe('the messaging tools (#969)', () => {
     const x = rig();
     await reported(x);
     const read = podiumTools(x.r).find((t) => t.name === 'podium_chat_read')!;
-    expect(read.description).toBe(TOOL_DESCRIPTIONS.chatRead);
+    expect(read.description).toBe(PEER_TOOLS.podium_chat_read.description);
     expect(read.input).toEqual({
       type: 'object',
       properties: {
-        channel: { type: 'string', description: CHAT_READ_CHANNEL_DESCRIPTION },
-        before: { type: 'string', description: CHAT_READ_BEFORE_DESCRIPTION },
+        channel: { type: 'string', description: PEER_TOOLS.podium_chat_read.inputSchema.properties.channel.description },
+        before: { type: 'string', description: PEER_TOOLS.podium_chat_read.inputSchema.properties.before.description },
       },
     });
     expect(podiumTools(x.r).find((t) => t.name === 'podium_send')!.description).toContain('podium_chat_read');
