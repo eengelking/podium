@@ -36,6 +36,7 @@
     "plugin:dev:opencode": "node scripts/plugin-dev.mjs opencode",
     "plugin:dev:cleanup": "node scripts/plugin-dev.mjs cleanup",
     "test:db": "node scripts/test-db.mjs",
+    "test:all": "node scripts/test-all.mjs",
     "test:core": "vitest run --config plugin/core/vitest.config.ts",
     "test:mod:claudecode": "node scripts/plugin-build.mjs claudecode --with-tests --out .build-test && claude plugin test .build-test/claudecode",
     "typecheck:mod:claudecode": "bash scripts/podium-mod-typecheck.sh",
