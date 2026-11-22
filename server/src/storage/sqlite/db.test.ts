@@ -122,12 +122,15 @@ describe('openDb', () => {
     old.exec('ALTER TABLE peer_messages DROP COLUMN from_agent');
     old.exec('ALTER TABLE peer_messages DROP COLUMN to_agent');
     old.exec('DROP TABLE agent_ids');
-    for (const t of ['group_messages', 'public_messages', 'chat_read_state', 'chat_admin_reads', 'chat_admin_owed', 'public_channels']) old.exec(`DROP TABLE ${t}`);
+    for (const t of ['conversation_deliveries', 'conversation_messages', 'conversation_members', 'conversations', 'group_messages', 'public_messages', 'chat_read_state', 'chat_admin_reads', 'chat_admin_owed', 'public_channels']) old.exec(`DROP TABLE ${t}`);
     for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
       old.exec(`DROP INDEX ${t}_seq`);
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
     }
     for (const t of ['reporter_sessions', 'reporters', 'person_machines', 'people', 'groups', 'admin_log', 'settings', 'agent_texts']) old.exec(`DROP TABLE ${t}`);
+    // Migration 54 drops `peer_messages.handed` and `peer_requests_owner`, which the older steps only create, so the old database has them back (#1296).
+    old.exec('ALTER TABLE peer_messages ADD COLUMN handed INTEGER NOT NULL DEFAULT 0');
+    old.exec('CREATE INDEX IF NOT EXISTS peer_requests_owner ON peer_requests(owner)');
     old.exec('DELETE FROM schema_migrations WHERE version >= 2');
     old.close();
     const db = openDb(file);
