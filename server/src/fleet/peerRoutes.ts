@@ -80,12 +80,8 @@ function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
   };
 
   fleet.peers.onMessage = (t: MessageTrail) => {
-    // Chat moves the mention a person wrote to another person's agent, and signals both sides (#1034). It never stops the log below.
-    try {
-      fleet.chat.peerTrail(t);
-    } catch (err) {
-      logger.warn('chat.failed', `podium: Chat could not follow a message: ${(err as Error).message}`, { reason: (err as Error).message });
-    }
+    // Chat moves the mention a person wrote to another person's agent, and signals both sides (#1034). It never stops the log below: a failure is Chat's own warning.
+    fleet.chat.peerTrail(t);
     const m = t.message;
     const fields = { owner: m.owner, from_session: m.fromSession, to_session: m.toSession, message_id: short(m.id) };
     if (t.kind === 'sent') {
