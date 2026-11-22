@@ -283,6 +283,32 @@ export function conversationCases(o: Openers): void {
     expect(t.get('purge past b')).toBe(1);
   });
 
+  it('agrees on every adapter for the order of the deliveries of one message (#1296): by kind, then name, then reference, whatever order they were written or read in', async () => {
+    const ALPHA: ConversationMemberInput = { kind: 'agent', ref: 'sess-b', name: 'Alpha' };
+    const ZED: ConversationMemberInput = { kind: 'agent', ref: 'sess-a', name: 'Zed' };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: dm } = await c.open({ members: [ED, MAYA, TESTER, ALPHA, ZED], createdBy: 1 }, T0);
+      const target = (m: ConversationMemberInput, named: boolean) => ({ kind: m.kind, ref: m.ref, name: m.name, named });
+      // Written in the order Zed, Maya, Tester, Alpha, which is neither the order of the references (sess-a, sess-b, sess-tester, then the person) nor of the names.
+      const sent = await c.post(dm.id, say(ED, 'to four', { targets: [target(ZED, true), target(MAYA, true), target(TESTER, false), target(ALPHA, false)] }), T0 + 10) as ConversationMessage;
+      await rec('written', sent);
+      await rec('Alpha delivered', c.setDelivery(dm.id, sent.id, { kind: 'agent', ref: 'sess-b' }, 'delivered', T0 + 20));
+      await rec('Zed dropped', c.setDelivery(dm.id, sent.id, { kind: 'agent', ref: 'sess-a' }, 'dropped', T0 + 30));
+      await rec('page', c.page(dm.id, { limit: 50 }));
+      await rec('get', c.getMessage(dm.id, sent.id));
+    });
+    const expected = [
+      { kind: 'agent', ref: 'sess-b', name: 'Alpha', named: false, state: 'delivered', stateAt: T0 + 20 },
+      { kind: 'agent', ref: 'sess-tester', name: 'Tester', named: false, state: 'queued', stateAt: T0 + 10 },
+      { kind: 'agent', ref: 'sess-a', name: 'Zed', named: true, state: 'dropped', stateAt: T0 + 30 },
+      { kind: 'person', ref: '2', name: 'Maya Kim', named: true, state: null, stateAt: null },
+    ];
+    expect((t.get('written') as ConversationMessage).deliveries).toEqual(expected.map((d) => ({ ...d, state: d.kind === 'agent' ? 'queued' : null, stateAt: d.kind === 'agent' ? T0 + 10 : null })));
+    expect((t.get('page') as ConversationPage).messages[0]!.deliveries).toEqual(expected);
+    expect((t.get('get') as ConversationMessage).deliveries).toEqual(expected);
+  });
+
   it('agrees on every adapter for removing: a conversation, and a person who is deleted', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const c = s.chat({ now: () => T0 }).conversations;

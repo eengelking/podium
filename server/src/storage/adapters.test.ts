@@ -20,6 +20,12 @@ const NOT_CALLED = new Set<string>([
   'peers().onRights', 'peers().onMessage', 'peers().withSource', 'activity().recordings.trail',
 ]);
 
+/** True when `text` registers a case whose title begins with `title`: the title is the first argument of `it(` or `onEachAdapter(o, `, not a word in a comment or in some other string. */
+function registersCase(text: string, title: string): boolean {
+  const escaped = title.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(String.raw`(?:^|[^\w.])(?:it|test)\(\s*(['"\`])${escaped}|\bonEachAdapter\(\s*\w+,\s*(['"\`])${escaped}`, 'm').test(text);
+}
+
 /**
  * What is wrong with one adapter's layouts (DECISIONS 78), as the lines to print, or none. `found` is what its database says, `declared` its list, `tablesOf` the tables of every running adapter,
  * and `caseText` reads the file of a contract case in `server/src/storage/` (null when there is none).
@@ -42,7 +48,7 @@ function layoutProblems(
     for (const field of ['id', 'option', 'why', 'issue', 'gain'] as const) if (!d[field].trim()) out.push(`${adapter}: ${d.id || d.table} has no ${field}.`);
     const text = caseText(d.case.file);
     if (text === null) out.push(`${adapter}: ${d.id} names the contract case file ${d.case.file}, which is not in server/src/storage/.`);
-    else if (!text.includes(d.case.title)) out.push(`${adapter}: ${d.id} names the case "${d.case.title}", which ${d.case.file} does not hold.`);
+    else if (!registersCase(text, d.case.title)) out.push(`${adapter}: ${d.id} names the case "${d.case.title}", which ${d.case.file} does not hold as a case (the title must open an it() or an onEachAdapter(o, ...) call, and a comment or a string elsewhere does not count).`);
   }
   return out;
 }
@@ -115,6 +121,13 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
     expect(layoutProblems('mine', ['orders'], [entry], { other: ['lines'] }, read).join('\n')).toMatch(/which other does not have/);
     expect(layoutProblems('mine', ['orders'], [{ ...entry, case: { file: 'nowhere.ts', title: 'x' } }], tables, read).join('\n')).toMatch(/nowhere\.ts, which is not in server\/src\/storage/);
     expect(layoutProblems('mine', ['orders'], [{ ...entry, case: { file: 'adapters.test.ts', title: ['a case', 'that is', 'not there'].join(' ') } }], tables, read).join('\n')).toMatch(/which adapters\.test\.ts does not hold/);
+    // A title in a comment, or in a string that is not a case, does not make a case, and a title that opens an it() or an onEachAdapter() does, as a prefix of the whole title.
+    const named = { ...entry, case: { file: 'x.ts', title: 'keeps the rows' } };
+    const withText = (body: string) => layoutProblems('mine', ['orders'], [named], tables, () => body).join('\n');
+    expect(withText("// keeps the rows of orders\n  it('something else', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("const label = 'keeps the rows';\n  it('something else', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  it('keeps the rows of orders when it is purged', async () => {});")).toBe('');
+    expect(withText("  onEachAdapter(o, 'keeps the rows of orders', async (s) => {});")).toBe('');
     expect(layoutProblems('mine', ['orders'], [{ ...entry, gain: ' ' }], tables, read).join('\n')).toMatch(/has no gain/);
     expect(layoutProblems('mine', ['orders'], [entry, { ...entry, id: 'again' }], tables, read).join('\n')).toMatch(/orders is declared twice/);
   });
