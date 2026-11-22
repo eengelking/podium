@@ -3,7 +3,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import pg from 'pg';
 import { AsyncLock } from '../lock.js';
-import { statementCount } from '../statementCount.js';
 
 /** A value the stores bind. `undefined` is bound as NULL. */
 export type Param = string | number | boolean | null | undefined | bigint;
@@ -153,7 +152,6 @@ export class PgDb {
    * transaction's read and its write.
    */
   private statement(text: string, values?: Param[]): Promise<pg.QueryResult> {
-    statementCount.n++;
     const client = this.client.getStore();
     if (client) return client.query(text, values);
     return this.gate.run(() => this.pool.query(text, values));
