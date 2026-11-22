@@ -45,6 +45,7 @@ const lookupOf = (reps: Map<string, ReporterRef>, list: ReporterRef[]): AsyncPee
   ({
     startedAt: T0,
     get: async (k: string) => reps.get(k) ?? null,
+    getMany: async (keys: readonly string[]) => keys.flatMap((k) => reps.get(k) ?? []),
     ofOwner: async (o: number | null) => list.filter((r) => o !== null && r.ownerId === o),
   }) as AsyncPeerReporterLookup;
 
