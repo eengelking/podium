@@ -1474,7 +1474,7 @@ export function peerCases(o: Openers): void {
     expect(list.find((x) => x.a.sessionId === ED_KEY)).toMatchObject({ messages: 1, state: 'active' });
     expect(await m.conversationPairs()).toEqual(list.map((x): [string, string] => [x.a.sessionId, x.b.sessionId]).sort((p, q) => (p.join('|') < q.join('|') ? -1 : 1)));
     expect(large, 'statements at 32 conversations against 5').toEqual(small);
-    // One link is one read of its own right row, the reporters and the owner\'s trust (it was four statements, one each); a person\'s link is its row alone.
+    // One link is one read of its own right row, the reporters and the owner\'s trust; a person\'s link is its row alone.
     const one = await counted(() => peers.rights.effective(a, b));
     expect(one.value).toEqual({ level: 'send', paused: false });
     expect(one.statements).toBe(3);

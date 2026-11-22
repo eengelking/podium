@@ -169,9 +169,8 @@ export const PEER_TOOLS = {
 export type PeerToolName = keyof typeof PEER_TOOLS;
 
 /**
- * The tools as a host registers them: name, description and input schema, in the order they are offered. Each schema is a fresh copy, as it
- * was when every harness built its own literal, so a host that edits what it is given (a `$schema` key, `additionalProperties`) never changes
- * the definition the next registration, or a test, reads.
+ * The tools as a host registers them: name, description and input schema, in the order they are offered. Each schema is a fresh copy, so a host
+ * that edits what it is given (a `$schema` key, `additionalProperties`) never changes the definition the next registration, or a test, reads.
  */
 export const peerToolDefinitions = (): { name: PeerToolName; description: string; inputSchema: Record<string, unknown> }[] =>
   (Object.keys(PEER_TOOLS) as PeerToolName[]).map((name) => ({ name, description: PEER_TOOLS[name].description, inputSchema: JSON.parse(JSON.stringify(PEER_TOOLS[name].inputSchema)) as Record<string, unknown> }));

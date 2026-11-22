@@ -109,7 +109,7 @@ something is left; `tooLong` and `tooFast` refuse a text over the length or the 
 still be changed; `endedNotice` is what an agent hears when the agent it was written with ends. A new audience adds its words to
 those tables and uses the same screen and refusal functions, but still writes its own change function, because the order of its checks and its
 store steps are its own. The stream signal is a scope and nothing else: `signal(scope)`
-sends `chat {rev, scope}`, and the owner, the counts and the approvals a signal once also built were never sent and are gone.
+sends `chat {rev, scope}`, with no owner, count or approval.
 An action sends one `chat` for each scope it changed, not one for each signal (#1296). `ChatCore.batch` runs an action and holds what
 `signal` is told in a set of scopes found by an `AsyncLocalStorage` (the same way `storage/lock.ts` finds the connection a call holds), so two
 actions that overlap each keep their own; when the action is done, whether it returned or threw, it sends each scope once, in the order each was first signalled, and `rev`

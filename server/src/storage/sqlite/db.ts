@@ -234,8 +234,8 @@ function fillDailyOwnerIds(db: DatabaseSync): void {
 }
 
 /**
- * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. The store used to do this
- * the first time it was opened; it is a step now, so that `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. It is a step of its own, so that
+ * `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
  */
 function fillOwed(db: DatabaseSync): void {
   if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
