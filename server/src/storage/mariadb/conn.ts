@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import * as mariadb from 'mariadb';
 import { AsyncLock } from '../lock.js';
+import { statementCount } from '../statementCount.js';
 
 /** A value the stores bind. `undefined` is bound as NULL. */
 export type Param = string | number | boolean | null | undefined | bigint;
@@ -225,6 +226,7 @@ export class MariaDbConn {
    * transaction's read and its write.
    */
   private statement(text: string, values?: Param[]): Promise<unknown> {
+    statementCount.n++;
     const conn = this.client.getStore();
     if (conn) return conn.query(text, values);
     return this.gate.run(() => this.pool.query(text, values));

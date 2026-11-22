@@ -1,10 +1,20 @@
 // The SQLite adapter as the storage tests see it (#1008): one entry of the registry in `../index.ts`, like any other adapter.
 import { rmSync } from 'node:fs';
 import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
-import type { DatabaseSync } from 'node:sqlite';
+import { StatementSync, type DatabaseSync } from 'node:sqlite';
+import { statementCount } from '../statementCount.js';
 import { openSqliteStorage } from './index.js';
 import { openUpgradedSqlite } from './upgradeTesting.js';
 import { sqliteSamplesPerf } from './samplesPerf.js';
+
+// The stores run every statement through a prepared one, so counting its three ways of running gives the number the other adapters count in their connection (#1309).
+for (const way of ['run', 'get', 'all'] as const) {
+  const run = StatementSync.prototype[way] as (...args: unknown[]) => unknown;
+  StatementSync.prototype[way] = function (this: StatementSync, ...args: unknown[]) {
+    statementCount.n++;
+    return run.apply(this, args);
+  } as never;
+}
 
 /** Tables the database keeps for itself, not part of the schema the app uses. */
 const INTERNAL = /^(sqlite_|schema_migrations$)/;
