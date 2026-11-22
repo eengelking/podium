@@ -79,6 +79,8 @@ describe('chat: edit and delete your own messages in My group', () => {
     menuItem(/^Edit message/).should('not.have.attr', 'aria-disabled');
     menuItem(/^Delete message/).should('not.have.attr', 'aria-disabled');
     cy.tid('chat-menu').find('.why').should('not.exist');
+    // The marked row keeps its text size and its bubble (#1326): no general `.podium .sel` rule shrinks it. jsdom loads no CSS, so this is read here.
+    msg('Alpha: first note.').should('have.class', 'ch-sel').find('.ch-tx').should('have.css', 'font-size', '15px').and('have.css', 'border-top-width', '0px');
     cy.focused().should('have.attr', 'role', 'menuitem').and('contain.text', 'Edit message');
     cy.focused().type('{esc}');
     cy.tid('chat-menu').should('not.exist');
