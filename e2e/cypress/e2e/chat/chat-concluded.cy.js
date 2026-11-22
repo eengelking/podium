@@ -110,9 +110,11 @@ describe('chat: what was concluded is read once for each read of the overview', 
     cy.signIn('Ed');
     cy.intercept('GET', /\/api\/fleet\/respond\/chat\/concluded$/, () => void (reads.concluded += 1));
     cy.intercept('GET', /\/api\/fleet\/respond\/chat(\?.*)?$/, () => void (reads.overview += 1));
+    cy.intercept('GET', /\/api\/fleet\/respond\/chat\/channels\/general\/messages/).as('general');
     cy.openConsole('#/chat');
     cy.chatRow('c:general').should('exist');
-    cy.tid('chat-message').should('have.length.greaterThan', 0);
+    // General holds no message in this seed, so wait for its read to land (the thread opens on it) rather than for a message.
+    cy.wait('@general');
     // Never more reads of what was concluded than of the overview (the wall's and the page's own made two for one). A signal that lands between the two starting can leave the
     // overview one ahead for a moment, which is why this bounds the count and does not ask for equality.
     cy.wrap(reads).should((r) => {
