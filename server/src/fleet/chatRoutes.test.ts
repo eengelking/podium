@@ -436,7 +436,8 @@ describe('addressing with @', () => {
     expect((await mark('1800000000005.7')).status).toBe(200);
     expect((await mark('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f')).status).toBe(200);
     for (const bad of ['x'.repeat(65), 'x'.repeat(5000), 'a b', '<script>', 'a\nb', 7]) expect([String(bad).slice(0, 12), (await mark(bad)).status]).toEqual([String(bad).slice(0, 12), 400]);
-    expect((await s.fleet.chat.core.store.readState.get(s.ed.person.id, 'public')).lastRead).toBe('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f');
+    // What was read up to is checked and not kept (#1296): the counts are all the server holds.
+    expect(await s.fleet.chat.core.store.readState.get(s.ed.person.id, 'public')).toEqual({ personId: s.ed.person.id, thread: 'public', unread: 0, mentions: 0 });
   });
 
   it('lists what @ can address, with @group and @everyone disabled and the reason while off', async () => {

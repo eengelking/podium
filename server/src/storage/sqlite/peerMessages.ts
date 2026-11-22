@@ -392,8 +392,8 @@ export class PeerMessages implements PeerMessagesApi {
     if (recent >= limits.perMinute) return refuse(429, REPLY_WORDS.rate(recent, wrote.from_name));
     const id = newId();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
     ).run(id, sender.owner, sender.ownerId, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.agentId, sender.name, sender.machine, wrote.from_name, clean, now, now);
     this.trail({ kind: 'delivered', message: this.row(id) as MessageRow });
     return { ok: true, id, state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: wrote.from_name, machine: '' }, roundTrips: { used: 0, cap: limits.roundTrips }, person: true };
@@ -431,8 +431,8 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const state: MessageState = approvalWhy ? 'approval' : 'ready';
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
     ).run(id, sender.owner, sender.ownerId, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.agentId, target.agentId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now);
     let requestId: string | null = null;
     if (approvalWhy) {
@@ -470,7 +470,7 @@ export class PeerMessages implements PeerMessagesApi {
     const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
     const now = this.now();
     for (const d of picked) {
-      if (d.kind === 'message') this.stmt(`UPDATE peer_messages SET state = 'handed', handed = 1, state_at = ? WHERE id = ? AND state = 'ready'`).run(now, d.id);
+      if (d.kind === 'message') this.stmt(`UPDATE peer_messages SET state = 'handed', state_at = ? WHERE id = ? AND state = 'ready'`).run(now, d.id);
     }
     return picked;
   }
@@ -636,8 +636,8 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const now = this.now();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
     ).run(id, target.owner, input.ownerId, link, fromKey, target.reporterKey, fromSession, input.toSession, input.withSession ? (this.liveDir.get(input.withSession)?.agentId ?? this.agentOf(input.withSession)) : null, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null);
     return this.row(id) as MessageRow;
   }
@@ -673,8 +673,8 @@ export class PeerMessages implements PeerMessagesApi {
     const id = newId();
     const now = this.now();
     this.stmt(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
     ).run(id, target.owner, target.ownerId, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null);
     if (state === 'approval') {
       this.rights.openMessageRequest({ owner: target.owner, ownerId: target.ownerId, fromKey: personKey, toKey: target.reporterKey, by: input.person, fromSession: personKey, messageId: id });

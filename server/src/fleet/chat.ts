@@ -346,7 +346,8 @@ export class ChatService {
     const named = channelOfThread(thread);
     const mine = thread === publicThread || thread === groupThread(viewer.personId) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread))) || (thread.startsWith('convo:') && (await this.conversations.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
-    const row = await this.core.store.readState.markRead(viewer.personId, thread, upTo ?? null);
+    // `upTo` is checked above and then not kept: nothing reads a cursor back, so the counts are what is stored (#1296).
+    const row = await this.core.store.readState.markRead(viewer.personId, thread);
     this.core.signal({ scope: thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }

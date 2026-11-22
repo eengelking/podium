@@ -732,6 +732,32 @@ CREATE TABLE IF NOT EXISTS conversation_deliveries (
 ) TABLE_OPTIONS;
 `),
   },
+  {
+    version: 30,
+    // Every fact in one place (#1296): the columns and indexes nothing reads go, and `updated_at` is worked out where a message is read. See SQLite migration 54. The index on `owner` and `group_id` is
+    // dropped first so MariaDB does not keep it on the columns left. Each statement can run twice, so a step that stopped half way runs again.
+    statements: steps(`
+DROP INDEX IF EXISTS group_messages_channel ON group_messages;
+ALTER TABLE group_messages DROP COLUMN IF EXISTS owner;
+ALTER TABLE group_messages DROP COLUMN IF EXISTS group_id;
+ALTER TABLE group_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE conversation_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_channels DROP COLUMN IF EXISTS created_by;
+ALTER TABLE peer_messages DROP COLUMN IF EXISTS handed;
+DROP INDEX IF EXISTS peer_requests_owner ON peer_requests;
+ALTER TABLE conversations DROP COLUMN IF EXISTS created_by;
+`),
+  },
+  {
+    version: 31,
+    // A person's counts in a thread, keyed by `(person_id, thread)` (#1296). Rows at zero or with no person go first. See SQLite migration 55. The key and the columns change in one statement, so a step
+    // that stopped half way runs again: the delete can run twice, and the change finds the key, the index and the columns as it left them.
+    statements: steps(`
+DELETE FROM chat_read_state WHERE person_id IS NULL OR (unread = 0 AND mentions = 0);
+ALTER TABLE chat_read_state MODIFY person_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (person_id, thread), DROP INDEX IF EXISTS chat_read_state_person, DROP COLUMN IF EXISTS person, DROP COLUMN IF EXISTS last_read, DROP COLUMN IF EXISTS updated_at;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
