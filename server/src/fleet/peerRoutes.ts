@@ -12,12 +12,13 @@ import { type Request, type RequestHandler, type Response, type Router } from 'e
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress, LEVEL_WORDS, type PersonRow, type PeerReply, type SessionRow } from '../storage/rows.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, LEVEL_WORDS, type PeerReply } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
+import { agentGate, refuser, sourceOf } from './routeGate.js';
 import { isPersonId } from './chatTypes.js';
 
 export interface PeerDeps {
@@ -40,8 +41,6 @@ const MESSAGE_BODY_LIMIT = '128kb';
 const DAY_MS = 86_400_000;
 /** How a sent message waits, as its Admin log row says it. */
 const SENT_WORDS = { approval: 'waiting for approval', sent: 'handed to the receiver', turn: 'waiting for the receiver to answer a permission prompt' } as const;
-
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
 /** Authentication on and the Admin's flag. The reporter's `peers` option is the session's own, checked per request. */
 export const peersEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.peers.flagOn();
@@ -145,41 +144,8 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   const withSource = wirePeerLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);
 
-  const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason });
-  };
-
-  /**
-   * The orchestrator a mod route is about, when messaging is on and a person's token owns its session; otherwise answers and returns null.
-   * `row` is the session as the handler just read it. This is synchronous so that the checks and what the handler does after them
-   * run in one turn, with nothing able to end or delete the session in between.
-   */
-  const modPeer = (req: Request, res: Response, row: SessionRow | undefined): { row: SessionRow; o: LiveOrchestrator; person: PersonRow } | null => {
-    if (!enabled()) {
-      refuse(req, res, 403, 'orchestrator messaging is off');
-      return null;
-    }
-    if (!row || !fleet.isLive(row.id)) {
-      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
-      return null;
-    }
-    const id = d.identityOf(res);
-    if (id.kind !== 'person') {
-      refuse(req, res, 403, 'a reporter on the admin secret cannot take part');
-      return null;
-    }
-    if (row.owner_id === null || row.owner_id !== id.person.id) {
-      refuse(req, res, 403, 'not your session');
-      return null;
-    }
-    const o = fleet.peers.messages.live(row.id);
-    if (o?.peers !== true) {
-      refuse(req, res, 403, "messaging is off on this machine: turn on the reporter's peers option there");
-      return null;
-    }
-    return { row, o, person: id.person };
-  };
+  const refuse = refuser(logger, 'peers.refused', { session: true });
+  const modPeer = agentGate(fleet, d.identityOf, refuse, enabled);
 
   router.get('/sessions/:id/peers', d.requireToken, asyncHandler(async (req, res) => {
     const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
@@ -286,10 +252,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
   const enabled = () => peersEnabled(fleet, d.token);
   const withSource = <T>(src: string, fn: () => T): T => fleet.peers.withSource(src, fn);
 
-  const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req) });
-    res.status(status).json({ ok: false, error: reason });
-  };
+  const refuse = refuser(logger, 'peers.refused');
 
   /** The signed-in person whose reporters a route manages; the admin secret has none. Otherwise answers and returns null. */
   const owner = async (req: Request, res: Response): Promise<{ name: string; personId: number; actor: Actor } | null> => {

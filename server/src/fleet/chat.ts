@@ -4,7 +4,7 @@
 import { nameKey } from '../storage/rows.js';
 import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { ACT_PREFIX } from './adminActs.js';
-import { AdminReads, LIST_PHRASE, listThread } from './chatAdminReads.js';
+import { AdminReads, listSubject, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
@@ -175,7 +175,7 @@ export class ChatService {
     // The person's list is theirs: an Admin looking at it is recorded and the person is told, in the console and in podium-reporter (#1051). It names
     // who they talk to and how many messages, never what they say. Recorded before it is answered; the Admin log gets `chat_admin_browse` once a session.
     // The person is the one with this id (#1284): the record and the notice are found by it, so a person who takes a deleted person's name is told of nothing.
-    await this.adminReads.note(viewer, { scope: 'list', thread: listThread(subject.id), owners: [key], people: [subject.id], phrase: LIST_PHRASE, person: subject.name });
+    await this.adminReads.note(viewer, listSubject(subject.id, subject.name));
     return this.overview(viewer, { id: subject.id, name: subject.name });
   }
 
@@ -336,7 +336,7 @@ export class ChatService {
     return (others.length ? others : ends).map((e) => e.name).join(' and ');
   }
 
-  /** The person read up to `upTo` in a thread of theirs. */
+  /** The person read a thread of theirs: both counts go to 0. `upTo` is checked for its shape and then ignored, because no cursor is kept (#1296). */
   async markRead(viewer: ChatViewer, thread: unknown, upTo: unknown): Promise<{ ok: true; unread: number; mentions: number } | Fail> {
     if (viewer.personId === null) return fail(403, 'The admin secret has no unread counts of its own.');
     if (typeof thread !== 'string' || (upTo !== null && upTo !== undefined && typeof upTo !== 'string')) return fail(400, 'thread must be a string and upTo a string or null.');
@@ -348,7 +348,7 @@ export class ChatService {
     if (!mine) return fail(403, 'That is not one of your threads.');
     // `upTo` is checked above and then not kept: nothing reads a cursor back, so the counts are what is stored (#1296).
     const row = await this.core.store.readState.markRead(viewer.personId, thread);
-    this.core.signal({ scope: thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
+    this.core.signal(thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group');
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }
 
@@ -374,7 +374,7 @@ export class ChatService {
     await this.channels.sessionLeft(sessionId, ownerId === null ? null : { id: ownerId, name: owner });
     await this.direct.sessionChanged(sessionId, owner);
     // An agent that left without ever being on the wall sent no stream message either, so an open page is told its list changed (#1112).
-    this.core.signal({ scope: 'group', owner: nameKey(owner) });
+    this.core.signal('group');
   }
 
   /** The live sessions whose hidden conversations were already shown again, so a report (every few seconds) costs a lookup and not a scan of the conversations. */
@@ -390,7 +390,7 @@ export class ChatService {
     this.seen.add(sessionId);
     // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
     // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
-    this.core.signal({ scope: 'group', owner: nameKey(owner) });
+    this.core.signal('group');
   }
 
   /** The hourly housekeeping: conversations against the live set, then retention for both channels and the hidden conversations. */
@@ -411,7 +411,7 @@ export class ChatService {
     this.core.forgetIdle();
     if (channelMessages || directMessages || conversationMessages) {
       this.core.onEvent({ kind: 'purged', channelMessages: channelMessages + conversationMessages, directMessages });
-      this.core.signal({ scope: 'public', owner: null });
+      this.core.signal('public');
     }
   }
 }

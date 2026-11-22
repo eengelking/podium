@@ -2,15 +2,16 @@
 // console that something changed (a count, never text), the audit callback, and delivering text to an agent through the console's message path.
 // Nothing here reads a direct message or a channel message.
 import { cleanNameText, cleanPeerText } from '../storage/peerText.js';
+import { overLimitWords } from '../storage/peerEdit.js';
 import { scrubStored } from '../logging/redact.js';
 import { CHAT_EVERYONE } from '../storage/features.js';
 import { nameKey } from '../storage/rows.js';
 import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '../storage/types.js';
-import type { Delivery } from './protocol.js';
+import { ENDED_NOTICE_MARK, type Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
 import { AdminNotices } from './chatAdminNotices.js';
 import { ConcludedList } from './chatConcluded.js';
-import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
+import { emptyMessage, fail, type ChatEvent, type ChatHost, type ChatScope, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 const MINUTE = 60_000;
 
@@ -56,6 +57,55 @@ const DROP_WHY: Record<string, string> = {
   'session-deleted': 'the agent was deleted before it got the message',
   'responding-off': 'responding was turned off before the agent got the message',
 };
+
+/** What a text refused for its length or its rate is answered with: a channel and a Direct Message say it one way, a conversation (#1278) shorter. */
+const TEXT_WORDS = {
+  chat: {
+    long: overLimitWords,
+    fast: (perMinute: number, wait: number) => `That is more than ${perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`,
+  },
+  convo: {
+    long: (_length: number, max: number) => `A message is at most ${max} characters.`,
+    fast: (_perMinute: number, wait: number) => `You are sending too fast. Wait ${wait} seconds.`,
+  },
+} as const;
+type TextWords = keyof typeof TEXT_WORDS;
+
+/** Why a store refuses to change a message: the same four for every audience (#1269). */
+export type ChangeRefusal = 'not-found' | 'not-yours' | 'locked' | 'deleted';
+
+/** The words of a refused change in one audience. A message an agent has been handed is said by the caller, since it may name the agents. */
+export interface ChangeWords {
+  notFound: string;
+  notYours: string;
+  deleted: string;
+}
+
+/** The refusal for a reason a store gives: not found (404), not the author's (403), deleted and locked (409, with the reason a form reads). */
+export async function changeRefusal(why: ChangeRefusal, words: ChangeWords, locked: () => string | Promise<string>): Promise<Fail> {
+  if (why === 'not-found') return fail(404, words.notFound);
+  if (why === 'not-yours') return fail(403, words.notYours);
+  return why === 'deleted' ? fail(409, words.deleted, 'deleted') : fail(409, await locked(), 'locked');
+}
+
+/** The words for a message that went to agents, which a channel and a Direct Message say the same way: it names them. */
+export function sentWords(names: string[]): string {
+  const who = names.length === 0 ? 'the agent' : names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
+}
+
+/** Whether the viewer may change a message, and when not, why: `mine` is the author's own live message (by id), `locked` that an agent has it, `waiting` another reason in words. */
+export function changeState(mine: boolean, locked: boolean, lockedWords: () => string, waiting: string | null = null): { canChange: boolean; changeWhy: string | null } {
+  if (!mine) return { canChange: false, changeWhy: null };
+  const why = locked ? lockedWords() : waiting;
+  return { canChange: why === null, changeWhy: why };
+}
+
+/** What an agent still in a conversation is told when another agent ended (#1283): it was concluded, or (`stays`, two or more people) it goes on without it. */
+export function endedNotice(gone: string, stays = false): string {
+  const rest = stays ? 'It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.' : `This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone}.`;
+  return `${ENDED_NOTICE_MARK} ${gone} ended. ${rest}`;
+}
 
 /** The longest issue, project or milestone a post may carry, in characters. */
 const MAX_LABEL = 200;
@@ -117,8 +167,35 @@ export class ChatCore {
     return clean || null;
   }
 
+  /** Refuses a text longer than Chat's limit, in the audience's own words (`TextWords`), or returns null. Nothing has read the text yet. */
+  tooLong(length: number, limits: ChatLimits, words: TextWords = 'chat'): Fail | null {
+    return length > limits.maxChars ? fail(422, TEXT_WORDS[words].long(length, limits.maxChars)) : null;
+  }
+
+  /**
+   * The checks of a person's or an agent's text that cost nothing, in the order every writing path keeps (#1051): a string with something in it (400), within Chat's length (422),
+   * under the per-minute limit of `rateKey` (429, and counted; null counts none). The scan for secrets (`cleaned`) follows. `limits` is read here unless the caller has them.
+   */
+  async screen(raw: unknown, rateKey: string | null, limits?: ChatLimits): Promise<{ raw: string } | Fail> {
+    if (typeof raw !== 'string' || !raw.trim()) return emptyMessage();
+    const l = limits ?? (await this.limits());
+    return this.tooLong(raw.length, l) ?? (rateKey === null ? null : this.tooFast(rateKey, l)) ?? { raw };
+  }
+
+  /** The scan for secrets, and the check that something is left: a text of nothing but characters that draw nothing is as empty as a blank one. */
+  cleaned(raw: string): string | Fail {
+    const text = this.redact(raw);
+    return text.trim() ? text : emptyMessage();
+  }
+
+  /** Counts one post by `who` and refuses it (429) in the audience's own words when it is over the per-minute limit, or returns null when it is within. */
+  tooFast(who: string, limits: ChatLimits, words: TextWords = 'chat'): Fail | null {
+    const wait = this.rate(who, limits.perMinute);
+    return wait === null ? null : fail(429, TEXT_WORDS[words].fast(limits.perMinute, wait));
+  }
+
   /** Counts one post by `who` and returns the seconds to wait when it is over `perMinute`, or null when it is within. */
-  rate(who: string, perMinute: number): number | null {
+  private rate(who: string, perMinute: number): number | null {
     const now = this.host.now();
     const mine = (this.recent.get(who) ?? []).filter((t) => now - t < MINUTE);
     if (mine.length >= perMinute) {
@@ -136,24 +213,22 @@ export class ChatCore {
     for (const [who, times] of this.recent) if (times.every((t) => now - t >= MINUTE)) this.recent.delete(who);
   }
 
-  /** Tells open consoles that a thread changed. `owner` and counts are for one person's badges; there is never text. */
-  signal(s: ChatSignal): void {
-    this.host.signal({ ...s, rev: ++this.rev });
+  /** Tells open consoles that something in `scope` changed, once for each of `times` people it concerns: a counter and the scope, never a name, a count or text. */
+  signal(scope: ChatScope, times = 1): void {
+    for (let i = 0; i < times; i++) this.host.signal({ scope, rev: ++this.rev });
   }
 
-  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. The count is kept under the person's id (#1284). */
-  count(who: PersonRef, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
+  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal. The count is kept under the person's id (#1284). */
+  count(who: PersonRef, thread: string, scope: ChatScope, mention: boolean): Promise<void> {
     return this.countMany([{ who, mention }], thread, scope);
   }
 
-  /** `count` for several people at once, in one store call (#1309): each is told their own counts. */
-  async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: 'public' | 'group' | 'dm'): Promise<void> {
+  /** `count` for several people at once, in one store call (#1309): one signal for each whose count came back. */
+  async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: ChatScope): Promise<void> {
     if (people.length === 0) return;
-    const rows = new Map((await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })))).map((r) => [r.personId, r]));
-    for (const { who } of people) {
-      const row = rows.get(who.id);
-      if (row) this.signal({ scope, owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
-    }
+    const rows = await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })));
+    const counted = new Set(rows.map((r) => r.personId));
+    this.signal(scope, people.filter((p) => counted.has(p.who.id)).length);
   }
 
   /**

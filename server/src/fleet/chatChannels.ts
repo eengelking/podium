@@ -3,13 +3,13 @@
 // read by different code, and `chatSeparation.test.ts` holds this file to it.
 import { nameKey } from '../storage/rows.js';
 import type { LiveOrchestrator } from './peerTypes.js';
-import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
+import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
-import { ChatCore, type AcrossUpdate, type ChatLimits } from './chatCore.js';
-import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
+import { ChatCore, changeRefusal, changeState, sentWords, type AcrossUpdate, type ChangeRefusal, type ChangeWords, type ChatLimits } from './chatCore.js';
+import { groupSubject, type AdminReads, type Told } from './chatAdminReads.js';
 import { CHANNEL_NAME, lockedByDelivery } from '../storage/chatRows.js';
 import {
-  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, type ChannelId, type ChatViewer, type Fail, type PersonRef,
+  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, noOwnMessages, scopeOf, type ChannelId, type ChatViewer, type Fail, type PersonRef,
 } from './chatTypes.js';
 
 /** How far back a held mention is looked for when a channel resumes: 10 pages of 100, far more than a person pauses over. */
@@ -72,9 +72,7 @@ function sentTo(m: ChannelMessage): string[] {
 
 /** The refusal's words for a message an agent has: it names the agent when it is known. */
 function lockedWords(m: Pick<ChannelMessage, 'mentions'>): string {
-  const names = sentTo(m as ChannelMessage);
-  const who = names.length === 0 ? 'the agent' : names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-  return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
+  return sentWords(sentTo(m as ChannelMessage));
 }
 
 /** The words for a message that waits for another person to approve it with no copy kept for it (stored before copies were kept): the copy cannot be reached from here (#1269). */
@@ -88,10 +86,8 @@ function approvalWords(m: Pick<ChannelMessage, 'mentions'>): string | null {
 
 /** Whether the viewer may change this message, and when not, why: by the author's id, never the name. The lock is the store's predicate. */
 function changeOf(m: ChannelMessage, viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
-  if (m.deletedAt !== null || viewer === null || viewer.personId === null || m.authorKind !== 'person' || m.authorId === null || m.authorId !== viewer.personId) return { canChange: false, changeWhy: null };
-  if (lockedByDelivery(m.mentions)) return { canChange: false, changeWhy: lockedWords(m) };
-  const waiting = approvalWords(m);
-  return waiting ? { canChange: false, changeWhy: waiting } : { canChange: true, changeWhy: null };
+  const mine = m.deletedAt === null && viewer !== null && viewer.personId !== null && m.authorKind === 'person' && m.authorId !== null && m.authorId === viewer.personId;
+  return changeState(mine, lockedByDelivery(m.mentions), () => lockedWords(m), approvalWords(m));
 }
 
 export function messageView(m: ChannelMessage, viewer: ChatViewer | null, owners: ReadonlyMap<string, string | null> = new Map()): ChannelMessageView {
@@ -162,6 +158,9 @@ type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump:
 
 /** The refusal when an Admin tries to write in a group that is not their own. */
 const ADMIN_NO_WRITE = 'An Admin can read and stop a person\'s group but cannot write in it.';
+
+/** What a channel says when the store refuses to change a message. */
+const CHANNEL_WORDS: ChangeWords = { notFound: 'There is no such message in this channel.', notYours: 'Only the person who wrote a message can change it.', deleted: 'This message has already been deleted.' };
 
 export class ChannelChat {
   constructor(
@@ -289,11 +288,6 @@ export class ChannelChat {
     }
   }
 
-  /** The subject of an Admin's reading of a person's group: the person is told in the console and in each of their reporter sessions. */
-  private groupSubject(owner: PersonRef): ReadSubject {
-    return { scope: 'group', thread: groupThread(owner.id), owners: [nameKey(owner.name)], people: [owner.id], phrase: 'is reading your Podium group' };
-  }
-
   /**
    * An Admin read a person's group: recorded (and the person told) before it is answered. Returns the thread's records, which its person and an Admin may read:
    * for the group, the readings and the Admin's stops; for General and every other public channel, which are public and never read-recorded, only the Admin's stops
@@ -302,7 +296,7 @@ export class ChannelChat {
   async readRecord(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null) {
     if (isPublicChannel(channel)) return this.reads.list(channelThread(channel));
     if (owner === null) return [];
-    if (viewer.admin && owner.id !== viewer.personId) await this.reads.note(viewer, this.groupSubject(owner));
+    if (viewer.admin && owner.id !== viewer.personId) await this.reads.note(viewer, groupSubject(owner.id, owner.name));
     const records = await this.reads.list(groupThread(owner.id));
     // The records go to the person's own console here, so what is owed to them is seen (#1051).
     if (viewer.personId !== null && owner.id === viewer.personId) await this.reads.seen(groupThread(owner.id), viewer.personId);
@@ -313,7 +307,7 @@ export class ChannelChat {
   async reading(viewer: ChatViewer, owner: PersonRef | null): Promise<{ ok: true } | Fail> {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a group that is not their own.');
     if (owner === null || owner.id === viewer.personId) return fail(400, 'That group is yours, so reading it is not recorded.');
-    await this.reads.note(viewer, this.groupSubject(owner), true);
+    await this.reads.note(viewer, groupSubject(owner.id, owner.name), true);
     return { ok: true };
   }
 
@@ -374,18 +368,6 @@ export class ChannelChat {
   }
 
   // ---- Posting ---------------------------------------------------------------------------------------------------------
-
-  /** The checks that cost nothing: a text, and within Chat's length. The rate limit follows, then `this.core.redact`, which reads every character (#1051). */
-  private checkText(raw: unknown, limits: ChatLimits): { raw: string } | Fail {
-    if (typeof raw !== 'string' || !raw.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    if (raw.length > limits.maxChars) return fail(422, `The message is ${raw.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
-    return { raw };
-  }
-
-  private busy(who: string, limits: ChatLimits): Fail | null {
-    const wait = this.core.rate(who, limits.perMinute);
-    return wait === null ? null : fail(429, `That is more than ${limits.perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`);
-  }
 
   /** The agents and people a typed `@` can mean in this channel, for the address list and for resolving a mention. */
   async addressBook(channel: ChannelId, owner: PersonRef | null): Promise<{ typed: string; label: string; role: 'orchestrator' | 'person' | 'group' | 'everyone'; sessionId: string | null; disabled?: boolean; why?: string }[]> {
@@ -449,10 +431,8 @@ export class ChannelChat {
     // An Admin reads and stops a person's group and never writes in it (#1034); only its person writes there.
     if (channel === 'group' && (owner === null || owner.id !== viewer.personId)) return fail(403, ADMIN_NO_WRITE);
     const limits = await this.core.limits();
-    const checked = this.checkText(body.text, limits);
+    const checked = await this.core.screen(body.text, `person:${nameKey(viewer.name)}`, limits);
     if ('ok' in checked) return checked;
-    const limited = this.busy(`person:${nameKey(viewer.name)}`, limits);
-    if (limited) return limited;
     // A reply to a message that is not in this channel is refused, as an agent's is, so a post never points at an id nothing holds (#1051).
     const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;
     if (replyTo && (replyTo.length > MAX_ID || !(await this.find(channel, owner, replyTo)))) return fail(404, 'There is no such message to reply to in this channel.');
@@ -562,7 +542,7 @@ export class ChannelChat {
     }
     if (!hit) return;
     await this.handle(hit.channel, null).setMention(hit.message.id, hit.index, { state: u.state, why: u.why });
-    this.core.signal({ scope: 'public', owner: null });
+    this.core.signal('public');
   }
 
   /** What becomes of a delivered mention moves its state: taken is working, refused is not delivered, a drop is dropped. */
@@ -574,7 +554,7 @@ export class ChannelChat {
         .setMention(messageId, index, patch)
         .then(() => {
           this.core.onEvent({ kind: o.kind === 'took' ? 'delivered' : 'dropped', channel, owner: oname(owner), by: 'server', messageId, sessionId, ...(o.kind === 'took' ? {} : { why: 'why' in o ? o.why : undefined }) });
-          this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+          this.core.signal(scopeOf(channel));
         })
         .catch((err: unknown) => this.core.host.warn('a mention in Chat could not be updated', err));
     });
@@ -587,12 +567,10 @@ export class ChannelChat {
     const mentioned = new Set(planned.flatMap((p) => (p.bump !== null ? [p.bump] : [])));
     const counted = audience.filter((who) => who.id !== authorId);
     const rows = counted.length === 0 ? [] : await this.store.readState.bumpMany(thread, counted.map((who) => ({ personId: who.id, mention: mentioned.has(who.id) })));
-    const byId = new Map(rows.map((r) => [r.personId, r]));
-    for (const who of counted) {
-      const row = byId.get(who.id);
-      if (row && mentioned.has(who.id)) this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: nameKey(who.name), unread: row.unread, mentions: row.mentions });
-    }
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    // One signal for each person who was mentioned and whose count came back, then the one for the post.
+    const got = new Set(rows.map((r) => r.personId));
+    this.core.signal(scopeOf(channel), counted.filter((who) => got.has(who.id) && mentioned.has(who.id)).length);
+    this.core.signal(scopeOf(channel));
   }
 
   /** An agent posts (its main loop, with its person's token). The channel's flags bind it; a mention of another agent waits for a later release. */
@@ -603,12 +581,10 @@ export class ChannelChat {
     if (flags.disconnected) return fail(403, `${channelName(channel)} is disconnected for your agents. Your person reconnects it.`);
     if (flags.paused) return fail(409, `${channelName(channel)} is paused${flags.pausedForEveryone ? ' for everyone' : ' for your agents'}, so nothing can be posted until it is resumed.`);
     const limits = await this.core.limits();
-    const checked = this.checkText(body.text, limits);
+    // The rate limit comes before the paged lookup below, so an agent that was not called in cannot make it as often as it likes (#1065).
+    const checked = await this.core.screen(body.text, `agent:${o.sessionId}`, limits);
     if ('ok' in checked) return checked;
     const h = this.handle(channel, owner);
-    // The rate limit comes first, so an agent that was not called in cannot make the paged lookup below as often as it likes (#1065).
-    const limited = this.busy(`agent:${o.sessionId}`, limits);
-    if (limited) return limited;
     // An agent answers a channel that called it in the last hour, the window it reads (#1065). It does not start a conversation nobody asked it to join.
     try {
       if (!(await this.calledInto(h, o, this.core.host.now() - AGENT_READ_WINDOW_MS))) return fail(403, NOT_CALLED);
@@ -654,17 +630,14 @@ export class ChannelChat {
   // ---- A person changes their own message (#1269) -------------------------------------------------------------------------
 
   /** The refusal for each reason the store gives; `locked` names the agent the message went to. */
-  private refusal(why: Extract<ChannelChange, { ok: false }>['reason'], message: ChannelMessage | null): Fail {
-    if (why === 'not-found') return fail(404, 'There is no such message in this channel.');
-    if (why === 'not-yours') return fail(403, 'Only the person who wrote a message can change it.');
-    if (why === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
-    return fail(409, message ? lockedWords(message) : 'Podium has already sent this message to an agent, so it can no longer be changed.', 'locked');
+  private refusal(why: ChangeRefusal, message: ChannelMessage | null): Promise<Fail> {
+    return changeRefusal(why, CHANNEL_WORDS, () => (message ? lockedWords(message) : 'Podium has already sent this message to an agent, so it can no longer be changed.'));
   }
 
   /** Tells the consoles that a message changed, as a post does for its scope, and the Admin log: ids and where, never the text. */
   private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, messageId: string): void {
     this.core.onEvent({ kind, scope: 'channel', channel, owner: channel === GROUP ? oname(owner) : null, by: viewer.actor, messageId });
-    this.core.signal({ scope: channel === GROUP ? 'group' : 'public', owner: channel === GROUP ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
   }
 
   /** The copies of a message that waits for another person's approval, with the id each kept; `null` when one has none (stored before copies were kept), which cannot be reached. */
@@ -701,22 +674,31 @@ export class ChannelChat {
     }
   }
 
+  /** The author edits their own message: the new text goes through the checks of a new message, and it never delivers anything, so it may not add or remove an @mention. */
+  editMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+    return this.change(viewer, channel, owner, id, body);
+  }
+
+  /** The author deletes their own message: a tombstone stays, and a copy for another person's approval goes with it. */
+  deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+    return this.change(viewer, channel, owner, id, null);
+  }
+
   /**
-   * The author edits their own message: the new text goes through the checks of a new message (empty, too long, the per-minute limit, then redaction, in that order), and
-   * it never delivers anything, so it may not add or remove an @mention. The store decides who may and whether it is locked. A mention that waits for another person's
-   * approval has a copy of the text for them: it is changed first (`changeCopies`), under that person's own length limit.
+   * An edit (`edit` is the request's body) or a delete (null) of the author's own message. The store decides who may and whether it is locked. A mention that waits for another
+   * person's approval has a copy of the text for them: it is changed first (`changeCopies`), under that person's own length limit, and put back if the row then refuses an edit.
    */
-  async editMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+  private async change(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, edit: Record<string, unknown> | null): Promise<{ ok: true; message: ChannelMessage } | Fail> {
     const gate = this.mayChange(viewer, channel, owner);
     if (gate) return gate;
-    const limits = await this.core.limits();
-    const checked = this.checkText(body.text, limits);
-    if ('ok' in checked) return checked;
-    const limited = this.busy(`person:${nameKey(viewer.name)}`, limits);
-    if (limited) return limited;
-    const text = this.core.redact(checked.raw);
-    // The text a post stores is what is left after cleaning, so a text of nothing but characters that draw nothing is as empty as a blank one.
-    if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    let text = '';
+    if (edit !== null) {
+      const checked = await this.core.screen(edit.text, `person:${nameKey(viewer.name)}`);
+      if ('ok' in checked) return checked;
+      const cleaned = this.core.cleaned(checked.raw);
+      if (typeof cleaned !== 'string') return cleaned;
+      text = cleaned;
+    }
     const h = this.handle(channel, owner);
     const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
     if (!found) return this.refusal('not-found', null);
@@ -725,46 +707,25 @@ export class ChannelChat {
     if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
       const reachable = this.copiesOf(found);
       if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
-      if (!sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
+      if (edit !== null && !sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
       copies = reachable;
     }
-    const changed = await this.changeCopies(viewer, copies, { kind: 'edit', text, old: found.text });
+    const changed = await this.changeCopies(viewer, copies, edit !== null ? { kind: 'edit', text, old: found.text } : { kind: 'delete' });
     if (!changed.ok) return changed;
-    const out = await h.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
+    const by = { author: viewer.personId as number, now: this.core.host.now() };
+    const out = edit !== null ? await h.editMessage(id, { ...by, text }) : await h.deleteMessage(id, by);
     if (!out.ok) {
-      // Only a race gets here (the checks above passed a moment ago): a copy was changed and the row refused, so the copies are put back.
-      await this.restoreCopies(viewer, changed.done, found.text);
+      // Only a race gets here (the checks above passed a moment ago). An edited copy is put back; a deleted one cannot be, so it stays withdrawn and its mention reads `dropped`, which is true of it.
+      if (edit !== null) await this.restoreCopies(viewer, changed.done, found.text);
       return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
     }
-    this.changed('message_edited', viewer, channel, owner, id);
-    return { ok: true, message: out.message };
-  }
-
-  /** The author deletes their own message: a tombstone stays, and a copy for another person's approval goes with it. The store decides who may and whether it is locked. */
-  async deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
-    const gate = this.mayChange(viewer, channel, owner);
-    if (gate) return gate;
-    const h = this.handle(channel, owner);
-    const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
-    if (!found) return this.refusal('not-found', null);
-    let copies: string[] = [];
-    if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
-      const reachable = this.copiesOf(found);
-      if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
-      copies = reachable;
-    }
-    const changed = await this.changeCopies(viewer, copies, { kind: 'delete' });
-    if (!changed.ok) return changed;
-    const out = await h.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
-    // Only a race gets here, and a deleted copy cannot be undone: it stays withdrawn and its mention reads `dropped`, which is true of it.
-    if (!out.ok) return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
-    this.changed('message_deleted', viewer, channel, owner, id);
+    this.changed(edit !== null ? 'message_edited' : 'message_deleted', viewer, channel, owner, id);
     return { ok: true, message: out.message };
   }
 
   /** The checks before a message is looked up: a signed-in person (the admin secret has no messages), and only in their own group. */
   private mayChange(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null): Fail | null {
-    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    if (viewer.personId === null) return noOwnMessages();
     if (channel === GROUP && (owner === null || owner.id !== viewer.personId)) return fail(403, 'Only the person who wrote a message can change it.');
     return null;
   }
@@ -835,7 +796,7 @@ export class ChannelChat {
       const m = message.mentions[index]!;
       if (this.retarget(m)) continue;
       await this.handle(channel, scope).setMention(message.id, index, { state: 'dropped', why: 'the agent ended while the message was held' });
-      this.core.signal({ scope: channel === GROUP ? 'group' : 'public', owner: oname(scope) });
+      this.core.signal(scopeOf(channel));
     }
   }
 
@@ -856,7 +817,7 @@ export class ChannelChat {
     await this.store.settings.setFlags(scope.key, { paused, ...(byAdmin ? { pausedByAdmin: byAdmin } : {}) });
     let delivered = 0;
     if (!paused && before.paused) delivered = await this.release(channel, owner, everyone || channel === 'group' ? null : viewer.personId);
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
     const state = await this.flagsOf(channel, owner, viewer.personId);
     return { ok: true, delivered, ...state };
   }
@@ -869,7 +830,7 @@ export class ChannelChat {
     if (viewer.admin && aboutGroup) await this.reads.stopped(viewer, this.threadOf(channel, owner), disconnected ? 'disconnected' : 'reconnected', this.stopTells(channel, owner, 'your Podium group'), this.peopleOf(channel, owner));
     this.core.onEvent({ kind: disconnected ? 'disconnected' : 'reconnected', channel, owner: oname(scope.owner), by: viewer.actor, everyone: false, count: 0 });
     await this.store.settings.setFlags(scope.key, { disconnected });
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
     return { ok: true, ...(await this.flagsOf(channel, owner, viewer.personId)) };
   }
 
@@ -902,7 +863,7 @@ export class ChannelChat {
     this.core.onEvent({ kind: 'cleared', channel, owner: oname(owner), by: viewer.actor, everyone: false, count: await h.count() });
     const removed = await h.clear();
     await this.store.readState.forget(this.threadOf(channel, owner));
-    this.core.signal({ scope: channel === 'group' ? 'group' : 'public', owner: channel === 'group' ? oname(owner) : null });
+    this.core.signal(scopeOf(channel));
     return { ok: true, removed };
   }
 
