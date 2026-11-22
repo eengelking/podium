@@ -6,7 +6,7 @@ import { isSentToAgent, mergesAsOne } from '../storage/peerEdit.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
 import { ENDED_NOTICE_MARK, PEER_DROP_WORDS } from './protocol.js';
-import { ChatCore, type DeliveryOutcome } from './chatCore.js';
+import { ChatCore, changeRefusal, changeState, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
@@ -116,19 +116,20 @@ interface DirectMessageView {
 
 const rank = (s: MessageState): number => (s === 'dropped' || s === 'declined' ? 3 : s === 'delivered' ? 0 : 1);
 
-/** The names of the agents a message was sent to, in words: `Tester`, `Tester and dev`. */
-const named = (names: string[]): string => (names.length <= 1 ? (names[0] ?? 'the agent') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 const lockedWords = (rows: MessageRow[]): string => {
   // The rows that were sent name the agents; when the caller knows only that the store said locked, every row it has names one.
   const sent = rows.filter((r) => isSentToAgent(r));
-  return `Podium has already sent this message to ${named([...new Set((sent.length ? sent : rows).map((r) => r.toName))])}, so it can no longer be changed.`;
+  return sentWords([...new Set((sent.length ? sent : rows).map((r) => r.toName))]);
 };
+
+/** What a Direct Message says when the store refuses to change a message. */
+const DIRECT_WORDS: ChangeWords = { notFound: 'There is no such message in this conversation.', notYours: 'Only the person who wrote a message can change it.', deleted: 'This message has already been deleted.' };
 
 /** Whether the viewer may change the message these rows are (the rows of one message), and when not, why. The author is the person's id; the lock is the store's predicate over every row. */
 function changeOf(rows: MessageRow[], viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
   const first = rows[0]!;
-  if (first.deletedAt !== null || viewer === null || viewer.personId === null || first.author !== 'person' || first.authorId === null || first.authorId !== viewer.personId) return { canChange: false, changeWhy: null };
-  return rows.some((r) => isSentToAgent(r)) ? { canChange: false, changeWhy: lockedWords(rows) } : { canChange: true, changeWhy: null };
+  const mine = first.deletedAt === null && viewer !== null && viewer.personId !== null && first.author === 'person' && first.authorId !== null && first.authorId === viewer.personId;
+  return changeState(mine, rows.some((r) => isSentToAgent(r)), () => lockedWords(rows));
 }
 
 /** A conversation's rows as the thread shows them, each message with the rows it is made of: a person's text that went to both agents of a conversation is one message. */
@@ -588,13 +589,9 @@ export class DirectChat {
   }
 
   private async refused(out: Extract<PeerChange, { ok: false }>, scope: { c: ConversationSummary; a: string; b: string; row: MessageRow }): Promise<Fail> {
-    const why = out.reason;
     // Over the length limit of the agent's owner: the send's own words and status.
     if (out.reason === 'too-long') return fail(out.status, out.error);
-    if (why === 'not-found') return fail(404, 'There is no such message in this conversation.');
-    if (why === 'not-yours') return fail(403, 'Only the person who wrote a message can change it.');
-    if (why === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
-    return fail(409, lockedWords((await this.rowsOf(scope.c, scope.a, scope.b, scope.row.id)) ?? [scope.row]), 'locked');
+    return changeRefusal(out.reason, DIRECT_WORDS, async () => lockedWords((await this.rowsOf(scope.c, scope.a, scope.b, scope.row.id)) ?? [scope.row]));
   }
 
   /** Tells the consoles of both people that a message changed, and the owner's count of what waits for them (a delete closes a request), and the Admin log: ids and where, never the text. */
@@ -651,9 +648,7 @@ export class DirectChat {
     const out = op.kind === 'edit' ? await this.peers.editMessage(copyId, { author: viewer.personId, text: op.text, now }) : await this.peers.deleteMessage(copyId, { author: viewer.personId, now });
     if (!out.ok) {
       if (out.reason === 'too-long') return fail(out.status, out.error);
-      if (out.reason === 'locked') return fail(409, lockedWords([(await this.peers.message(copyId)) ?? row]), 'locked');
-      if (out.reason === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
-      return fail(out.reason === 'not-found' ? 404 : 403, out.reason === 'not-found' ? 'There is no such message.' : 'Only the person who wrote a message can change it.');
+      return changeRefusal(out.reason, { ...DIRECT_WORDS, notFound: 'There is no such message.' }, async () => lockedWords([(await this.peers.message(copyId)) ?? row]));
     }
     // The store changed the message only for its author, so the person is the viewer.
     this.tell(viewer.name, row.owner);

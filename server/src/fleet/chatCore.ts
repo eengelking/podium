@@ -74,6 +74,39 @@ const TEXT_WORDS = {
 } as const;
 export type TextWords = keyof typeof TEXT_WORDS;
 
+/** Why a store refuses to change a message: the same four for every audience (#1269). */
+export type ChangeRefusal = 'not-found' | 'not-yours' | 'locked' | 'deleted';
+
+/** What a person is told when a change is refused, in the words of the audience the message is in. A message an agent has been handed (`locked`) is said by the caller, since it names the agents. */
+export interface ChangeWords {
+  notFound: string;
+  notYours: string;
+  deleted: string;
+}
+
+/** The refusal for a reason a store gives: not found (404), not the author's (403), deleted and locked (409, with the reason a form reads). */
+export async function changeRefusal(why: ChangeRefusal, words: ChangeWords, locked: () => string | Promise<string>): Promise<Fail> {
+  if (why === 'not-found') return fail(404, words.notFound);
+  if (why === 'not-yours') return fail(403, words.notYours);
+  return why === 'deleted' ? fail(409, words.deleted, 'deleted') : fail(409, await locked(), 'locked');
+}
+
+/** The words for a message that went to agents, which a channel and a Direct Message say the same way: it names them. */
+export function sentWords(names: string[]): string {
+  const who = names.length === 0 ? 'the agent' : names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
+}
+
+/**
+ * Whether the viewer may change a message now, and when not, why: `mine` is the author's own live message (by id, never by name), `locked` that an agent has been handed it
+ * (the one lock rule of every audience, the store's), `lockedWords` what it says, and `waiting` another reason in words (a mention that waits for approval). Not the author's: neither.
+ */
+export function changeState(mine: boolean, locked: boolean, lockedWords: () => string, waiting: string | null = null): { canChange: boolean; changeWhy: string | null } {
+  if (!mine) return { canChange: false, changeWhy: null };
+  const why = locked ? lockedWords() : waiting;
+  return { canChange: why === null, changeWhy: why };
+}
+
 /** The longest issue, project or milestone a post may carry, in characters. */
 const MAX_LABEL = 200;
 

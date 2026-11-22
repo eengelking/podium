@@ -3,9 +3,9 @@
 // read by different code, and `chatSeparation.test.ts` holds this file to it.
 import { nameKey } from '../storage/rows.js';
 import type { LiveOrchestrator } from './peerTypes.js';
-import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
+import type { ChannelFlags, ChannelMention, ChannelMessage, ChannelPage, ChannelPostInput, ChatAuthorKind, GroupScope, MentionState } from '../storage/types.js';
 import { parseMentions, type ParsedMention } from './chatMentions.js';
-import { ChatCore, type AcrossUpdate, type ChatLimits } from './chatCore.js';
+import { ChatCore, changeRefusal, changeState, sentWords, type AcrossUpdate, type ChangeRefusal, type ChangeWords, type ChatLimits } from './chatCore.js';
 import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
 import { CHANNEL_NAME, lockedByDelivery } from '../storage/chatRows.js';
 import {
@@ -72,9 +72,7 @@ function sentTo(m: ChannelMessage): string[] {
 
 /** The refusal's words for a message an agent has: it names the agent when it is known. */
 function lockedWords(m: Pick<ChannelMessage, 'mentions'>): string {
-  const names = sentTo(m as ChannelMessage);
-  const who = names.length === 0 ? 'the agent' : names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
-  return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
+  return sentWords(sentTo(m as ChannelMessage));
 }
 
 /** The words for a message that waits for another person to approve it with no copy kept for it (stored before copies were kept): the copy cannot be reached from here (#1269). */
@@ -88,10 +86,8 @@ function approvalWords(m: Pick<ChannelMessage, 'mentions'>): string | null {
 
 /** Whether the viewer may change this message, and when not, why: by the author's id, never the name. The lock is the store's predicate. */
 function changeOf(m: ChannelMessage, viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
-  if (m.deletedAt !== null || viewer === null || viewer.personId === null || m.authorKind !== 'person' || m.authorId === null || m.authorId !== viewer.personId) return { canChange: false, changeWhy: null };
-  if (lockedByDelivery(m.mentions)) return { canChange: false, changeWhy: lockedWords(m) };
-  const waiting = approvalWords(m);
-  return waiting ? { canChange: false, changeWhy: waiting } : { canChange: true, changeWhy: null };
+  const mine = m.deletedAt === null && viewer !== null && viewer.personId !== null && m.authorKind === 'person' && m.authorId !== null && m.authorId === viewer.personId;
+  return changeState(mine, lockedByDelivery(m.mentions), () => lockedWords(m), approvalWords(m));
 }
 
 export function messageView(m: ChannelMessage, viewer: ChatViewer | null, owners: ReadonlyMap<string, string | null> = new Map()): ChannelMessageView {
@@ -158,6 +154,9 @@ type Planned = { input: NonNullable<ChannelPostInput['mentions']>[number]; bump:
 
 /** The refusal when an Admin tries to write in a group that is not their own. */
 const ADMIN_NO_WRITE = 'An Admin can read and stop a person\'s group but cannot write in it.';
+
+/** What a channel says when the store refuses to change a message. */
+const CHANNEL_WORDS: ChangeWords = { notFound: 'There is no such message in this channel.', notYours: 'Only the person who wrote a message can change it.', deleted: 'This message has already been deleted.' };
 
 export class ChannelChat {
   constructor(
@@ -647,11 +646,8 @@ export class ChannelChat {
   // ---- A person changes their own message (#1269) -------------------------------------------------------------------------
 
   /** The refusal for each reason the store gives; `locked` names the agent the message went to. */
-  private refusal(why: Extract<ChannelChange, { ok: false }>['reason'], message: ChannelMessage | null): Fail {
-    if (why === 'not-found') return fail(404, 'There is no such message in this channel.');
-    if (why === 'not-yours') return fail(403, 'Only the person who wrote a message can change it.');
-    if (why === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
-    return fail(409, message ? lockedWords(message) : 'Podium has already sent this message to an agent, so it can no longer be changed.', 'locked');
+  private refusal(why: ChangeRefusal, message: ChannelMessage | null): Promise<Fail> {
+    return changeRefusal(why, CHANNEL_WORDS, () => (message ? lockedWords(message) : 'Podium has already sent this message to an agent, so it can no longer be changed.'));
   }
 
   /** Tells the consoles that a message changed, as a post does for its scope, and the Admin log: ids and where, never the text. */

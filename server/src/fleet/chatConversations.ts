@@ -9,7 +9,7 @@ import { ENDED_NOTICE_MARK } from './protocol.js';
 import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage, ConversationTargetInput } from '../storage/types.js';
 import type { AdminReads, ReadSubject } from './chatAdminReads.js';
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
-import { type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
+import { changeRefusal, changeState, type ChangeWords, type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import type { LiveOrchestrator } from './peerTypes.js';
 import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
@@ -19,6 +19,9 @@ const conversationThread = (id: string): string => `convo:${id}`;
 export const conversationOfThread = (thread: string): string | null => (thread.startsWith('convo:') ? thread.slice('convo:'.length) : null);
 
 const TEXT_MAX_GUARD = 100_000;
+/** What a conversation says when the store refuses to change a message, and of one an agent has been handed: it names no agent, since the message may have gone to several. */
+const CONVERSATION_WORDS: ChangeWords = { notFound: 'There is no such message.', notYours: 'You can change only your own messages.', deleted: 'That message was already deleted.' };
+const HANDED_WORDS = 'Podium has already sent this to an agent, so it can no longer be changed.';
 /** How long after a person's message an agent may answer it in the conversation (#1299): the window a channel gives an agent called into it. */
 const AGENT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
 /** How many pages of the conversation one answer may read back through to find the message it answers: 10 of 100 is 1,000 messages. */
@@ -248,7 +251,6 @@ export class ConversationChat {
 
   private view(viewer: ChatViewer, m: ConversationMessage): ConversationMessageView {
     const mine = viewer.personId !== null && m.authorKind === 'person' && m.authorId === viewer.personId;
-    const handed = m.handedAt !== null;
     const gone = m.deletedAt !== null;
     return {
       id: m.id,
@@ -258,8 +260,7 @@ export class ConversationChat {
       editedAt: m.editedAt,
       deletedAt: m.deletedAt,
       replyTo: m.replyTo,
-      canChange: mine && !handed && !gone,
-      changeWhy: !mine || gone ? null : handed ? 'Podium has already sent this to an agent, so it can no longer be changed.' : null,
+      ...changeState(mine && !gone, m.handedAt !== null, () => HANDED_WORDS),
       deliveries: gone ? [] : m.deliveries.map((d) => ({ kind: d.kind, name: d.name, named: d.named, state: d.state })),
     };
   }
@@ -471,11 +472,7 @@ export class ConversationChat {
       if (fast) return fast;
       out = await this.store.editMessage(id, messageId, { author: viewer.personId, text: t.text, now });
     } else out = await this.store.deleteMessage(id, messageId, { author: viewer.personId, now });
-    if (!out.ok) {
-      if (out.reason === 'not-found') return fail(404, 'There is no such message.');
-      if (out.reason === 'not-yours') return fail(403, 'You can change only your own messages.');
-      return fail(409, out.reason === 'deleted' ? 'That message was already deleted.' : 'Podium has already sent this to an agent, so it can no longer be changed.', out.reason);
-    }
+    if (!out.ok) return changeRefusal(out.reason, CONVERSATION_WORDS, () => HANDED_WORDS);
     this.core.onEvent({ kind: op === 'edit' ? 'conversation_message_edited' : 'conversation_message_deleted', by: viewer.actor, conversation: id, messageId });
     for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) this.core.signal('dm');
     return { ok: true, message: this.view(viewer, out.message) };
