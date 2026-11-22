@@ -21,9 +21,8 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
 
   /** The orchestrator a route is about, when messaging is on and the person's token owns its session and it takes part; otherwise answers. */
   const session = async (req: Request, res: Response): Promise<LiveOrchestrator | null> => {
-    // The session is read only when messaging is on, so a refusal for that costs no read.
-    const row = peersEnabled(fleet, d.token) ? await fleet.db.getSession(String(req.params.id)) : undefined;
-    return gate(req, res, row)?.o ?? null;
+    // The gate is the one check that messaging is on; the session is read before it, which costs one read for the refusal when it is off.
+    return gate(req, res, await fleet.db.getSession(String(req.params.id)))?.o ?? null;
   };
 
   /** The channel a route names: General, My group or a public channel that exists (#1035); anything else is answered `404` and never reaches a store. */
