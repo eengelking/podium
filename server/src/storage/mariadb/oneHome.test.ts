@@ -43,10 +43,15 @@ describe.skipIf(!TEST_MARIADB)('mariadb steps 30 and 31', () => {
     expect(await indexes('group_messages')).toContain('group_messages_channel');
     expect(await indexes('peer_requests')).toContain('peer_requests_owner');
 
-    // The step stops after its first four statements (the index and three columns are gone) and is run again from its start.
-    await expect(migrate(db, MAIN_MIGRATIONS, upTo(30), stopAt(30, 4))).rejects.toThrow('stopped');
-    expect(await columns('group_messages')).not.toContain('updated_at');
+    // The step stops after its first statement (group_messages has lost its index and three columns in that one statement) and is run again from its start, which finds that statement done and does the rest.
+    await expect(migrate(db, MAIN_MIGRATIONS, upTo(30), stopAt(30, 1))).rejects.toThrow('stopped');
+    for (const c of ['owner', 'group_id', 'updated_at']) expect(await columns('group_messages'), c).not.toContain(c);
+    expect(await indexes('group_messages')).toEqual(['group_messages_created', 'group_messages_owner']);
     expect(await columns('public_messages')).toContain('updated_at');
+    // Stopped again between the last two tables, so the step is run a third time from the start with everything but one table done.
+    await expect(migrate(db, MAIN_MIGRATIONS, upTo(30), stopAt(30, 6))).rejects.toThrow('stopped');
+    expect(await columns('conversations')).toContain('created_by');
+    expect(await columns('peer_messages')).not.toContain('handed');
     await migrate(db, MAIN_MIGRATIONS, upTo(30));
 
     for (const [table, gone] of [['group_messages', ['owner', 'group_id', 'updated_at']], ['public_messages', ['updated_at']], ['conversation_messages', ['updated_at']], ['public_channels', ['created_by']], ['peer_messages', ['handed']], ['conversations', ['created_by']]] as const) {

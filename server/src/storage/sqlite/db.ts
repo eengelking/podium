@@ -969,12 +969,20 @@ CREATE TABLE IF NOT EXISTS conversation_deliveries (
     // and `created_by_name`; `peer_messages.handed` said once handed what `state` says; `peer_requests_owner` served no query; `conversations.created_by` is only what each other member's
     // `added_by` records. `updated_at` on the three message tables is the newest of the row's other times (`created_at`, `edited_at`, `deleted_at` and a mention's `stateAt`), so it is
     // worked out where a message is read. The earlier steps that read `group_messages.owner`, `public_channels.created_by` and `chat_read_state.person` have already run when this one does.
+    // `DROP COLUMN` rewrites the whole table each time, so `group_messages`, which loses three, is made again once and its rows copied, as migration 52 does; the others lose one column each.
     // The same step is PostgreSQL step 30 and MariaDB step 30.
     sql: `
-DROP INDEX IF EXISTS group_messages_channel;
-ALTER TABLE group_messages DROP COLUMN owner;
-ALTER TABLE group_messages DROP COLUMN group_id;
-ALTER TABLE group_messages DROP COLUMN updated_at;
+CREATE TABLE group_messages_new (
+  id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL,
+  issue TEXT, project TEXT, milestone TEXT, reply_to TEXT, mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL,
+  edited_at INTEGER, deleted_at INTEGER, author_id INTEGER, owner_id INTEGER
+);
+INSERT INTO group_messages_new (id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, edited_at, deleted_at, author_id, owner_id)
+  SELECT id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, edited_at, deleted_at, author_id, owner_id FROM group_messages;
+DROP TABLE group_messages;
+ALTER TABLE group_messages_new RENAME TO group_messages;
+CREATE INDEX group_messages_owner ON group_messages(owner_id, created_at, seq);
+CREATE INDEX group_messages_created ON group_messages(created_at);
 ALTER TABLE public_messages DROP COLUMN updated_at;
 ALTER TABLE conversation_messages DROP COLUMN updated_at;
 ALTER TABLE public_channels DROP COLUMN created_by;

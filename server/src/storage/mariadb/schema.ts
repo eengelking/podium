@@ -734,18 +734,16 @@ CREATE TABLE IF NOT EXISTS conversation_deliveries (
   },
   {
     version: 30,
-    // Every fact in one place (#1296): the columns and indexes nothing reads go, and `updated_at` is worked out where a message is read. See SQLite migration 54. The index on `owner` and `group_id` is
-    // dropped first so MariaDB does not keep it on the columns left. Each statement can run twice, so a step that stopped half way runs again.
+    // Every fact in one place (#1296): the columns and indexes nothing reads go, and `updated_at` is worked out where a message is read. See SQLite migration 54. Each table is changed in one statement,
+    // because each `ALTER TABLE` that drops a column rebuilds the table; `group_messages` loses three columns and its index, and MariaDB does not keep the index on the columns left because it is dropped in the
+    // same statement. Each statement can run twice (`IF EXISTS`), so a step that stopped half way runs again.
     statements: steps(`
-DROP INDEX IF EXISTS group_messages_channel ON group_messages;
-ALTER TABLE group_messages DROP COLUMN IF EXISTS owner;
-ALTER TABLE group_messages DROP COLUMN IF EXISTS group_id;
-ALTER TABLE group_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE group_messages DROP INDEX IF EXISTS group_messages_channel, DROP COLUMN IF EXISTS owner, DROP COLUMN IF EXISTS group_id, DROP COLUMN IF EXISTS updated_at;
 ALTER TABLE public_messages DROP COLUMN IF EXISTS updated_at;
 ALTER TABLE conversation_messages DROP COLUMN IF EXISTS updated_at;
 ALTER TABLE public_channels DROP COLUMN IF EXISTS created_by;
 ALTER TABLE peer_messages DROP COLUMN IF EXISTS handed;
-DROP INDEX IF EXISTS peer_requests_owner ON peer_requests;
+ALTER TABLE peer_requests DROP INDEX IF EXISTS peer_requests_owner;
 ALTER TABLE conversations DROP COLUMN IF EXISTS created_by;
 `),
   },
