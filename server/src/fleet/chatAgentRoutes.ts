@@ -1,7 +1,7 @@
 // The reporter-token routes for agents (#1034): post to the group channel or to General, and read either a page at a time. These are the route shapes;
 // the finished agent feature (the tools, replying in thread, agents addressing each other) is #1035. They take X-Podium-Token as the report route does,
-// the credential must be the person's token that owns the session, and the session's last report must have said `peers: true`. A direct message is not
-// reachable from here: the only stores these handlers use are the channels.
+// the credential must be the person's token that owns the session, and the session's last report must have said `peers: true`. A direct message cannot
+// be read from here: the only write besides the channels is an agent's answer in a conversation it is a member of (#1299).
 import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import { jsonBody } from '../jsonBody.js';
@@ -81,6 +81,15 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     const out = await fleet.chat.channels.agentPost(o, channel, (req.body ?? {}) as Record<string, unknown>);
     if (!out.ok) return void failed(req, res, out);
     res.status(201).json({ ok: true, id: out.message.id, createdAt: out.message.createdAt });
+  }));
+
+  /** An agent answers in a Direct Message of people and agents it is a member of, where a person wrote to it (#1299). The only conversation route here: it reads nothing, and posts only as the agent. */
+  router.post('/sessions/:id/chat/conversations/:conversation/messages', d.requireToken, json, asyncHandler(async (req, res) => {
+    const o = await session(req, res);
+    if (!o) return;
+    const out = await fleet.chat.conversations.agentSend(o, String(req.params.conversation), (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void failed(req, res, out);
+    res.status(201).json({ ok: true, id: out.id, createdAt: out.createdAt });
   }));
 
   /** The last hour of a channel the agent was called into: the newest messages that fit in about 30,000 characters, oldest first; `older` is the cursor for the ones before them that are inside the hour. The same for General, My group and every public channel (#1035). */

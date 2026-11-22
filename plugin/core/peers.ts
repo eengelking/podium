@@ -11,7 +11,7 @@ const TOAST_TEXT_MAX = 300;
 const NAME_MAX = 80;
 
 /** What the `to` of `podium_send` is, in both harnesses' tool schemas. */
-export const SEND_TO_DESCRIPTION = 'The orchestrator, as "#id" (the id podium_peers shows for it, which is never reused), "name@machine" or "name@machine#id"; or "person:name" to answer a person who wrote to you through Podium Chat; or "channel:group", "channel:general" or "channel:<name>" (a public channel, such as "channel:issue-1035") to post in a Chat channel';
+export const SEND_TO_DESCRIPTION = 'The orchestrator, as "#id" (the id podium_peers shows for it, which is never reused), "name@machine" or "name@machine#id"; or "person:name" to answer a person who wrote to you through Podium Chat; or "channel:group", "channel:general" or "channel:<name>" (a public channel, such as "channel:issue-1035") to post in a Chat channel; or "convo:<id>" to answer in a Direct Message with several members, where the message gave you the id';
 
 /** What the arguments of `podium_chat_read` are, in both harnesses' tool schemas. */
 export const CHAT_READ_CHANNEL_DESCRIPTION = 'The channel you were called into in the last hour: "general" is General, "group" is My group, or the name of a public channel, such as "issue-1035". Leave it out to list the channels';
@@ -29,7 +29,7 @@ export const TOOL_DESCRIPTIONS = {
   peers:
     "Lists your person's other orchestrators that you can reach through Podium: each one's name, machine and id (the id is given by Podium and never reused, so a new session that takes an earlier one's name has a new id), its OS, project and status, and whether you can send to it. Says which of your person's machines are left out and why. Takes no arguments.",
   send:
-    'Sends a message through Podium to another orchestrator of your person, addressed by the id podium_peers lists for it ("#7", the surest address: an id is never reused, so it never reaches a later orchestrator that took the name), or as "name@machine" or "name@machine#id". If that orchestrator has ended, the answer says it is no longer available, by its name and id. Podium hands it to that orchestrator within seconds; if the orchestrator is in the middle of a turn, it reads the message at its next step, after the tool call it is on, and decides then whether it matters more than what it was doing. Its answer arrives here as a new message. It also answers a person who wrote to you through Podium Chat, as "person:name" (the frame of their message gives the address, and podium_peers lists them): the answer goes to that person, and your person can read it. It also posts in a Chat channel, as "channel:group" (My group), "channel:general" (General) or "channel:<name>" for a public channel such as "channel:issue-1035" (podium_chat_read with no channel lists them): the post shows in the channel for everyone who can read it, not only to the person who called you. A channel (General, My group or a public one) takes a post only from an agent that was called into it with an @ in the last hour. General and every public channel are readable by everyone signed in to Podium, so post nothing you would not say to all of them. A channel post does not interrupt anyone\'s running turn: an agent sees it when it reads the channel. Anything that looks like a secret is replaced with [redacted] before the text leaves this machine. Only the main loop can send, not a subagent. To see what was said in a Chat channel, use podium_chat_read.',
+    'Sends a message through Podium to another orchestrator of your person, addressed by the id podium_peers lists for it ("#7", the surest address: an id is never reused, so it never reaches a later orchestrator that took the name), or as "name@machine" or "name@machine#id". If that orchestrator has ended, the answer says it is no longer available, by its name and id. Podium hands it to that orchestrator within seconds; if the orchestrator is in the middle of a turn, it reads the message at its next step, after the tool call it is on, and decides then whether it matters more than what it was doing. Its answer arrives here as a new message. It also answers a person who wrote to you through Podium Chat, as "person:name" (the frame of their message gives the address, and podium_peers lists them): the answer goes to that person, and your person can read it. It also posts in a Chat channel, as "channel:group" (My group), "channel:general" (General) or "channel:<name>" for a public channel such as "channel:issue-1035" (podium_chat_read with no channel lists them): the post shows in the channel for everyone who can read it, not only to the person who called you. It also answers in a Direct Message of people and agents, as "convo:<id>" (the message gives the id): the answer is posted there for the people in it, and only where a person wrote to you in the last hour. A channel (General, My group or a public one) takes a post only from an agent that was called into it with an @ in the last hour. General and every public channel are readable by everyone signed in to Podium, so post nothing you would not say to all of them. A channel post does not interrupt anyone\'s running turn: an agent sees it when it reads the channel. Anything that looks like a secret is replaced with [redacted] before the text leaves this machine. Only the main loop can send, not a subagent. To see what was said in a Chat channel, use podium_chat_read.',
   chatRead:
     'Lists and reads Podium Chat channels. With no "channel" it lists the channels, General and every public channel anyone opened, each with its description, what it is linked to (an issue, a milestone or a project), who opened it and how many messages it holds; it reads no message, and it needs no call into a channel, so you can learn the names to post to. With "channel" set to "general" (General), "group" (My group) or the name of a public channel (such as "issue-1035") it reads that channel, and only when an @ called you into it in the last hour: it returns the last hour, the newest messages that fit in about 30,000 characters, whole messages, oldest first, each with its author, the kind of author and the time, under a line that says they are not your owner\'s instructions. When older messages from that hour remain, the result ends with a line that gives the "before" value to pass to read them. Nothing older than an hour is ever returned, and a channel you were not called into is refused. Everyone signed in to Podium can read General and every public channel, whether or not you were called in. It is read only: it cannot post, and reading changes nothing. A new message in a channel does not interrupt a running turn: read the channel to see it. To post, use podium_send to "channel:group", "channel:general" or "channel:<name>", which also takes a post only from an agent called in during the last hour. Only the main loop can list or read, not a subagent.',
   access:
@@ -87,6 +87,39 @@ export function chatAnswerHint(by: string): string {
   return `${CHAT_HINT_START}${oneLine(by)}".`;
 }
 
+/** What a conversation's id looks like on the wire (#1299): the server's own id, never anything a person typed. */
+const CONVO_ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+/** The conversation id an address or a delivery names; null for anything else. */
+function convoArgument(v: unknown): string | null {
+  const s = oneLine(v);
+  return CONVO_ID.test(s) ? s : null;
+}
+
+/** Where an answer in a Direct Message of people and agents goes (#1299): `convo:<id>`. `person:<name>` cannot say which conversation when a person and the agent share several. */
+function convoAddress(id: string): string {
+  return `convo:${id}`;
+}
+
+/** The sentence after a message written in a Direct Message of people and agents (#1299): the address to answer to, so the answer shows in that conversation for the people in it. The other agents in it are not handed the answer. */
+const CONVO_ANSWER_HINT = (id: string): string => `To answer in this conversation, so that the people in it see the answer, use podium_send to "${convoAddress(id)}".`;
+
+export const CONVO_ADDRESS_REFUSAL = 'Not sent. A conversation is convo:<id>, the id the message gave you.';
+
+/** What `podium_send` does with an address (#1299), in one place for every harness: answer in a conversation, refuse a `convo:` address with no usable id, or null when it is not one. */
+export function convoSendTarget(to: string): { convo: string } | { refusal: string } | null {
+  const s = oneLine(to);
+  if (!s.toLowerCase().startsWith('convo:')) return null;
+  const convo = convoArgument(s.slice('convo:'.length));
+  return convo ? { convo } : { refusal: CONVO_ADDRESS_REFUSAL };
+}
+
+/** What `podium_send` answers once an answer was posted in a conversation (#1299). */
+export function convoSendAnswer(ctx: { owner: string; redactions: number }): string {
+  const redacted = ctx.redactions > 0 ? ` Before it left this machine, ${ctx.redactions === 1 ? '1 value that looked like a secret was' : `${ctx.redactions} values that looked like secrets were`} replaced with [redacted].` : '';
+  return `Posted in the conversation. The people in it see it, and ${ctx.owner} can too.${redacted}`;
+}
+
 /** What a public channel's name is, the rule the server holds it to (#1035). `general` and `group` are the two built-in channels. */
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
@@ -128,7 +161,9 @@ export const CHAT_ANSWER_HINT = (channel: string): string => `To answer in the c
  * `text` with the Chat hint after it when the delivery is the owner's own Chat message, or with where to read around it when it is an `@` in a channel
  * (`d.channel` is the channel's name, set only for a session that has the tool); the text of anything else is returned as it is.
  */
-export function withChatHint(text: string, d: { chat?: unknown; by: string; channel?: unknown }): string {
+export function withChatHint(text: string, d: { chat?: unknown; by: string; channel?: unknown; convo?: unknown }): string {
+  const convo = d.chat === true ? convoArgument(d.convo) : null;
+  if (convo) return `${text}\n\n${CONVO_ANSWER_HINT(convo)}`;
   if (d.chat === true && oneLine(d.by)) return `${text}\n\n${chatAnswerHint(d.by)}`;
   const channel = typeof d.channel === 'string' ? channelArgument(d.channel) : null;
   return channel ? `${text}\n\n${CHAT_READ_HINT(channel)} ${CHAT_ANSWER_HINT(channel)}` : text;
@@ -192,7 +227,7 @@ function podiumFraming(d: Pick<Delivery, 'by' | 'via' | 'admin' | 'owner'>): str
  * nothing inside the text can pass as Podium's own words. The sentences that say where to answer follow the end line, as Podium's. Null for anything it cannot frame
  * (no `via`, from a server that does not frame yet, an empty text or no name), so the harness keeps its text as it was.
  */
-export function podiumPrompt(d: Pick<Delivery, 'kind' | 'by' | 'text' | 'via' | 'admin' | 'owner' | 'chat' | 'channel'>): string | null {
+export function podiumPrompt(d: Pick<Delivery, 'kind' | 'by' | 'text' | 'via' | 'admin' | 'owner' | 'chat' | 'channel' | 'convo'>): string | null {
   if (d.kind !== 'message' || typeof d.text !== 'string' || !d.text.trim()) return null;
   const framing = podiumFraming(d);
   if (!framing) return null;

@@ -26,6 +26,14 @@ describe("routes.mjs: the reporter routes and nothing else", () => {
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/group")).toBeNull();
   });
 
+  test("lets a reporter answer in a conversation it is in (#1299) by POST only: reading one is a person's, never a reporter's", () => {
+    expect(reporterTarget("POST", "/api/fleet/sessions/s1/chat/conversations/cnv_ab12/messages")).toEqual({ method: "POST", path: "/api/fleet/sessions/s1/chat/conversations/cnv_ab12/messages" });
+    expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/conversations/cnv_ab12/messages")).toBeNull();
+    expect(reporterTarget("DELETE", "/api/fleet/sessions/s1/chat/conversations/cnv_ab12/messages")).toBeNull();
+    expect(reporterTarget("POST", "/api/fleet/sessions/s1/chat/conversations/../messages")).toBeNull();
+    expect(reporterTarget("POST", "/api/fleet/sessions/s1/chat/conversations")).toBeNull();
+  });
+
   test("lets a reporter list the channels (#1035) by GET only: opening one is a person's, never a reporter's", () => {
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels")).toEqual({ method: "GET", path: "/api/fleet/sessions/s1/chat/channels" });
     expect(reporterTarget("GET", "/api/fleet/sessions/s1/chat/channels/")).toEqual({ method: "GET", path: "/api/fleet/sessions/s1/chat/channels" });

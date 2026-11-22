@@ -1,7 +1,8 @@
 // SPEC 8.1 Chat page (#1282, an @ in a Direct Message with an agent in it): Ed starts a conversation with Maya and two of his own agents (invoice-v2 on ed-mbp, Tester on ci-runner-01).
 // Its header names the people and the number of agents and no longer says an Admin can read it; an @ (typed, or the Mention button) opens a list of its members alone; a message with no @
 // is for every agent, one that names a member is for that member alone, and each shows a "For" line and a delivery line that name only the agents it was handed to; a name that is not a
-// member, @group and @everyone are refused with 422 in words and store nothing.
+// member, @group and @everyone are refused with 422 in words and store nothing; an agent that was written to answers in the conversation with its reporter token (#1299) and a
+// conversation it was not written to in, or one that does not exist, is refused.
 // Order: the tests are one story on one server (reset once, in `before`): each reads what the one before it left, and the conversation's id is read from the list once.
 
 const API = '/api/fleet/respond/chat';
@@ -92,5 +93,15 @@ describe('chat: an @ in a conversation with an agent', () => {
     call('GET', `/conversations/${convo}/messages?limit=50`).its('body.messages', { log: false }).should('have.length', 3);
     open();
     cy.tid('chat-message').should('have.length', 3);
+  });
+
+  it('lets an agent that was written to answer in the conversation, shows it as the agent\'s, and refuses one that does not exist', () => {
+    expect(convo, 'the conversation id read earlier').to.be.a('string');
+    const ANSWER = 'All green here, answered by the agent convo-answer-7c3d';
+    const post = (id, text) => cy.task('mod:post', { who: 'Ed', path: `/sessions/e2e-s-invoice/chat/conversations/${id}/messages`, body: { text } }, { log: false });
+    post('cnv_nope', 'hi').its('status', { log: false }).should('eq', 404);
+    post(convo, ANSWER).its('status', { log: false }).should('eq', 201);
+    open();
+    cy.tid('chat-message').should('have.length', 4).last().should('contain.text', ANSWER).and('contain.text', 'invoice-v2');
   });
 });

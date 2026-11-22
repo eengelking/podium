@@ -2,7 +2,7 @@ import { describe, test, expect, mock, type Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { ENDED_NOTICE_MARK, type AdminNotice, type Ask, type Delivery, type PeerDelivery, type PeerRequest, type Report } from '../../core/protocol.ts'
 import { HELD_LEAD } from './midTurn.ts'
-import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
+import { CHANNEL_ADDRESS_REFUSAL, CONVO_ADDRESS_REFUSAL, CHAT_READ_BEFORE_DESCRIPTION, CHAT_READ_CHANNEL_DESCRIPTION, CHAT_READ_REFUSAL, MID_TURN_NOTE, SUBAGENT_CHAT_READ, SUBAGENT_SEND, TOOL_DESCRIPTIONS } from '../../core/peers.ts'
 import { assertKeptApart, assertSubmittedFramed, type AfterPeerMessage } from './peerChecks.ts'
 
 // Orchestrator messaging in the reporter (#414, SPEC 5.3). The world beneath the plugin is a fake Podium server whose
@@ -965,6 +965,21 @@ describe('podium_send: an addressed agent answers in the channel that called it 
     expect(await callTool($, w, 'podium_send', { to: 'channel:general', text: 'hi' })).toBe('Not sent. You were not called into this channel in the last hour.')
     expect(await callTool($, w, 'podium_send', { to: 'channel:Not a name', text: 'hi' })).toBe(CHANNEL_ADDRESS_REFUSAL)
     expect(w.calls.filter((c) => c.path.includes('/chat/channels/')).map((c) => c.path)).toEqual([`/api/fleet/sessions/${SID}/chat/channels/general/messages`])
+  })
+
+  test('answers in the conversation a message was written in, on its own route, and not as a person or a peer (#1299)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /chat/conversations/cnv_ab12/messages'] = { status: 201, body: { ok: true, id: 'cmg_1', createdAt: NOW } }
+    w.server.routes['POST /chat/conversations/cnv_cd34/messages'] = { status: 403, body: { ok: false, error: 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.' } }
+    await started($, w)
+    expect(await callTool($, w, 'podium_send', { to: 'convo:cnv_ab12', text: 'password=hunter2 works' })).toContain('Posted in the conversation.')
+    const posts = w.calls.filter((c) => c.method === 'POST' && c.path === `/api/fleet/sessions/${SID}/chat/conversations/cnv_ab12/messages`)
+    expect(posts).toHaveLength(1)
+    expect(posts[0]!.headers['X-Podium-Token']).toBe('tok-ed')
+    expect(posts[0]!.body).toEqual({ text: 'password=[redacted] works' })
+    expect(await callTool($, w, 'podium_send', { to: 'convo:cnv_cd34', text: 'hi' })).toBe('Not sent. Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.')
+    expect(await callTool($, w, 'podium_send', { to: 'convo:', text: 'hi' })).toBe(CONVO_ADDRESS_REFUSAL)
+    expect(w.calls.filter((c) => c.path === `/api/fleet/sessions/${SID}/peers/messages`)).toEqual([])
   })
 
   test('a subagent\'s call is refused, and nothing leaves the machine', { options: ON }, async ($, on) => {

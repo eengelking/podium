@@ -15,6 +15,7 @@ export const REPORTER_ROUTES = [
   ['GET', '/api/fleet/sessions/:id/chat/channels'],
   ['GET', '/api/fleet/sessions/:id/chat/channels/:id/messages'],
   ['POST', '/api/fleet/sessions/:id/chat/channels/:id/messages'],
+  ['POST', '/api/fleet/sessions/:id/chat/conversations/:id/messages'],
   ['PUT', '/api/fleet/sessions/:id/diffs/:id'],
   ['PUT', '/api/fleet/sessions/:id/asks/:id'],
   ['GET', '/api/fleet/sessions/:id/asks/:id/answer'],
