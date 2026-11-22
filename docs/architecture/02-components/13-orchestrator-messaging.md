@@ -100,8 +100,9 @@ purpose. `ChatCore` has what both sides share and touches no message: the Admin'
 rate limit, the read-state counts and the stream signal, the audit callback, and `deliver`, which hands a text to an agent through
 responding's message path (`RespondStore.message`) so the Admin's respond flags and the reporter's own consent apply as they do for the
 console's message box. Each rule the audiences repeated lives there once (#1310), with the audience's own words as a parameter:
-`tooLong` and `tooFast` refuse a text over the length or the rate in the words of `chat` (a channel and a Direct Message) or `convo`
-(a conversation); `changeRefusal`, `changeState` and `sentWords` are the refusal of a change and the rule for whether a message can
+`screen` checks a text before it is scanned (a string with something in it, `tooLong`, `tooFast`) and `cleaned` scans it and checks
+something is left; `tooLong` and `tooFast` refuse a text over the length or the rate in the words of `chat` (a channel and a Direct Message) or `convo`
+(a conversation); `ChannelChat.change` and `DirectChat.change` are the one edit-and-delete flow of each; `changeRefusal`, `changeState` and `sentWords` are the refusal of a change and the rule for whether a message can
 still be changed; `endedNotice` is what an agent hears when the agent it was written with ends. A new audience adds its words to
 those tables and its own storage handle, not another copy of the sequence. The stream signal is a scope and nothing else: `signal(scope)`
 sends `chat {rev, scope}`, and the owner, the counts and the approvals a signal once also built were never sent and are gone.
