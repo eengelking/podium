@@ -103,7 +103,8 @@ remove_labelled() {
   local filter="label=$LABEL${1:+=$1}" ids
   ids="$($E ps -aq --filter "$filter" 2>/dev/null)"
   # shellcheck disable=SC2086
-  [[ -n "$ids" ]] && $E rm -f $ids >/dev/null 2>&1
+  # -v takes each container's anonymous volumes with it: the postgres and mariadb images declare a data VOLUME that no label reaches.
+  [[ -n "$ids" ]] && $E rm -f -v $ids >/dev/null 2>&1
   ids="$($E volume ls -q --filter "$filter" 2>/dev/null)"
   # shellcheck disable=SC2086
   [[ -n "$ids" ]] && $E volume rm -f $ids >/dev/null 2>&1
@@ -204,7 +205,7 @@ teardown() {
   $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$DB_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
   chmod 666 "$OUT/server.log" 2>/dev/null
   if [[ "${E2E_KEEP:-0}" == 1 ]]; then
-    $E rm -f "$CYC" >/dev/null 2>&1
+    $E rm -f -v "$CYC" >/dev/null 2>&1
     say "kept $WORK and volume $VOL (container $SRV is stopped); remove them with: scripts/e2e-up.sh down"
     $E stop "$SRV" >/dev/null 2>&1
   else
@@ -301,7 +302,7 @@ client_wait() {
 
 # Creates the server container (first start only, with a fresh volume).
 server_create() {
-  $E rm -f "$SRV" >/dev/null 2>&1
+  $E rm -f -v "$SRV" >/dev/null 2>&1
   $E volume rm -f "$VOL" >/dev/null 2>&1
   $E volume create --label "$LABEL=$RUN" "$VOL" >/dev/null || return 1
   if [[ "$DB_KIND" != sqlite ]]; then db_create || return 1; fi

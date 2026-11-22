@@ -16,19 +16,23 @@ const made: string[] = [];
 afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })));
 
 // The engine: `run` records its arguments and marks the container as there; `port` answers a port per kind; `exec` (the readiness check)
-// passes unless $FAKE_NOT_READY names the kind, which also stops that container; `rm` removes the mark. Every call is logged.
+// passes unless $FAKE_NOT_READY names the kind, which also stops that container; `rm` removes the mark. Every call is logged. As the postgres and mariadb images do, `run` also makes the container
+// an anonymous data volume (a `v-` mark), and `rm` removes it only when it is given `-v` (#1296), so a test that finds a `v-` mark left has found a run that leaks a volume.
 const FAKE_ENGINE = `#!/usr/bin/env bash
 dir="$FAKE_DIR"; echo "$*" >> "$dir/calls"
 kind() { echo "$1" | sed 's/^podium-test-\\(.*\\)-[0-9]*$/\\1/'; }
 case "$1" in
   info) exit "\${FAKE_INFO:-0}" ;;
   run) shift; name=""; while [ $# -gt 0 ]; do case "$1" in --name) name="$2"; shift 2 ;; *) shift ;; esac; done
-       touch "$dir/c-$name"; echo "id-$name" ;;
+       touch "$dir/c-$name" "$dir/v-$name"
+       # $FAKE_RUN_FAILS names a kind whose start fails after the container was made, as an engine that dies half way does.
+       [ "$(kind "$name")" = "\${FAKE_RUN_FAILS:-}" ] && exit 1
+       echo "id-$name" ;;
   port) case "$(kind "$2")" in postgres) echo "127.0.0.1:41001" ;; mariadb) echo "127.0.0.1:41002" ;; *) echo "127.0.0.1:41009" ;; esac ;;
   exec) [ "$(kind "$2")" = "\${FAKE_NOT_READY:-}" ] && exit 1; exit 0 ;;
   inspect) [ -f "$dir/c-\${!#}" ] || exit 1; [ "$(kind "\${!#}")" = "\${FAKE_NOT_READY:-}" ] && { echo false; exit 0; }; echo true ;;
   logs) echo "fake log line" ;;
-  rm) rm -f "$dir/c-$3" ;;
+  rm) name="\${!#}"; rm -f "$dir/c-$name"; case " $* " in *" -v "*) rm -f "$dir/v-$name" ;; esac ;;
 esac
 exit 0
 `;
@@ -38,6 +42,8 @@ exit 0
 const FAKE_NPX = `#!/usr/bin/env bash
 { echo "args=$*"; echo "pwd=$(pwd)"; echo "PG=\${PODIUM_TEST_PG:-}"; echo "MARIADB=\${PODIUM_TEST_MARIADB:-}"; echo "ONLY=\${PODIUM_TEST_ONLY:-}"; } >> "$FAKE_DIR/vitest"
 for a in "$@"; do case "$a" in --outputFile.json=*) [ -n "\${FAKE_REPORT:-}" ] && echo "$FAKE_REPORT" > "\${a#--outputFile.json=}" ;; esac; done
+# $FAKE_INTERRUPT: the run is stopped as a person's Ctrl-C or a kill would, by a TERM to db-servers.sh (the parent of the shell that runs this).
+[ -n "\${FAKE_INTERRUPT:-}" ] && kill -TERM "$(ps -o ppid= -p "$PPID" | tr -d ' ')"
 exit "\${FAKE_CODE:-0}"
 `;
 
@@ -79,8 +85,9 @@ function run(args: string[], env: Record<string, string> = {}) {
   }, []);
   const calls = read("calls").trim().split("\n").filter(Boolean);
   const left = readdirSync(state).filter((f) => f.startsWith("c-"));
+  const volumesLeft = readdirSync(state).filter((f) => f.startsWith("v-"));
   const lastLine = r.stdout.trim().split("\n").filter((l) => l.startsWith("DB TEST RESULT:"))[0];
-  return { ...r, root, out, vitestRuns, vitest: vitestRuns[0] ?? {}, calls, left, runs: calls.filter((c) => c.startsWith("run ")), result: lastLine };
+  return { ...r, root, out, vitestRuns, vitest: vitestRuns[0] ?? {}, calls, left, volumesLeft, runs: calls.filter((c) => c.startsWith("run ")), result: lastLine };
 }
 
 const image = (kind: string) => DB_ADAPTERS.find((a) => a.kind === kind)!.test!.image;
@@ -193,6 +200,11 @@ describe("npm run test:db", () => {
     });
     expect(r.vitest.args).toBe(`vitest run src/storage/adapters.test.ts -t contract --reporter=default --reporter=json --outputFile.json=${join(r.out, "report-1.json")}`);
     expect(r.left).toEqual([]);
+    expect(r.volumesLeft).toEqual([]);
+    // Each container is removed with its volumes: `rm -f -v <name>`.
+    const removals = r.calls.filter((c) => c.startsWith("rm "));
+    expect(removals).toHaveLength(2);
+    for (const c of removals) expect(c).toMatch(/^rm -f -v podium-test-(postgres|mariadb)-\d+$/);
     expect(r.result).toBe("DB TEST RESULT: sqlite=FAIL(0) postgres=FAIL(0) mariadb=FAIL(0)");
   });
 
@@ -283,6 +295,21 @@ describe("npm run test:db", () => {
     expect(r.stderr).toMatch(/MariaDB did not answer/);
     expect(r.vitestRuns).toEqual([]);
     expect(r.left).toEqual([]);
+    expect(r.volumesLeft).toEqual([]);
+  });
+
+  it("removes every container with its volumes when one fails to start, and when the run is stopped by a signal (#1296)", () => {
+    const failed = run([], { FAKE_RUN_FAILS: "mariadb" });
+    expect(failed.status).toBe(2);
+    expect(failed.stderr).toMatch(/could not start MariaDB/);
+    expect(failed.vitestRuns).toEqual([]);
+    expect(failed.left).toEqual([]);
+    expect(failed.volumesLeft).toEqual([]);
+    const stopped = run([], { FAKE_INTERRUPT: "1" });
+    expect(stopped.status).toBe(130);
+    expect(stopped.left).toEqual([]);
+    expect(stopped.volumesLeft).toEqual([]);
+    expect(stopped.calls.filter((c) => c.startsWith("rm "))).toHaveLength(2);
   });
 
   it("exits 2 when the engine is not usable", () => {

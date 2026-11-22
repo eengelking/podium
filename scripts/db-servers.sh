@@ -63,7 +63,8 @@ NAMES=() ; KINDS=() ; PORTS=() ; RAN=()
 cleanup() {
   local n
   db_lock_release
-  for n in ${NAMES[@]+"${NAMES[@]}"}; do "$engine" rm -f "$n" >/dev/null 2>&1; done
+  # -v takes the container's anonymous volumes with it: the postgres and mariadb images declare a data VOLUME, so without it every run leaves one behind.
+  for n in ${NAMES[@]+"${NAMES[@]}"}; do "$engine" rm -f -v "$n" >/dev/null 2>&1; done
   for n in ${NAMES[@]+"${NAMES[@]}"}; do "$engine" inspect "$n" >/dev/null 2>&1 && echo "test-db: container $n is still there" >&2; done
   return 0
 }
@@ -79,9 +80,10 @@ for k in $servers; do
   name="podium-test-$k-$$"
   envs=() ; for e in "${DB_ENV[@]}"; do envs+=(-e "$e"); done
   echo "test-db: starting $DB_LABEL ($DB_IMAGE)"
+  # Named before it starts, so a start that fails half way is still removed with its volume.
+  NAMES+=("$name") ; KINDS+=("$k") ; PORTS+=("$DB_PORT")
   "$engine" run -d --name "$name" --label dev.podium.test-db="$$" "${envs[@]}" -p "127.0.0.1::$DB_PORT" "$DB_IMAGE" ${DB_ARGS[@]+"${DB_ARGS[@]}"} >/dev/null \
     || { echo "test-db: could not start $DB_LABEL from $DB_IMAGE" >&2; exit 2; }
-  NAMES+=("$name") ; KINDS+=("$k") ; PORTS+=("$DB_PORT")
 done
 
 # Then wait for each, up to two minutes each, and point its variable at it.
