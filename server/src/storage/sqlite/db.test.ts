@@ -128,6 +128,7 @@ describe('openDb', () => {
     for (const t of ['peer_messages', 'person_certificates', 'peer_requests']) {
       old.exec(`DROP INDEX ${t}_seq`);
       old.exec(`DROP INDEX IF EXISTS ${t}_counter`);
+      old.exec('DROP INDEX IF EXISTS peer_messages_owner'); // it ends in `seq` too
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
     }
     for (const t of ['reporter_sessions', 'reporters', 'person_machines', 'people', 'groups', 'admin_log', 'settings', 'agent_texts']) old.exec(`DROP TABLE ${t}`);
@@ -233,6 +234,7 @@ describe('openDb', () => {
     for (const t of ['peer_messages', 'person_certificates']) {
       old.exec(`DROP INDEX ${t}_seq`);
       old.exec(`DROP INDEX IF EXISTS ${t}_counter`);
+      old.exec('DROP INDEX IF EXISTS peer_messages_owner'); // it ends in `seq` too
       old.exec(`ALTER TABLE ${t} DROP COLUMN seq`);
     }
     old.exec('DELETE FROM schema_migrations WHERE version = 25');
