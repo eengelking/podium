@@ -5,7 +5,6 @@
 // each event goes to `trail` as a row, and the routes decide what to write (never the text).
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { pausedByOf } from '../peerText.js';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
 import {
   HELD_STATES,
@@ -43,7 +42,8 @@ import {
 import { nameKey } from '../rows.js';
 import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, shownCount, type TripRow } from '../peerText.js';
+import { headOf, linksOf, pairsOf, toSummary, type SummaryHead } from '../peerSummary.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, type TripRow } from '../peerText.js';
 
 const RATE_WINDOW_MS = 60_000;
 
@@ -560,59 +560,31 @@ export class PeerMessages implements PeerMessagesApi {
   // ---- Reading -----------------------------------------------------------------------------------------------------
 
   conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): ConversationSummary[] {
-    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
+    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages (or one owner's, which the database narrows).
+    const owner = filter.ownerId ?? null;
     const all = this.rows(
       `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
-       FROM peer_messages ORDER BY sent_at, seq`,
+       FROM peer_messages${owner === null ? '' : ' WHERE owner_id = ?'} ORDER BY sent_at, seq`,
+      ...(owner === null ? [] : [owner]),
     );
-    const owner = filter.ownerId ?? null;
     const groups = new Map<string, MessageRow[]>();
     for (const m of all) {
-      if (owner !== null && m.ownerId !== owner) continue;
       const pair = ordered(m.fromSession, m.toSession).join('|');
       const g = groups.get(pair) ?? [];
       g.push(m);
       groups.set(pair, g);
     }
-    const out: ConversationSummary[] = [];
-    for (const g of groups.values()) {
-      const s = this.summary(g);
-      if (filter.since !== undefined && s.lastAt < filter.since) continue;
-      if (filter.liveOnly && !this.liveDir.has(s.a.sessionId) && !this.liveDir.has(s.b.sessionId)) continue;
-      out.push(s);
-    }
-    return out.sort((x, y) => y.lastAt - x.lastAt);
+    const kept = [...groups.values()]
+      .map((g) => ({ g, head: headOf(g) }))
+      .filter(({ g, head: { a, b } }) => (filter.since === undefined || (g.at(-1) as MessageRow).sentAt >= filter.since) && (!filter.liveOnly || this.liveDir.has(a.sessionId) || this.liveDir.has(b.sessionId)));
+    return (this.summaries(kept.map(({ g }) => g), kept.map(({ head }) => head))).sort((x, y) => y.lastAt - x.lastAt);
   }
 
-  /** One conversation's summary, from its messages in order. The names are the newest message's. */
-  private summary(g: MessageRow[]): ConversationSummary {
-    const last = g.at(-1) as MessageRow;
-    // The names are the newest message an agent wrote; a person's message in a conversation between two agents carries the person's name.
-    const named = [...g].reverse().find((m) => m.author === 'agent') ?? last;
-    const from = { sessionId: named.fromSession, name: named.fromName, machine: named.fromMachine, reporterKey: named.fromKey };
-    const to = { sessionId: named.toSession, name: named.toName, machine: named.toMachine, reporterKey: named.toKey };
-    const [a, b] = from.sessionId <= to.sessionId ? [from, to] : [to, from];
-    const ab = this.rights.effective(a.reporterKey, b.reporterKey);
-    const ba = this.rights.effective(b.reporterKey, a.reporterKey);
-    const paused = ab.paused || ba.paused;
-    let state: ConversationSummary['state'] = 'active';
-    if (g.some((m) => m.state === 'approval')) state = 'waiting';
-    else if (paused) state = 'paused';
-    return {
-      link: named.link,
-      a,
-      b,
-      owner: named.owner,
-      ownerId: named.ownerId,
-      messages: shownCount(g),
-      lastAt: last.sentAt,
-      state,
-      paused,
-      ...(paused ? pausedByOf(ab, ba) : {}),
-      aToB: canSend(ab.level),
-      bToA: canSend(ba.level),
-      roundTrips: { used: roundTripsUsed(g), cap: this.rights.limits(named.ownerId).roundTrips },
-    };
+  /** The summaries of these conversations (each one's messages in order): the rights of every link and the limits of every owner are read once for all of them, so the statements do not grow with the conversations (#1309). */
+  private summaries(groups: MessageRow[][], heads: SummaryHead[] = groups.map(headOf)): ConversationSummary[] {
+    const rights = this.rights.effectiveMany(heads.flatMap(linksOf));
+    const caps = this.rights.limitsMany(heads.map((h) => h.named.ownerId));
+    return groups.map((g, i) => toSummary(g, heads[i]!, rights[2 * i]!, rights[2 * i + 1]!, caps[i]!.roundTrips));
   }
 
   conversation(a: string, b: string): MessageRow[] {
@@ -763,7 +735,7 @@ export class PeerMessages implements PeerMessagesApi {
   conversationOf(a: string, b: string): ConversationSummary | null {
     // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
     const rows = this.rows(`SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, a, b, b, a);
-    return rows.length > 0 ? this.summary(rows) : null;
+    return rows.length > 0 ? (this.summaries([rows]))[0]! : null;
   }
 
   conversationCounts(ownerIds: number[]): Record<number, number> {
@@ -774,29 +746,35 @@ export class PeerMessages implements PeerMessagesApi {
 
   ownerConversations(ownerId: number, opts: { includeHidden?: boolean; pairs?: string[] } = {}): OwnerConversation[] {
     if (opts.pairs && opts.pairs.length === 0) return [];
+    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends. The database finds only those rows (#1309).
+    const me = personKeyOf(ownerId);
     const all = this.stmt(
       `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
-       FROM peer_messages ORDER BY sent_at, seq`,
-    ).all() as unknown as DbMessage[];
+       FROM peer_messages WHERE owner_id = ? OR from_session = ? OR to_session = ? ORDER BY sent_at, seq`,
+    ).all(ownerId, me, me) as unknown as DbMessage[];
     const only = opts.pairs ? new Set(opts.pairs) : null;
-    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends.
-    const me = personKeyOf(ownerId);
     const groups = new Map<string, DbMessage[]>();
     for (const r of all) {
-      if ((r.owner_id == null || Number(r.owner_id) !== ownerId) && r.from_session !== me && r.to_session !== me) continue;
       const pair = ordered(r.from_session, r.to_session).join('|');
       if (only && !only.has(pair)) continue;
       const g = groups.get(pair) ?? [];
       g.push(r);
       groups.set(pair, g);
     }
-    const out: OwnerConversation[] = [];
+    const shown: { g: DbMessage[]; hiddenAt: number | null }[] = [];
     for (const g of groups.values()) {
       const hiddenAt = g.every((r) => r.hidden_at != null) ? latestOf(g.map((r) => r.hidden_at as number)) : null;
       if (hiddenAt !== null && !opts.includeHidden) continue;
-      out.push({ ...this.summary(g.map(toRow)), hiddenAt });
+      shown.push({ g, hiddenAt });
     }
-    return out.sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+    const summaries = this.summaries(shown.map(({ g }) => g.map(toRow)));
+    return shown.map(({ hiddenAt }, i) => ({ ...summaries[i]!, hiddenAt })).sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+  }
+
+  conversationPairs(): [string, string][] {
+    // order-insensitive: each pair is kept once and `pairsOf` sorts them.
+    const rows = this.stmt('SELECT DISTINCT from_session, to_session FROM peer_messages').all() as unknown as { from_session: string; to_session: string }[];
+    return pairsOf(rows);
   }
 
   hideConversation(ownerId: number, a: string, b: string): number {

@@ -46,7 +46,9 @@ export class MariaPeerService {
       db,
       {
         effective: (from, to) => this.rights.effective(from, to),
+        effectiveMany: (links) => this.rights.effectiveMany(links),
         limits: async (ownerId) => this.rights.limits(ownerId, await this.settings.limits()),
+        limitsMany: async (ownerIds) => this.rights.limitsMany(ownerIds, await this.settings.limits()),
         personLink: (k, t) => this.rights.personLink(k, t),
         openMessageRequest: (input) => this.rights.openMessageRequest(input),
         closeMessageRequest: (id, outcome) => this.rights.closeMessageRequest(id, outcome),

@@ -72,8 +72,10 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
     const closed: [string, string][] = [];
     const rights: MariaPeerRightsView = {
       effective: async (f, t) => ({ level: levels.get(`${f}>${t}`) ?? 'none', paused: paused.has(linkKey(f, t)) }),
+      effectiveMany: async (links) => Promise.all(links.map(([f, t]) => rights.effective(f, t))),
       personLink: async () => null,
       limits: async () => limits,
+      limitsMany: async (ids) => ids.map(() => limits),
       openMessageRequest: async (input) => {
         opened.push(input);
         return { id: `req_${opened.length}` } as PeerRequestRow;
@@ -110,8 +112,10 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       await truncate(db, 'peer_messages', 'peer_requests', 'agent_ids');
       const rights: MariaPeerRightsView = {
         effective: async () => ({ level: 'send', paused: false }),
+        effectiveMany: async (links) => links.map(() => ({ level: 'send' as const, paused: false })),
         personLink: async () => null,
         limits: async () => ({ roundTrips: 10, perMinute: 6, maxChars: 100 }),
+        limitsMany: async (ids) => ids.map(() => ({ roundTrips: 10, perMinute: 6, maxChars: 100 })),
         openMessageRequest: async () => ({ id: 'req' }) as PeerRequestRow,
         closeMessageRequest: async () => {},
       };

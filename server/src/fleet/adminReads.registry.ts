@@ -105,6 +105,7 @@ export const NOT_A_READ: Record<string, string> = {
   markHanded: 'the server marks a conversation message as handed to an agent so it can no longer be changed; no route returns the row to anyone (#1278)',
   setDelivery: 'the server records what an agent did with a conversation message it was handed (taken or not); no route returns the row, and the message page that carries it is the one a member reads, which is already covered (#1282)',
   heldMentions: 'the server reads the held mentions of a channel to deliver or drop them; no route returns the rows, so no person reads another\'s text through it (#1046)',
+  heldMentionsAcross: 'the server reads the held mentions of every public channel at once to drop those held for an agent that left; no route returns the rows, so no person reads another\'s text through it (#1309)',
   mentionsAcross: 'the server reads the mentions of one agent in every channel at once to move them when its owner answers; no route returns the rows, so no person reads another\'s text through it (#1213)',
   agentPost: 'a write: an agent posts into a channel and is answered the message it posted',
   adminNoticesFor: "the notice told to the person: it names the Admin and holds none of the person's text",

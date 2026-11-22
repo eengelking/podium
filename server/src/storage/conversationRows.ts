@@ -112,6 +112,19 @@ export function toConversation(r: DbConversation, members: DbMember[], lastAt: n
   return { id: r.id, createdBy: r.created_by == null ? null : Number(r.created_by), createdAt: Number(r.created_at), members: list, lastAt: lastAt == null ? Number(r.created_at) : Number(lastAt), messages: Number(messages) };
 }
 
+/**
+ * The conversations of one `listFor`, each as `toConversation` gives it, the newest activity first and then by id. The members and the message totals of all of them come from one read each, so the
+ * number of statements does not grow with the conversations (#1309). A conversation with no message has no total row: it has none and its last time is when it began.
+ */
+export function toConversations(rows: readonly DbConversation[], members: readonly DbMember[], totals: readonly { conversation_id: string; last: number | null; n: number }[]): Conversation[] {
+  const byId = new Map<string, DbMember[]>();
+  for (const m of members) byId.set(m.conversation_id, [...(byId.get(m.conversation_id) ?? []), m]);
+  const total = new Map(totals.map((t) => [t.conversation_id, t]));
+  return rows
+    .map((r) => toConversation(r, byId.get(r.id) ?? [], total.get(r.id)?.last ?? null, total.get(r.id)?.n ?? 0))
+    .sort((a, b) => b.lastAt - a.lastAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 function toDelivery(r: DbDelivery): ConversationDelivery {

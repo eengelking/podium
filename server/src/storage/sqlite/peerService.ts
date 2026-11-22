@@ -33,7 +33,9 @@ export class PeerService {
       db,
       {
         effective: (from, to) => this.rights.effective(from, to),
+        effectiveMany: (links) => this.rights.effectiveMany(links),
         limits: (ownerId) => this.rights.limits(ownerId, this.settings.limits()),
+        limitsMany: (ownerIds) => this.rights.limitsMany(ownerIds, this.settings.limits()),
         personLink: (k, t) => this.rights.personLink(k, t),
         openMessageRequest: (input) => this.rights.openMessageRequest(input),
         closeMessageRequest: (id, outcome) => this.rights.closeMessageRequest(id, outcome),

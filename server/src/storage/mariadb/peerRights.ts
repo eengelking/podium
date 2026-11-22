@@ -6,7 +6,6 @@
 import { randomBytes } from 'node:crypto';
 import { PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, type PeerAnswer, type PeerLevel, type PeerRequestKind } from '../../fleet/protocol.js';
 import {
-  OWNER_DEFAULTS,
   isPersonKey,
   personKeyOf,
   refuse,
@@ -19,19 +18,18 @@ import {
   type OwnerDefaults,
   type PeerRequestRow,
   type Refusal,
-  type ReporterRef,
   type RightRow,
   type RightsTrail,
 } from '../../fleet/peerTypes.js';
 import { ADMIN_OWNER } from '../rows.js';
+import { chunksOf } from '../batches.js';
+import { ON_REQUEST, NEW_SEND, eligible, effectiveOf, isObj, limitsOf, toDefaults, trustOwners, type DbDefaults, type EffectiveRows } from '../peerRightsRows.js';
 import { PEER_LIMIT_KEYS, peerSettingError, type PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup, PeerRightsStoreApi } from '../types.js';
 import type { MariaDbConn } from './conn.js';
 
 /** How far each level reaches, so a request that is allowed never lowers a right the owner already gave. */
 const RANK: Record<PeerLevel, number> = { none: 0, see: 1, ask: 2, send: 3 };
-const ON_REQUEST: readonly OwnerDefaults['onRequest'][] = ['ask', 'allow', 'decline'];
-const NEW_SEND: readonly OwnerDefaults['newSend'][] = ['ask', 'send'];
 const ADMIN_PAUSED = 'An Administrator paused this link, so only an Administrator can resume it.';
 const NO_ADMIN = 'a reporter on the admin secret cannot take part';
 
@@ -64,22 +62,8 @@ interface DbRequest {
   outcome: PeerRequestRow['outcome'];
 }
 
-interface DbDefaults {
-  trust: number;
-  on_request: string;
-  new_send: string;
-  limits_json: string | null;
-}
-
-type Owned = ReporterRef & { owner: string; ownerId: number };
-
 /** The owner a write is made for: the name as recorded (display text) and the `people.id` that binds it (#1284). */
 type Who = { owner: string; ownerId: number };
-
-/** A reporter that can take part: owned by a person (it has their `people.id`), not by no one, and not on the admin secret. A reporter whose person was deleted has no id and takes no part. */
-const eligible = (r: ReporterRef): r is Owned => !r.adminSecret && r.owner !== null && r.ownerId !== null;
-
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The directions of a link: one when it joins a reporter to itself (two orchestrators on one machine), else two. */
 const directions = (a: string, b: string): [string, string][] => (a === b ? [[a, a]] : [[a, b], [b, a]]);
@@ -94,8 +78,6 @@ function cleanReason(s: string): string {
   return out.trim();
 }
 
-/** Who paused a stored right, for the answers that carry it. */
-const pauser = (r: RightRow | null | undefined): Pick<RightRow, 'pausedBy' | 'pausedByAdmin'> => (r?.paused ? { ...(r.pausedBy ? { pausedBy: r.pausedBy } : {}), ...(r.pausedByAdmin ? { pausedByAdmin: r.pausedByAdmin } : {}) } : {});
 const toRight = (r: DbRight): RightRow => ({ from: r.from_key, to: r.to_key, owner: r.owner, level: r.level, paused: r.paused === 1, ...(r.paused === 1 && r.paused_by ? { pausedBy: r.paused_by as LinkPauser } : {}), ...(r.paused === 1 && r.paused_by === 'admin' && r.paused_by_admin ? { pausedByAdmin: r.paused_by_admin } : {}), setAt: r.set_at });
 
 const toRequest = (r: DbRequest): PeerRequestRow => ({
@@ -142,23 +124,15 @@ export class MariaPeerRights implements PeerRightsStoreApi {
   // ---- defaults and limits -----------------------------------------------------------------------------------
 
   async defaults(ownerId: number | null): Promise<OwnerDefaults> {
-    const r = ownerId === null ? undefined : await this.db.get<DbDefaults>('SELECT trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id = ?', [ownerId]);
-    if (!r) return { ...OWNER_DEFAULTS, limits: {} };
-    let saved: Record<string, unknown> = {};
-    try {
-      const parsed: unknown = JSON.parse(r.limits_json ?? '{}');
-      if (isObj(parsed)) saved = parsed;
-    } catch {
-      saved = {};
-    }
-    const limits: Partial<PeerLimits> = {};
-    for (const k of PEER_LIMIT_KEYS) if (peerSettingError(k, saved[k]) === null) limits[k] = saved[k] as number;
-    return {
-      trust: r.trust === 1,
-      onRequest: ON_REQUEST.find((v) => v === r.on_request) ?? OWNER_DEFAULTS.onRequest,
-      newSend: NEW_SEND.find((v) => v === r.new_send) ?? OWNER_DEFAULTS.newSend,
-      limits,
-    };
+    return toDefaults(ownerId === null ? undefined : await this.db.get<DbDefaults>('SELECT trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id = ?', [ownerId]));
+  }
+
+  /** The defaults of many owners in one read (#1309): an owner with none stored has the built-in ones. */
+  private async defaultsMany(ownerIds: readonly number[]): Promise<Map<number, OwnerDefaults>> {
+    const out = new Map<number, OwnerDefaults>();
+    // order-insensitive: the rows are put into a map by owner.
+    for (const part of chunksOf(ownerIds)) for (const r of await this.db.all<DbDefaults & { owner_id: number }>(`SELECT owner_id, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IN (${part.map(() => '?').join(', ')})`, part)) out.set(Number(r.owner_id), toDefaults(r));
+    return out;
   }
 
   /** Applies a `limits` patch to `into`, each value at most the Admin's; null removes one. Returns the error, or null. */
@@ -214,12 +188,13 @@ export class MariaPeerRights implements PeerRightsStoreApi {
   }
 
   async limits(ownerId: number | null, server: PeerLimits): Promise<PeerLimits> {
-    const own = (await this.defaults(ownerId)).limits;
-    return {
-      roundTrips: Math.min(server.roundTrips, own.roundTrips ?? server.roundTrips),
-      perMinute: Math.min(server.perMinute, own.perMinute ?? server.perMinute),
-      maxChars: Math.min(server.maxChars, own.maxChars ?? server.maxChars),
-    };
+    return limitsOf((await this.defaults(ownerId)).limits, server);
+  }
+
+  /** `limits` for many owners in one read (#1309), one answer for each, in order. */
+  async limitsMany(ownerIds: readonly (number | null)[], server: PeerLimits): Promise<PeerLimits[]> {
+    const own = await this.defaultsMany([...new Set(ownerIds.filter((id): id is number => id !== null))]);
+    return ownerIds.map((id) => limitsOf(id === null ? {} : (own.get(id)?.limits ?? {}), server));
   }
 
   // ---- rights ------------------------------------------------------------------------------------------------
@@ -266,16 +241,20 @@ export class MariaPeerRights implements PeerRightsStoreApi {
     }
   }
 
+  /** What `from` can do to `to` now (the one rule is `effectiveOf`). */
   async effective(from: string, to: string): Promise<EffectiveRight> {
-    // A person's link to another person's agent (#1034) has no Trust and no second owner: the row is the whole answer.
-    if (isPersonKey(from)) {
-      const link = await this.row(from, to);
-      return { level: link?.level ?? 'none', paused: link?.paused ?? false, ...pauser(link) };
-    }
-    const p = await this.pair(null, from, to);
-    if (!p.ok) return { level: 'none', paused: false };
-    const had = await this.row(from, to);
-    return { level: (await this.defaults(p.ownerId)).trust ? 'send' : (had?.level ?? 'none'), paused: had?.paused ?? false, ...pauser(had) };
+    return (await this.effectiveMany([[from, to]]))[0] as EffectiveRight;
+  }
+
+  /** `effective` for many links: the stored rights, the reporters and the owners' trust are each read once for all of them, so the number of statements does not grow with the links (#1309). */
+  async effectiveMany(links: readonly (readonly [string, string])[]): Promise<EffectiveRight[]> {
+    const rights = new Map<string, RightRow>();
+    // order-insensitive: the rows are put into a map by the two keys of each right.
+    for (const part of chunksOf([...new Map(links.map((l) => [`${l[0]}\0${l[1]}`, l])).values()])) for (const r of await this.db.all<DbRight>(`SELECT * FROM peer_rights WHERE ${part.map(() => '(from_key = ? AND to_key = ?)').join(' OR ')}`, part.flat())) rights.set(`${r.from_key}\0${r.to_key}`, toRight(r));
+    const reps = new Map((await this.reporters.getMany(links.flatMap(([from, to]) => (isPersonKey(from) ? [] : [from, to])))).map((r) => [r.key, r]));
+    const trust = await this.defaultsMany(trustOwners(links, (key) => reps.get(key)));
+    const rows: EffectiveRows = { right: (from, to) => rights.get(`${from}\0${to}`), reporter: (key) => reps.get(key), trusts: (id) => trust.get(id)?.trust ?? false };
+    return links.map(([from, to]) => effectiveOf(from, to, rows));
   }
 
   /** The rows of the person with this `people.id` (#1284); a name never finds one. */

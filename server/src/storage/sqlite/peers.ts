@@ -11,6 +11,7 @@ export function asyncLookupOver(lookup: PeerReporterLookup, lock: AsyncLock): As
     startedAt: lookup.startedAt,
     ofOwnerSeen: (owner, at) => lock.run(() => lookup.ofOwnerSeen(owner, at)),
     get: (key) => lock.run(() => lookup.get(key)),
+    getMany: (keys) => lock.run(() => lookup.getMany(keys)),
     ofOwner: (owner) => lock.run(() => lookup.ofOwner(owner)),
   };
 }
@@ -55,7 +56,7 @@ export function peerStoreOver(db: DatabaseSync, lock: AsyncLock, opts: PeerStore
     rights: bound(svc.rights, lock, ['effective', 'rightsOf', 'defaults', 'limits', 'setRight', 'pauseLink', 'pauseReporter', 'personLink', 'propose', 'requestAccess', 'openRequests']),
     messages: {
       live: (sessionId) => svc.messages.live(sessionId),
-      ...bound(svc.messages, lock, ['list', 'message', 'send', 'result', 'conversations', 'conversation', 'conversationOf', 'conversationCounts', 'sendFromPerson', 'sendAcross', 'page', 'editMessage', 'deleteMessage', 'deleteConversation', 'ownerConversations', 'hideConversation', 'showConversation', 'purgeHidden', 'notice']),
+      ...bound(svc.messages, lock, ['list', 'message', 'send', 'result', 'conversations', 'conversation', 'conversationOf', 'conversationPairs', 'conversationCounts', 'sendFromPerson', 'sendAcross', 'page', 'editMessage', 'deleteMessage', 'deleteConversation', 'ownerConversations', 'hideConversation', 'showConversation', 'purgeHidden', 'notice']),
     },
     note: (sessionId, reporterKey, owner, ownerId, report) => step(() => svc.note(sessionId, reporterKey, owner, ownerId, report)),
     replyFor: (sessionId, allowed) => step(() => svc.replyFor(sessionId, allowed)),

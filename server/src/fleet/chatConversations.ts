@@ -387,7 +387,7 @@ export class ConversationChat {
     if (!stored) return fail(404, 'There is no such conversation.');
     // Every other person in it is told there is something new: a count, never text. A person it names also has a mention.
     const namedPeople = new Set(targets.filter((x) => x.kind === 'person' && x.named).map((x) => x.ref));
-    for (const m of present) if (m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', namedPeople.has(m.ref));
+    await this.core.countMany(present.filter((m) => m.kind === 'person' && m.ref !== String(viewer.personId)).map((m) => ({ who: { id: Number(m.ref), name: m.name }, mention: namedPeople.has(m.ref) })), conversationThread(id), 'dm');
     const skipped: string[] = [];
     const ended = await this.endedIn([c]);
     for (const m of targets) {
@@ -431,7 +431,7 @@ export class ConversationChat {
     if (!(await this.askedWithinWindow(id, o.sessionId))) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
     const stored = await this.store.post(id, { authorKind: 'agent', authorRef: o.sessionId, authorName: o.name, text: t.text }, this.core.host.now());
     if (!stored) return fail(404, 'There is no such conversation.');
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person') await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
+    await this.core.countMany(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => ({ who: { id: Number(m.ref), name: m.name }, mention: false })), conversationThread(id), 'dm');
     this.core.onEvent({ kind: 'conversation_sent', by: o.name, conversation: id, messageId: stored.id });
     return { ok: true, id: stored.id, createdAt: stored.createdAt };
   }

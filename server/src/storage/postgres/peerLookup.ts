@@ -1,6 +1,7 @@
 // The reporter lookup the peer service reads, on PostgreSQL (#822): the SQLite `ReporterStore.peerLookup()` over `PgDb`. A hooks-only reporter
 // has no orchestrator to message, so every read here is of mod reporters; owners compare without regard to (ASCII) case.
 import { checkReporter } from '../../fleet/compat.js';
+import { chunksOf } from '../batches.js';
 import type { ReporterRef } from '../../fleet/peerTypes.js';
 import { ADMIN_SECRET, canonicalReporterName, IDLE_MS, REPORTING_MS, type ReporterState } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
@@ -54,6 +55,12 @@ export function pgPeerLookup(db: PgDb, startedAt: number = Date.now()): AsyncPee
     get: async (key) => {
       const r = await db.get<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE key = ? AND kind = 'mod'`, [key]);
       return r ? ref(r) : null;
+    },
+    getMany: async (keys) => {
+      const found: ReporterRef[] = [];
+      // order-insensitive: the reporters are put into a map by key.
+      for (const part of chunksOf([...new Set(keys)])) found.push(...(await db.all<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE kind = 'mod' AND key IN (${part.map(() => '?').join(', ')})`, part)).map(ref));
+      return found;
     },
     ofOwner: async (ownerId) => (ownerId === null ? [] : (await db.all<DbPeerRef>(`SELECT ${COLS} FROM reporters WHERE ${MINE}`, { ownerId })).map(ref)),
   };

@@ -3,7 +3,7 @@
 // A call that reads then writes is one transaction, and the gate in `MariaDbConn.tx` takes them one at a time, as the SQLite lock does.
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  DELIVERY_COLS, MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, checkTargets, firstDeliveryState, membersKey, newConversationId, newConversationMessageId, nextDeliveryState, refuseConversationChange, toConversation, toConversationMessage,
+  DELIVERY_COLS, MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, checkTargets, firstDeliveryState, membersKey, newConversationId, newConversationMessageId, nextDeliveryState, refuseConversationChange, toConversation, toConversationMessage, toConversations,
   type DbConversation, type DbConversationMessage, type DbDelivery, type DbMember,
 } from '../conversationRows.js';
 import type { Conversation, ConversationChange, ConversationDeliveryState, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationPage, ConversationPostInput, ConversationsApi } from '../types.js';
@@ -66,10 +66,17 @@ class MariaConversations {
   }
 
   async listFor(member: MemberRef): Promise<Conversation[]> {
-    const ids = await this.db.all<{ id: string }>('SELECT conversation_id AS id FROM conversation_members WHERE member_kind = ? AND member_ref = ? AND left_at IS NULL ORDER BY conversation_id', [member.kind, member.ref]);
-    const list: Conversation[] = [];
-    for (const r of ids) list.push((await this.load(r.id)) as Conversation);
-    return list.sort((a, b) => b.lastAt - a.lastAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // The conversations the member is in now, and their members and message totals: three statements however many there are (#1309).
+    const mine = 'SELECT conversation_id FROM conversation_members WHERE member_kind = ? AND member_ref = ? AND left_at IS NULL';
+    const args = [member.kind, member.ref];
+    return toConversations(
+      // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
+      await this.db.all<DbConversation>(`SELECT id, created_by, created_at, members_key FROM conversations WHERE id IN (${mine})`, args),
+      // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
+      await this.db.all<DbMember>(`SELECT ${MEMBER_COLS} FROM conversation_members WHERE conversation_id IN (${mine})`, args),
+      // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
+      await this.db.all<{ conversation_id: string; last: number | null; n: number }>(`SELECT conversation_id, MAX(created_at) AS last, COUNT(*) AS n FROM conversation_messages WHERE conversation_id IN (${mine}) GROUP BY conversation_id`, args),
+    );
   }
 
   addMembers(id: string, members: ConversationMemberInput[], addedBy: number | null, at: number): Promise<Conversation | null> {

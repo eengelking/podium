@@ -940,7 +940,7 @@ export class DirectChat {
 
   /** The threads of every conversation that still exists, hidden ones included. */
   async threads(): Promise<Set<string>> {
-    return new Set((await this.peers.conversations({})).map((c) => dmThread(c.a.sessionId, c.b.sessionId)));
+    return new Set((await this.peers.conversationPairs()).map(([a, b]) => dmThread(a, b)));
   }
 
   /** Deletes the messages of conversations hidden longer than their agents' resume window, or the grace period when no window is known (#1113). */
