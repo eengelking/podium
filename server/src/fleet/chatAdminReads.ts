@@ -20,7 +20,7 @@ export const NO_SUBJECT_MS = 10_000;
 export type AdminReadRecord = AdminReadRow;
 
 /** What the callout says of a look at a person's list of conversations. */
-export const LIST_PHRASE = 'is looking at your Podium conversation list';
+const LIST_PHRASE = 'is looking at your Podium conversation list';
 
 
 /** A reporter session of the person that is told, and what the Admin stopped, in the words after "the Admin": `removed all messages in your Podium group`. */
