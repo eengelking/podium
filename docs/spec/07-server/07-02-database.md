@@ -508,6 +508,8 @@ ALTER TABLE group_messages DROP COLUMN updated_at;      -- and on public_message
 
 `updated_at` of a message is the newest of its `created_at`, `edited_at`, `deleted_at` and the `stateAt` of its mentions, because a post, an edit, a delete and a mention changing state are the only things that stamp a message. The store works it out when it reads the message, and the field `updatedAt` of the routes is the same value as before.
 
+What the upgrade costs and frees: a new database gets the full saving, and an existing one stops growing into the dropped columns at once. SQLite's file does not shrink at the migration (the pages go to the free list and new rows reuse them); it shrinks only after a `VACUUM`, and the app never vacuums the main database. On PostgreSQL the `DROP COLUMN`s only change the catalog, and the space comes back on `VACUUM FULL`. On MariaDB each `ALTER TABLE` rebuilds its table, and step 30 does that once for each table.
+
 Migration 55 (#1296; PostgreSQL and MariaDB main step 31) keeps a person's counts in a thread by the person's id and the thread alone:
 
 ```sql
