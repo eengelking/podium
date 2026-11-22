@@ -85,11 +85,13 @@ describe('bumpAnswers (#1309)', () => {
 });
 
 describe('foldBumps (#1309)', () => {
-  it('has one entry for each person in the order first listed, counting a person listed twice twice', () => {
+  it('has one entry for each person in ascending person id, whatever order they were listed in, counting a person listed twice twice', () => {
     expect(foldBumps([])).toEqual([]);
     expect(foldBumps([{ personId: 2, mention: false }, { personId: 1, mention: true }, { personId: 2, mention: true }, { personId: 2, mention: false }])).toEqual([
-      { personId: 2, unread: 3, mentions: 1 },
       { personId: 1, unread: 1, mentions: 1 },
+      { personId: 2, unread: 3, mentions: 1 },
     ]);
+    // The same people in the opposite order fold to the same list, so two transactions that count them take their row locks in one order (#1296).
+    expect(foldBumps([{ personId: 9, mention: false }, { personId: 5, mention: false }, { personId: 7, mention: true }])).toEqual(foldBumps([{ personId: 7, mention: true }, { personId: 9, mention: false }, { personId: 5, mention: false }]));
   });
 });

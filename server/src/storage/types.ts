@@ -502,7 +502,7 @@ export interface ChatReadStateApi {
   list(personId: number): Promise<ThreadReadState[]>;
   /**
    * One more unread message for each person in one thread, and one more mention for each with `mention`, in a number of statements that does not grow with the people (#1309): a post to General or a public channel counts for everyone but its author.
-   * Returns the new state of each person, in the order first listed. A person listed twice is counted twice; an empty list does nothing and returns [].
+   * Returns the new state of each person, in ascending person id (the one order the rows are locked in, so two calls on the same people never wait on each other). A person listed twice is counted twice; an empty list does nothing and returns [].
    */
   bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]>;
   /** The person read the thread: unread and mentions go to 0, and the row goes. Returns the zeros. */
