@@ -432,7 +432,7 @@ CREATE TABLE chat_admin_owed (
 CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
 ```
 
-A person's overview reads their rows by the key's first column. A row is added when a record is written for the person, and removed when the person sees the thread, when the person is deleted, and 90 days after the record was last read (the record is then no longer owed to anyone who had not seen it, and retention removes it). The records an older database holds are filled into the table once, by the store, from `people` and `seen`, because a JSON list cannot be split the same way on every database.
+A person's overview reads their rows by the key's first column. A row is added when a record is written for the person, and removed when the person sees the thread, when the person is deleted, and 90 days after the record was last read (the record is then no longer owed to anyone who had not seen it, and retention removes it). The records an older database holds are filled into the table once, from `people` and `seen`, because a JSON list cannot be split the same way on every database (the store did this at its first use, and migration 57 does it now).
 
 Migration 45 (#1035; PostgreSQL and MariaDB main step 21) adds public channels beside General. The audience is still the table ([DECISIONS 61](../../decisions/61-chat-keeps-each-audience-in-its-own-table-and-a-person-may-write-to.md), amended by [69](../../decisions/69-public-channels-are-a-catalogue-inside-the-public-audience.md)): a public channel's messages stay in `public_messages`, now keyed by channel, and there is no `visibility` column. General is the built-in key `general` and is not a row of `public_channels`.
 

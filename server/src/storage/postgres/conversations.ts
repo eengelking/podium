@@ -206,7 +206,7 @@ class PgConversations {
   /** Deletes the conversation, its members, its messages and their deliveries. Returns how many messages. */
   private async erase(id: string): Promise<number> {
     await this.db.run('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE conversation_id = ?)', [id]);
-    const n =await this.db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
+    const n = await this.db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversations WHERE id = ?', [id]);
     await this.db.run('DELETE FROM chat_read_state WHERE thread = ?', [`convo:${id}`]);
