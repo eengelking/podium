@@ -25,7 +25,7 @@ Squash-merge into `development`. The `development` to `main` release PR follows,
 | 8 | `podium-docs-site`: `node site/scripts/build.mjs` | | |
 | 9 | `podium-live-test` (model and harnesses), or "no harness-contract change" | | |
 | 10 | `podium-e2e-update`; `npm run e2e:fast -- --db "sqlite postgres mariadb"`; `node scripts/e2e-map.mjs` | | |
-| 11 | `npm test`; `npm run build`; `scripts/test-db.sh` (each adapter, files and tests); `test:core`; each harness's `test:mod` and `typecheck:mod` | | |
+| 11 | `npm test`; `npm run build`; `npm run test:db` (each adapter, files and tests); `test:core`; each harness's `test:mod` and `typecheck:mod` | | |
 | 12 | `dist/` rebuilt last; `npm run plugin:dist:check` | | |
 | 13 | Archives: `scripts/podium-reporter-zip.mjs --expect-version` for each harness | | |
 | 14 | Release check (fresh Haiku agent): verdict | | |

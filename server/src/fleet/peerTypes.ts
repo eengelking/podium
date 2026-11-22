@@ -410,8 +410,6 @@ export interface PeerListing {
   address: string;
   /** The agent's id (#1284, `LiveOrchestrator.agentId`), as text. `address#id` and a bare `#id` accept it; it is always listed. */
   id: string;
-  /** More than one orchestrator the asker can reach has this name on this machine, so a plain `address` is refused. */
-  duplicate: boolean;
   name: string;
   machine: string;
   os: string | null;

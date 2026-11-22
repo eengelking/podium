@@ -381,7 +381,7 @@ limits below before you rely on it.
 - **Room for 15 connections.** The main schema uses a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
 - **PostgreSQL 17.** Podium supports PostgreSQL 17, the one version tested: every test of the PostgreSQL adapter, in CI
-  (`Test with PostgreSQL`) and in `scripts/test-db.sh`, runs on 17, and the end-to-end suite runs on `postgres:17-alpine`.
+  (`Test with PostgreSQL`) and in `npm run test:db`, runs on 17, and the end-to-end suite runs on `postgres:17-alpine`.
   Other versions are untested. The adapter does not check the server's version at start.
 
 **One server per database.** At start Podium takes a PostgreSQL session advisory lock on a connection of its own. A second
@@ -436,7 +436,7 @@ passed through. A URL with no database name, or with any other parameter, stops 
 - **Room for 15 connections.** The main tables use a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
 - **MariaDB 11.x, tested on 11.4.** Podium supports MariaDB 11.x, and 11.4, the long-term release, is the one version tested:
-  every test of the adapter, in CI (`Test with MariaDB 11.4`) and in `scripts/test-db.sh`, runs on 11.4 (11.4.13 when this was
+  every test of the adapter, in CI (`Test with MariaDB 11.4`) and in `npm run test:db`, runs on 11.4 (11.4.13 when this was
   written), and the end-to-end suite runs on `mariadb:11.4.13`. Other versions, 10.x and other 11.x releases included, are
   untested. The adapter uses `INSERT ... RETURNING` and `ADD COLUMN IF NOT EXISTS`, which MariaDB 10.5 also has, but nothing
   older than 11.4 has been run, and the adapter does not check the server's version at start.
