@@ -1,6 +1,6 @@
 // What every adapter's rights store shares and holds no SQL (#1309): an owner's defaults as the stored row gives them, who may take part in a link, and what a link
 // reaches. `effectiveOf` is the one rule for "what can `from` do to `to`", worked out from rows the adapter has already read, so the same rule serves one link and a
-// thousand of them and cannot differ between adapters. Each adapter reads the rows: the reporters, the owners' defaults and the rights, in one statement each for any number of links.
+// thousand of them and cannot differ between adapters. Each adapter reads the rows: the reporters, the owners' defaults and the rights, one statement for each 500 links (`BATCH`).
 import { OWNER_DEFAULTS, isPersonKey, type EffectiveRight, type OwnerDefaults, type ReporterRef, type RightRow } from '../fleet/peerTypes.js';
 import { PEER_LIMIT_KEYS, peerSettingError, type PeerLimits } from './settings.js';
 
@@ -44,7 +44,14 @@ export const limitsOf = (own: Partial<PeerLimits>, server: PeerLimits): PeerLimi
   maxChars: Math.min(server.maxChars, own.maxChars ?? server.maxChars),
 });
 
-export type Owned = ReporterRef & { owner: string; ownerId: number };
+/** The owners in a list that has some with none, each once, in order: the ones whose defaults `limitsOfMany` needs read. */
+export const distinctOwners = (ownerIds: readonly (number | null)[]): number[] => [...new Set(ownerIds.filter((id): id is number => id !== null))];
+
+/** `limitsOf` for each of `ownerIds` (null is no owner), in order, over the defaults the adapter read for `distinctOwners`. */
+export const limitsOfMany = (ownerIds: readonly (number | null)[], own: ReadonlyMap<number, OwnerDefaults>, server: PeerLimits): PeerLimits[] =>
+  ownerIds.map((id) => limitsOf(id === null ? {} : (own.get(id)?.limits ?? {}), server));
+
+type Owned = ReporterRef & { owner: string; ownerId: number };
 
 /** A reporter that can take part: owned by a person (it has their `people.id`), not by no one, and not on the admin secret. A reporter whose person was deleted has no id and takes no part. */
 export const eligible = (r: ReporterRef): r is Owned => !r.adminSecret && r.owner !== null && r.ownerId !== null;
@@ -68,6 +75,15 @@ export function trustOwners(links: readonly (readonly [string, string])[], repor
     if (ra && rb && eligible(ra) && eligible(rb) && ra.ownerId === rb.ownerId) owners.add(ra.ownerId);
   }
   return [...owners];
+}
+
+/** The key a stored right is held under in the map `effectivesOf` reads. */
+export const rightKey = (from: string, to: string): string => `${from}\0${to}`;
+
+/** `effectiveOf` for each link, in order, over the rows the adapter read: the rights by `rightKey`, the reporters by key and the owners' defaults by `people.id`. */
+export function effectivesOf(links: readonly (readonly [string, string])[], rights: ReadonlyMap<string, RightRow>, reporters: ReadonlyMap<string, ReporterRef>, trust: ReadonlyMap<number, OwnerDefaults>): EffectiveRight[] {
+  const rows: EffectiveRows = { right: (from, to) => rights.get(rightKey(from, to)), reporter: (key) => reporters.get(key), trusts: (id) => trust.get(id)?.trust ?? false };
+  return links.map(([from, to]) => effectiveOf(from, to, rows));
 }
 
 /** What `from` can do to `to` now: the stored right, or Send when the owner trusts their own reporters. */

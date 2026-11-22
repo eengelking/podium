@@ -5,7 +5,7 @@
 import { chunksOf } from '../batches.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, bumpAnswers, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, toState, withMentionState, type DbChannelRow, type DbPublicChannel, type DbReadState,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ReadBump, ThreadReadState } from '../types.js';
 import type { PgDb } from './conn.js';
@@ -221,18 +221,6 @@ class PgPublicChannels {
   }
 }
 
-/** A read state row. `person` is the older name key, which holds `#<id>` now and is not read (#1284); the person is `person_id`. */
-interface DbReadState {
-  person_id: number;
-  thread: string;
-  last_read: string | null;
-  unread: number;
-  mentions: number;
-  updated_at: number;
-}
-
-const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(r.person_id), thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
-
 class PgReadState {
   constructor(
     private readonly db: PgDb,
@@ -250,7 +238,7 @@ class PgReadState {
 
   /** One insert (and one read) for each batch of people: the number of statements does not grow with the people (#1309). */
   async bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]> {
-    const out = new Map<number, ThreadReadState>();
+    const read: DbReadState[] = [];
     const at = this.now();
     const folded = foldBumps(bumps);
     for (const part of chunksOf(folded)) {
@@ -259,11 +247,9 @@ class PgReadState {
          ON CONFLICT(person, thread) DO UPDATE SET unread = chat_read_state.unread + excluded.unread, mentions = chat_read_state.mentions + excluded.mentions, updated_at = excluded.updated_at`,
         part.flatMap((b) => [personKey(b.personId), b.personId, thread, b.unread, b.mentions, at]),
       );
-      // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
-      const rows = await this.db.all<DbReadState>(`SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`, [thread, ...part.map((b) => b.personId)]);
-      for (const r of rows) out.set(Number(r.person_id), toState(r));
+      read.push(...(await this.db.all<DbReadState>(`SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`, [thread, ...part.map((b) => b.personId)])));
     }
-    return folded.map((b) => out.get(b.personId) as ThreadReadState);
+    return bumpAnswers(folded, read);
   }
 
   async markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState> {

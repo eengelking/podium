@@ -1,6 +1,6 @@
 // The rule that says when a person can no longer change a Chat message (#1269): an agent was handed it and has started or finished with it.
 import { describe, expect, it } from 'vitest';
-import { foldBumps, lockedByDelivery, peerPersonKey, refuseChange, toChannelMessage, type DbChannelRow } from './chatRows.js';
+import { bumpAnswers, foldBumps, lockedByDelivery, peerPersonKey, refuseChange, toChannelMessage, type DbChannelRow } from './chatRows.js';
 import type { ChannelMention, MentionState } from './types.js';
 
 const m = (sessionId: string | null, state: MentionState): ChannelMention => ({ sessionId, peerKey: null, typed: 'x@box', state, why: null, stateAt: 0 });
@@ -62,6 +62,15 @@ describe('peerPersonKey', () => {
   it('is the folded name after person: when the message is to or from a person\'s own key, else the folded owner', () => {
     expect(peerPersonKey('person:ed  smith', 'zoe')).toBe('ed smith');
     expect(peerPersonKey('session-1', ' Ed  Smith ')).toBe('ed smith');
+  });
+});
+
+describe('bumpAnswers (#1309)', () => {
+  it('answers each person in the order given, from rows read in any order', () => {
+    const row = (person_id: number, unread: number) => ({ person_id, thread: 't', last_read: null, unread, mentions: 0, updated_at: 5 });
+    const answers = bumpAnswers([{ personId: 2 }, { personId: 1 }], [row(1, 7), row(2, 9)]);
+    expect(answers.map((a) => [a.personId, a.unread])).toEqual([[2, 9], [1, 7]]);
+    expect(bumpAnswers([], [])).toEqual([]);
   });
 });
 

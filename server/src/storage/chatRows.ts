@@ -3,7 +3,7 @@
 // conversation's text are kept in different tables and read by different methods on purpose.
 import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
-import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal, ReadBump } from './types.js';
+import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal, ReadBump, ThreadReadState } from './types.js';
 
 const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
 const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
@@ -158,6 +158,25 @@ export function foldBumps(bumps: readonly ReadBump[]): { personId: number; unrea
     by.set(b.personId, e);
   }
   return [...by.values()];
+}
+
+/** A read state row. `person` is the older name key, which holds `#<id>` now and is not read (#1284); the person is `person_id`. */
+export interface DbReadState {
+  person_id: number;
+  thread: string;
+  last_read: string | null;
+  unread: number;
+  mentions: number;
+  updated_at: number;
+}
+
+export const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(r.person_id), thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
+
+/** The answer of `bumpMany`: the new state of each person in `folded` (what `foldBumps` returned), in that order, from the rows the adapter read back for all of them. */
+export function bumpAnswers(folded: readonly { personId: number }[], rows: readonly DbReadState[]): ThreadReadState[] {
+  // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
+  const by = new Map(rows.map((r) => [Number(r.person_id), toState(r)]));
+  return folded.map((b) => by.get(b.personId) as ThreadReadState);
 }
 
 /** What a read state row says before anything was counted for the thread. */
