@@ -747,6 +747,31 @@ describe('direct messages', () => {
     expect((await s.edB.get(CH)).body.directs[0].messages).toBe(page.body.messages.length);
   });
 
+  it('sends to the one agent that `to` names in a conversation between two agents, and refuses a name that is no agent of the conversation (#1296)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    const [x, y] = [key.a.sessionId, key.b.sessionId];
+    const to = (list: unknown) => s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'only you, Tester', to: list });
+    const one = await to(['sess-tester']);
+    expect(one.status).toBe(202);
+    expect(one.body.message.to.map((t: { sessionId: string }) => t.sessionId)).toEqual(['sess-tester']);
+    expect((await deliveriesFor(s, 'tester')).map((d) => d.text)).toContain('only you, Tester');
+    expect((await deliveriesFor(s, 'dev')).map((d) => d.text)).not.toContain('only you, Tester');
+    // A session of another conversation, the person's own end and an empty list are no agent of this one: nothing is stored or handed over.
+    const before = (await s.edB.get(`${CH}/dm/${x}/${y}/messages`)).body.total;
+    for (const list of [['sess-alex'], ['person:1'], ['sess-tester', 'sess-alex'], []]) {
+      const refused = await to(list);
+      expect(refused.status).toBe(400);
+      expect(refused.body.error).toBe('to must name an agent of this conversation.');
+    }
+    expect((await s.edB.get(`${CH}/dm/${x}/${y}/messages`)).body.total).toBe(before);
+    // The conversation of a person and one agent has one agent to name.
+    const own = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'hello', to: ['sess-dev'] });
+    expect(own.status).toBe(400);
+    expect(own.body.error).toBe('to must name an agent of this conversation.');
+  });
+
   it('does not let the person\'s message count as a round trip, nor reset the cap the owner has to approve past', async () => {
     const s = await world();
     const a = await adminAgent(s);
@@ -1524,6 +1549,27 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await requestsOf(w.alexB)).toHaveLength(1);
   });
 
+  it('stops a person at 5 messages waiting for one owner, in words, and counts only what still waits (#1296)', async () => {
+    const w = await world();
+    expect((await (await adminAgent(w)).put('/api/admin/settings').set(HA).send({ chat: { maxChars: 4000, perMinute: 60 } })).status).toBe(200);
+    // Alex has six agents; the owner's cap counts what waits at the owner, whichever agent it is for.
+    for (const n of [1, 2, 3, 4, 5]) expect((await post(w, w.alex.token, report('Alex', `sess-alex-${n}`, `helper${n}`, BOX))).status).toBe(200);
+    const write = (sid: string) => w.edB.post(`${CH}/dm/me/${sid}/messages`).set(H).send({ text: `hello ${sid}` });
+    for (const sid of ['sess-alex', 'sess-alex-1', 'sess-alex-2', 'sess-alex-3', 'sess-alex-4']) expect((await write(sid)).body.message).toMatchObject({ state: 'approval' });
+    expect(await requestsOf(w.alexB)).toHaveLength(5);
+    // One per agent: a second message to an agent that still waits is a 409 in words, and the sixth waiting message is a 429 in words.
+    const again = await write('sess-alex');
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe('Your earlier message to review still waits for Alex to approve it. Wait for the answer before you write again.');
+    const sixth = await write('sess-alex-5');
+    expect(sixth.status).toBe(429);
+    expect(sixth.body.error).toBe('You already have 5 messages waiting for Alex to approve. Wait for answers before you write more.');
+    expect(await requestsOf(w.alexB)).toHaveLength(5);
+    // The cap counts messages that wait: once the owner answers one, a place is free.
+    expect((await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'decline')).status).toBe(200);
+    expect((await write('sess-alex-5')).status).toBe(202);
+  });
+
   it('still delivers the owner\'s own @ of their own agent in the normal way', async () => {
     const w = await world();
     const res = await say(w.alexB, 'general', '@review@alex-box do the thing');
@@ -1548,6 +1594,24 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(chats.length).toBeGreaterThan(0);
     for (const d of chats) expect(Object.keys(d).sort()).toEqual(['rev', 'scope']);
     expect(sse.join('')).not.toContain(MSG_FROM_ED);
+  });
+
+  it('writes chat_sent for a person\'s message to their own agent and chat_across_sent once the owner opened the link, with who, and never the text (#1296)', async () => {
+    const w = await world();
+    const own = await w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'own agent text' });
+    expect(own.status).toBe(202);
+    await settle();
+    const rowsOf = async (kind: string) => (await logRows(w)).filter((r) => r.kind === kind);
+    expect(await rowsOf('chat_sent')).toEqual([expect.objectContaining({ actor: 'Ed', detail: expect.stringMatching(/^A person sent a message in a direct message, ed's \[\w+\] \(sess-tester\)$/) })]);
+    expect(await rowsOf('chat_across_sent')).toEqual([]);
+    // Across owners: the first message asks, and is logged as asked; after the owner's Allow the next is written over the link and logged as written.
+    await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'across text one' });
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'across text two' })).status).toBe(202);
+    await settle();
+    expect(await rowsOf('chat_across_requested')).toHaveLength(1);
+    expect(await rowsOf('chat_across_sent')).toEqual([expect.objectContaining({ actor: 'Ed', detail: expect.stringMatching(/^Wrote to alex's agent for ed \[\w+\] \(sess-alex\)$/) })]);
+    expect(JSON.stringify(await logRows(w))).not.toMatch(/own agent text|across text/);
   });
 
   // ---- A launched agent reaches an open console (#1112) -----------------------------------------------------------------
@@ -3011,6 +3075,35 @@ describe('a Direct Message ends when one of its agents ends (#1283)', () => {
     expect(JSON.stringify(mine)).not.toMatch(/please look at this/);
     // Another person's stored session is not Ed's to learn exists or what it is called, so it keeps the answer of a conversation that is not there.
     expect((await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'again' })).status).toBe(404);
+  });
+
+  it('writes the chat_concluded row as Podium, with whose conversation, how many messages went, and no text (#1296)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await finish(s, 'tester');
+    await settle();
+    const rows = (await logRows(s)).filter((r) => r.kind === 'chat_concluded');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ actor: 'Podium' });
+    expect(rows[0]!.detail).toMatch(/^Concluded a conversation, ed's, because an agent in it ended: 1 messages \(sess-dev, sess-tester\)$/);
+    expect(JSON.stringify(await logRows(s))).not.toContain('agent hello');
+  });
+
+  it('counts in `undelivered` only the person\'s messages the ended agent never took, and leaves it out when there are none (#1296)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await finish(s, 'tester');
+    // The one message in this conversation is an agent's, so there is nothing the person wrote that went undelivered.
+    const none = (await s.edB.get(`${CH}/concluded`)).body.concluded as Record<string, unknown>[];
+    expect(none).toHaveLength(1);
+    expect(none[0]).not.toHaveProperty('undelivered');
+    // Two messages the person wrote to an agent, which ends before it takes either.
+    const t = await world();
+    for (const text of ['first, never taken', 'second, never taken']) expect((await t.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text })).status).toBe(202);
+    await finish(t, 'tester');
+    const two = (await t.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; undelivered?: number }[];
+    expect(two).toHaveLength(1);
+    expect(two[0]).toMatchObject({ agent: 'Tester', undelivered: 2 });
   });
 
   it('lists what was concluded for the people in it only, until each is dismissed, and says no text', async () => {

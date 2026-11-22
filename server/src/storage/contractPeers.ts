@@ -601,7 +601,7 @@ export function peerCases(o: Openers): void {
     expect(t.get('too long')).toMatchObject({ ok: false, status: 422 });
     expect(t.get("the person's own agent")).toMatchObject({ ok: false, status: 422 });
     expect(t.get('first message waits for approval')).toMatchObject({ author: 'person', fromName: 'Eve', fromSession: EVE_KEY, fromKey: EVE_KEY, toSession: 'sb', owner: 'ed', state: 'approval' });
-    expect(t.get('the same agent again while it waits')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('the same agent again while it waits')).toMatchObject({ ok: false, status: 409, error: 'Your earlier message to beta still waits for ed to approve it. Wait for the answer before you write again.' });
     expect(t.get('a request is open') as unknown[]).toHaveLength(1);
     expect(t.get('a request is open')).toMatchObject([{ kind: 'message', owner: 'ed', fromKey: EVE_KEY, by: 'Eve' }]);
     expect((t.get('nothing is handed over yet') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
@@ -610,7 +610,7 @@ export function peerCases(o: Openers): void {
     expect(t.get('a third person list')).toEqual([]);
     expect((t.get('owner read') as { messages: { text: string }[] }).messages.map((x) => x.text)).toEqual(['hello beta']);
     expect(t.get('reporters grid leaves the person out')).toEqual([]);
-    expect(t.get('past the cap')).toMatchObject({ ok: false, status: 429 });
+    expect(t.get('past the cap')).toMatchObject({ ok: false, status: 429, error: 'You already have 5 messages waiting for ed to approve. Wait for answers before you write more.' });
     expect(state('waiting for sx2')).toBe('approval');
     expect(t.get('decline')).toMatchObject({ ok: true });
     expect(t.get('no link after a decline')).toBeNull();
