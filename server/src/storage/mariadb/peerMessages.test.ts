@@ -45,6 +45,7 @@ const lookupOf = (reps: Map<string, ReporterRef>, list: ReporterRef[]): AsyncPee
   ({
     startedAt: T0,
     get: async (k: string) => reps.get(k) ?? null,
+    getMany: async (keys: readonly string[]) => keys.flatMap((k) => reps.get(k) ?? []),
     ofOwner: async (o: number | null) => list.filter((r) => o !== null && r.ownerId === o),
   }) as AsyncPeerReporterLookup;
 
@@ -72,8 +73,10 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
     const closed: [string, string][] = [];
     const rights: MariaPeerRightsView = {
       effective: async (f, t) => ({ level: levels.get(`${f}>${t}`) ?? 'none', paused: paused.has(linkKey(f, t)) }),
+      effectiveMany: async (links) => Promise.all(links.map(([f, t]) => rights.effective(f, t))),
       personLink: async () => null,
       limits: async () => limits,
+      limitsMany: async (ids) => ids.map(() => limits),
       openMessageRequest: async (input) => {
         opened.push(input);
         return { id: `req_${opened.length}` } as PeerRequestRow;
@@ -101,7 +104,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       trails,
       tick: (ms = 1) => (now += ms),
       count: async () => (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_messages'))!.n,
-      stateOf: async (id: string) => (await db.get<{ state: string; why: string | null; approved: number; handed: number }>('SELECT state, why, approved, handed FROM peer_messages WHERE id = ?', [id]))!,
+      stateOf: async (id: string) => (await db.get<{ state: string; why: string | null; approved: number }>('SELECT state, why, approved FROM peer_messages WHERE id = ?', [id]))!,
     };
   }
 
@@ -110,8 +113,10 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       await truncate(db, 'peer_messages', 'peer_requests', 'agent_ids');
       const rights: MariaPeerRightsView = {
         effective: async () => ({ level: 'send', paused: false }),
+        effectiveMany: async (links) => links.map(() => ({ level: 'send' as const, paused: false })),
         personLink: async () => null,
         limits: async () => ({ roundTrips: 10, perMinute: 6, maxChars: 100 }),
+        limitsMany: async (ids) => ids.map(() => ({ roundTrips: 10, perMinute: 6, maxChars: 100 })),
         openMessageRequest: async () => ({ id: 'req' }) as PeerRequestRow,
         closeMessageRequest: async () => {},
       };
@@ -141,7 +146,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       const r = ok(await s.send('s-mbp', 'Tester@ci-runner-01', 'Please run the systemd unit tests'));
       expect(r.id).toMatch(ID);
       expect(r).toMatchObject({ state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: 'Tester', machine: 'ci-runner-01' }, roundTrips: { used: 0, cap: 10 } });
-      expect(await stateOf(r.id)).toEqual({ state: 'ready', why: null, approved: 0, handed: 0 });
+      expect(await stateOf(r.id)).toEqual({ state: 'ready', why: null, approved: 0 });
       expect(trails).toHaveLength(1);
       expect(trails[0]).toMatchObject({ kind: 'sent', state: 'sent', approvalWhy: null, message: { id: r.id, owner: 'Ed', link: linkKey('r-mbp', 'r-ci'), fromName: 'claude-dashboard', toName: 'Tester', sentAt: T0 } });
     });
@@ -366,8 +371,8 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer messages', () => {
       const d = await s.deliveriesFor('s-ci', true);
       expect(d.map((x) => x.kind)).toEqual(['message', 'notice', 'message']);
       expect(d[0]).toEqual({ id: a.id, kind: 'message', at: T0, from: { name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: '1' }, text: 'first' });
-      expect(await stateOf(a.id)).toMatchObject({ state: 'handed', handed: 1 });
-      expect(await stateOf(b.id)).toMatchObject({ state: 'handed', handed: 1 });
+      expect(await stateOf(a.id)).toMatchObject({ state: 'handed' });
+      expect(await stateOf(b.id)).toMatchObject({ state: 'handed' });
       // No result yet: handed again.
       expect((await s.deliveriesFor('s-ci', true)).filter((x) => x.kind === 'message').map((x) => x.id)).toEqual([a.id, b.id]);
     });

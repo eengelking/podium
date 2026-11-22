@@ -11,7 +11,7 @@
 // insert that skips a row that is there), and the version row is written after a step's last statement, so a runner that stops part way
 // through a step does the whole step again at the next start, and ends in the same state.
 import { COLLATION, type MariaDbConn } from './conn.js';
-import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
+import { flagScopeWithId, listWithIds, OWED_FILLED_KEY, owedIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
 import { CHAT_IDS_DONE_KEY, keepOwnerSettings, OWNED_PEER_TABLES, OWNER_EVIDENCE_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndRewrite, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { nameKey } from '../rows.js';
 
@@ -226,6 +226,18 @@ export const CONSTRAINT_INDEX = /^(PRIMARY|uq_.*|fk_.*)$/;
 
 const ID = 'K(255)';
 const REPORTER_KEY = 'K(383)';
+
+/**
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. It is a step of its own, so that
+ * `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ */
+async function fillOwed(db: DB): Promise<void> {
+  if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [OWED_FILLED_KEY])) return;
+  for (const r of await db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key")) {
+    for (const p of owedIds(r)) await db.run('INSERT INTO chat_admin_owed (person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE person_id = person_id', [p, r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = value', [OWED_FILLED_KEY, '1']);
+}
 
 export const MAIN_STEPS: Step[] = [
   {
@@ -730,6 +742,76 @@ CREATE TABLE IF NOT EXISTS conversation_deliveries (
   conversation_id K(64) NOT NULL, message_id K(64) NOT NULL, member_kind K(16) NOT NULL, member_ref K(255) NOT NULL, member_name TXT NOT NULL, named INT NOT NULL, state TXT, state_at INT,
   PRIMARY KEY (conversation_id, message_id, member_kind, member_ref)
 ) TABLE_OPTIONS;
+`),
+  },
+  {
+    version: 30,
+    // Every fact in one place (#1296): the columns and indexes nothing reads go, and `updated_at` is worked out where a message is read. See SQLite migration 54. Each table is changed in one statement,
+    // because each `ALTER TABLE` that drops a column rebuilds the table; `group_messages` loses three columns and its index, and MariaDB does not keep the index on the columns left because it is dropped in the
+    // same statement. Each statement can run twice (`IF EXISTS`), so a step that stopped half way runs again.
+    statements: steps(`
+ALTER TABLE group_messages DROP INDEX IF EXISTS group_messages_channel, DROP COLUMN IF EXISTS owner, DROP COLUMN IF EXISTS group_id, DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE conversation_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_channels DROP COLUMN IF EXISTS created_by;
+ALTER TABLE peer_messages DROP COLUMN IF EXISTS handed;
+ALTER TABLE peer_requests DROP INDEX IF EXISTS peer_requests_owner;
+ALTER TABLE conversations DROP COLUMN IF EXISTS created_by;
+`),
+  },
+  {
+    version: 31,
+    // A person's counts in a thread, keyed by `(person_id, thread)` (#1296). Rows at zero or with no person go first. See SQLite migration 55. The key and the columns change in one statement, so a step
+    // that stopped half way runs again: the delete can run twice, and the change finds the key, the index and the columns as it left them.
+    statements: steps(`
+DELETE FROM chat_read_state WHERE person_id IS NULL OR (unread = 0 AND mentions = 0);
+ALTER TABLE chat_read_state MODIFY person_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (person_id, thread), DROP INDEX IF EXISTS chat_read_state_person, DROP COLUMN IF EXISTS person, DROP COLUMN IF EXISTS last_read, DROP COLUMN IF EXISTS updated_at;
+`),
+  },
+  {
+    version: 32,
+    // A delivery is found by its message (#1296): `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan. See SQLite migration 56,
+    // which also lays its table out another way (DECISIONS 78); InnoDB already keeps a row once, in its key, so there is nothing to do for that here. The key and the column change in one statement, which can run
+    // twice: a step that stopped half way finds the key and the column as it left them.
+    statements: steps(`
+ALTER TABLE conversation_deliveries DROP PRIMARY KEY, ADD PRIMARY KEY (message_id, member_kind, member_ref), DROP COLUMN IF EXISTS conversation_id;
+`),
+  },
+  {
+    version: 33,
+    // What an Admin record is owed to, found by the person's id (#1296): `person_key` and `chat_admin_owed_person` go, and the key is `(person_id, thread, admin_key, started_at)`. A row with no person is not kept. The key, the index and
+    // the column change in one statement, so a step that stopped half way runs again: the delete can run twice, and the change finds the key, the index and the column as it left them. Then the lists of the records made before this
+    // table existed fill it, once (`fillOwed`), which needs the `seen` list the next step drops. See SQLite migration 57, which also lays its table out another way (DECISIONS 78).
+    statements: steps(`
+DELETE FROM chat_admin_owed WHERE person_id IS NULL;
+ALTER TABLE chat_admin_owed MODIFY person_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (person_id, thread, admin_key, started_at), DROP INDEX IF EXISTS chat_admin_owed_person, DROP COLUMN IF EXISTS person_key;
+`),
+    after: fillOwed,
+  },
+  {
+    version: 34,
+    // An Admin record no longer keeps the list of who has seen it (#1296). See SQLite migration 58.
+    statements: steps('ALTER TABLE chat_admin_reads DROP COLUMN IF EXISTS seen;'),
+  },
+  {
+    version: 35,
+    // Two reads that scanned a table read an index now (#1296): the next `seq` of five tables, and `peer_messages` by `owner_id`, in the order its readers sort in. See SQLite migration 60. Each statement can run twice (`IF NOT EXISTS`).
+    statements: steps(`
+CREATE INDEX IF NOT EXISTS peer_messages_counter ON peer_messages(seq);
+CREATE INDEX IF NOT EXISTS group_messages_counter ON group_messages(seq);
+CREATE INDEX IF NOT EXISTS public_messages_counter ON public_messages(seq);
+CREATE INDEX IF NOT EXISTS conversation_messages_counter ON conversation_messages(seq);
+CREATE INDEX IF NOT EXISTS peer_requests_counter ON peer_requests(seq);
+CREATE INDEX IF NOT EXISTS peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
+`),
+  },
+  {
+    version: 36,
+    // An owner's defaults are found by the person's id alone, which is the key now (#1296). A row with no `owner_id` is dropped, and so are the rows of an `owner_id` that has more than one. See SQLite migration 61. The key, the index
+    // and the column change in one statement, so a step that stopped half way runs again: the delete reads only `owner_id` and can run twice, and the change finds the key, the index and the column as it left them.
+    statements: steps(`
+DELETE FROM peer_owner_settings WHERE owner_id IS NULL OR owner_id IN (SELECT owner_id FROM (SELECT owner_id FROM peer_owner_settings GROUP BY owner_id HAVING COUNT(*) > 1) dup);
+ALTER TABLE peer_owner_settings MODIFY owner_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (owner_id), DROP INDEX IF EXISTS peer_owner_settings_owner_id, DROP COLUMN IF EXISTS owner_lower;
 `),
   },
 ];

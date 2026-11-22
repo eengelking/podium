@@ -51,7 +51,10 @@ Traffic mockup shows them per line. Notices to a sender ride the same reply list
 mod has one list, one result route and one dedupe. SPEC 7.7 records both.
 
 **The mod (#414).** `plugin/core/peers.ts` is pure: the tools' words, the frame a peer message is submitted under, the
-request lines and toasts, and short ids. The messaging block in `register.ts` is kept apart from responding: peer
+request lines and toasts, and short ids. `plugin/core/peerTools.ts` defines the four tools once (name, description, input
+schema, what each does with a call and how its outcome reads), and `RequestBook` there keeps the open requests,
+so a harness only registers the tools, says who called and whether the session takes part, and makes the one HTTP call
+(#1312). The messaging block in `register.ts` is kept apart from responding: peer
 deliveries and requests have their own `Transport` fields (`peers`, `peerDeliveries`, `peerRequests`), and a message
 only ever becomes a framed `$.prompt.submit`. Results share responding's outbox and `acted` dedupe but post to the
 peers result route. A tool call waits on a `PeerCall` queue that `flush` drains (`sendPeerCalls`), so the call is
@@ -99,7 +102,27 @@ another person's agent for a message. Files: `server/src/fleet/chat.ts`, `chatCo
 purpose. `ChatCore` has what both sides share and touches no message: the Admin's limits, redaction (`scrubStored`), the per-author
 rate limit, the read-state counts and the stream signal, the audit callback, and `deliver`, which hands a text to an agent through
 responding's message path (`RespondStore.message`) so the Admin's respond flags and the reporter's own consent apply as they do for the
-console's message box. `ChannelChat` is General, the public channels (#1035) and My group: posting, paging, the `@` address book, mentions and their
+console's message box. Each rule the audiences repeated lives there once (#1310), with the audience's own words as a parameter:
+`screen` checks a text before it is scanned (a string with something in it, `tooLong`, `tooFast`) and `cleaned` scans it and checks
+something is left; `tooLong` and `tooFast` refuse a text over the length or the rate in the words of `chat` (a channel and a Direct Message) or `convo`
+(a conversation); `ChannelChat.change` and `DirectChat.change` are the one edit-and-delete flow of each; `changeRefusal`, `changeState` and `sentWords` are the refusal of a change and the rule for whether a message can
+still be changed; `endedNotice` is what an agent hears when the agent it was written with ends. A new audience adds its words to
+those tables and uses the same screen and refusal functions, but still writes its own change function, because the order of its checks and its
+store steps are its own. The stream signal is a scope and nothing else: `signal(scope)`
+sends `chat {rev, scope}`, with no owner, count or approval.
+An action sends one `chat` for each scope it changed, not one for each signal (#1296). `ChatCore.batch` runs an action and holds what
+`signal` is told in a set of scopes found by an `AsyncLocalStorage` (the same way `storage/lock.ts` finds the connection a call holds), so two
+actions that overlap each keep their own; when the action is done, whether it returned or threw, it sends each scope once, in the order each was first signalled, and `rev`
+rises by one for each. Every signal comes after the write it follows, so an event never reaches a console before what it announces is stored,
+and the console, which only compares `rev` and then reads again, reads everything the action did. `core.also` holds the store writes an action starts and does not wait for: the one write that records a delivery's
+fate, the count of a message between people, and the channel side's `hearAcross` update. The batch waits for those writes before it sends, and never for the delivery itself:
+a later change of a delivery's fate is another action and sends its own event. A signal
+outside any batch, or one that comes after its batch is done, is sent at once, so none is lost (a batch inside one that is still open joins it; inside one that is done it is an action of its own). The batches are `ChatService.handler`, which wraps every Chat route
+with the same error handling as `asyncHandler` plus the batch (the five route files bind it as `chatHandler`, so `asyncHandler` keeps one meaning), `sessionLeft`, `sessionSeen`, `maintain` and `peerTrail`, and the fleet's sweep (`ChatService.batch`, so the sessions one sweep ends are one action).
+`routeGate.ts` holds the logged refusal every route file shares (`refuser`) and the gate a reporter's token passes for its person's
+session (`agentGate`), and `chatAdminReads.ts` has the one builder of an Admin read's subject (`readSubject`) that the group, the Direct
+Message, the conversation, the list, a session's read and a replay all use, so a new path that shows an Admin a person's content
+is told to the person by building its subject there. `ChannelChat` is General, the public channels (#1035) and My group: posting, paging, the `@` address book, mentions and their
 delivery state, and the stop buttons. `DirectChat` is the Direct Messages: a person writing to one agent or into a conversation
 between two, a person writing to another person's agent, the link between them, hide and show, and delete. `channels` never
 reads a conversation and `direct` never reads a channel, and `chatSeparation.test.ts` holds the files to it. Where they need each
@@ -113,7 +136,7 @@ channel's flags decide: disconnected is Not delivered, paused is Held (kept in t
 `deliver` hands "From Podium Chat, <channel>, <name> wrote:" and the text to the session, and the mention is Waiting. The
 message is stored with its mentions, and `core.watch` follows each delivery's trail so the mention moves to Working, Done, Not
 delivered or Dropped. A mention of another person's agent is stored as `approval` and asked of its owner (below). The counts of
-every person it concerns are bumped (`readState.bump`), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
+every person it concerns are bumped (`readState.bumpMany`, one store call for all of them), and the console is told by a `chat` signal that carries only a revision and a scope (no name, count or id), and each console reads its own counts from the Chat routes.
 
 **Public channels (#1035).** A `ChannelId` is a string: `general`, `group` or a public channel's name (`chatTypes.ts`; `resolve` in `ChannelChat` says whether a name is a channel that exists, and every route passes its `:channel` through it, so a name that is
 none answers `404` before it reaches a store). The audience is still the table (DECISIONS 61, 69): a public channel's messages are rows of `public_messages` keyed by the channel, so `ChannelChat` reaches them through the same public handle as General's

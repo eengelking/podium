@@ -662,6 +662,21 @@ describe('respond: messages and commands', () => {
     expect(w.submitted).toEqual(['Is the build green?\n\nTo answer in the Chat thread, use podium_send to "person:Ed".', 'A console message.'])
   })
 
+  test('a message written in a Direct Message with several members ends with convo:<id> to answer in, with or without the console frame, and a message not from Chat never does (#1296)', { options: ON }, async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    const hint = 'To answer in this conversation, so that the people in it see the answer, use podium_send to "convo:cnv_ab12".'
+    w.server.deliveries.push(by('message', null, { id: 'dlv_v1', text: 'Both of you: status?', chat: true, convo: 'cnv_ab12' }))
+    w.server.deliveries.push(by('message', null, { id: 'dlv_v2', text: 'Framed: status?', chat: true, convo: 'cnv_ab12', via: 'console' }))
+    w.server.deliveries.push(by('message', null, { id: 'dlv_v3', text: 'Not from Chat.', convo: 'cnv_ab12' }))
+    await w.clock.advance(5000)
+    await settle(w)
+    expect(w.submitted[0]).toBe(`Both of you: status?\n\n${hint}`)
+    expect(w.submitted[1]).toContain(hint)
+    expect(w.submitted[1]).not.toContain('person:Ed')
+    expect(w.submitted[2]).toBe('Not from Chat.')
+  })
+
   test('a message from an @ in a channel ends with where to read around it, in the channel it came from (#1034)', { options: ON }, async ($, on) => {
     const w = world(on)
     await started($, w)

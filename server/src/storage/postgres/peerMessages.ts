@@ -5,7 +5,6 @@
 // each event goes to `trail` as a row, and the routes decide what to write (never the text).
 import { randomBytes } from 'node:crypto';
 import { PEER_LIMITS, type PeerDelivery, type PeerResult } from '../../fleet/protocol.js';
-import { pausedByOf } from '../peerText.js';
 import {
   HELD_STATES,
   CROSS_PENDING_MAX,
@@ -33,7 +32,6 @@ import {
   type OwnerConversation,
   type PersonMessageInput,
   type MessageTrail,
-  type PeerListing,
   type PeerRequestRow,
   type Refusal,
   type RightRow,
@@ -42,9 +40,11 @@ import {
 import { nameKey } from '../rows.js';
 import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
+import { headOf, linksOf, pairsOf, toSummary, type SummaryHead } from '../peerSummary.js';
+import { leftOutWhy, listingOf, mayBeLeftOut, onPersonReporter, reachedOf, rightKeys, sameOwnerOn, sortListings } from '../peerReach.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
-import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, shownCount, type TripRow } from '../peerText.js';
+import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, type TripRow } from '../peerText.js';
 import type { PgDb } from './conn.js';
 
 const RATE_WINDOW_MS = 60_000;
@@ -145,8 +145,10 @@ const PAIR_WHERE = '(from_session = ? AND to_session = ?) OR (from_session = ? A
 /** What the message store needs from the rights store: a narrow view, so either can be tested alone. */
 export interface PgPeerRightsView {
   effective(from: string, to: string): Promise<EffectiveRight>;
+  effectiveMany(links: readonly (readonly [string, string])[]): Promise<EffectiveRight[]>;
   personLink(personKey: string, toKey: string): Promise<RightRow | null>;
   limits(ownerId: number | null): Promise<PeerLimits>;
+  limitsMany(ownerIds: readonly (number | null)[]): Promise<PeerLimits[]>;
   openMessageRequest(input: { owner: string; ownerId: number; fromKey: string; toKey: string; by: string; fromSession: string; messageId: string }): Promise<PeerRequestRow>;
   closeMessageRequest(messageId: string, outcome: 'delivered' | 'dropped' | 'declined'): Promise<void>;
 }
@@ -218,27 +220,32 @@ export class PgPeerMessages {
     return this.liveDir.get(sessionId) ?? null;
   }
 
-  /** Whether the orchestrator's reporter is its person's: known, not on the admin secret, and filed under the same `people.id` the orchestrator reported with (#1284), so a reporter that changed hands is not the one it ran on. */
-  private async onPersonReporter(o: LiveOrchestrator): Promise<boolean> {
-    const r = await this.reporters.get(o.reporterKey);
-    return r !== null && !r.adminSecret && o.ownerId !== null && r.ownerId === o.ownerId;
+  /** Whether the orchestrator runs on its person's own reporter (`onPersonReporter`), read for this one. */
+  private async onOwnReporter(o: LiveOrchestrator): Promise<boolean> {
+    return onPersonReporter(o, await this.reporters.get(o.reporterKey));
   }
 
-  /** The orchestrators `sender` could reach: the same owner's, messaging on, on a person's reporter, and seen by the sender's reporter. The sender itself is kept. */
+  /**
+   * The orchestrators `sender` could reach: the same owner's, messaging on, on a person's reporter, and seen by the sender's reporter. The sender itself is kept. The reporters are read once and the
+   * sender's rights once for all of them (#1296), so this costs the same for five orchestrators as for fifty. `rights` is the sender's right to each reporter it read, and to those in `more`.
+   */
+  private async reach(sender: LiveOrchestrator, more: readonly string[] = []): Promise<{ live: LiveOrchestrator[]; rights: ReadonlyMap<string, EffectiveRight> }> {
+    const candidates = sameOwnerOn(sender, this.liveDir.values());
+    const reporters = new Map((await this.reporters.getMany(candidates.map((o) => o.reporterKey))).map((r) => [r.key, r]));
+    const keys = rightKeys(sender, candidates, reporters, more);
+    const got = await this.rights.effectiveMany(keys.map((k) => [sender.reporterKey, k] as const));
+    const rights = new Map(keys.map((k, i) => [k, got[i] as EffectiveRight]));
+    return { live: reachedOf(sender, candidates, { reporters, rights }), rights };
+  }
+
   private async reachable(sender: LiveOrchestrator): Promise<LiveOrchestrator[]> {
-    const owner = sender.ownerId;
-    const out: LiveOrchestrator[] = [];
-    for (const o of this.liveDir.values()) {
-      if (owner === null || o.ownerId !== owner || o.peers !== true || !(await this.onPersonReporter(o))) continue;
-      if (o.sessionId === sender.sessionId || (await this.rights.effective(sender.reporterKey, o.reporterKey)).level !== 'none') out.push(o);
-    }
-    return out;
+    return (await this.reach(sender)).live;
   }
 
   /** The sender, when it can take part: live, messaging on, on a person's reporter. */
   private async sender(sessionId: string): Promise<(LiveOrchestrator & { ownerId: number }) | null> {
     const s = this.liveDir.get(sessionId);
-    return s && s.ownerId !== null && s.peers === true && (await this.onPersonReporter(s)) ? (s as LiveOrchestrator & { ownerId: number }) : null;
+    return s && s.ownerId !== null && s.peers === true && (await this.onOwnReporter(s)) ? (s as LiveOrchestrator & { ownerId: number }) : null;
   }
 
   /** The people who wrote to this agent through Chat and whose link is still there (#1034); one who has no link, or whose was removed, is not listed. */
@@ -257,34 +264,12 @@ export class PgPeerMessages {
   async list(sessionId: string): Promise<PeerListResult> {
     const sender = await this.sender(sessionId);
     if (!sender) return { peers: [], leftOut: [], people: [] };
-    const others = (await this.reachable(sender)).filter((o) => o.sessionId !== sender.sessionId);
-    const peers: PeerListing[] = [];
-    for (const o of others) {
-      const right = await this.rights.effective(sender.reporterKey, o.reporterKey);
-      peers.push({
-        address: `${o.name}@${o.machine}`,
-        id: String(o.agentId),
-        name: o.name,
-        machine: o.machine,
-        os: o.os,
-        project: o.project,
-        status: o.status,
-        level: right.level as PeerListing['level'],
-        paused: right.paused,
-      });
-    }
-    peers.sort((a, b) => a.address.localeCompare(b.address) || a.id.localeCompare(b.id));
+    const machines = (await this.reporters.ofOwner(sender.ownerId)).filter((r) => mayBeLeftOut(r, sender));
+    const { live, rights } = await this.reach(sender, machines.filter((r) => r.peers === true).map((r) => r.key));
+    const others = live.filter((o) => o.sessionId !== sender.sessionId);
+    const peers = sortListings(others.map((o) => listingOf(o, rights.get(o.reporterKey) as EffectiveRight)));
     const listed = new Set(others.map((o) => o.reporterKey));
-    const leftOut: LeftOut[] = [];
-    for (const r of await this.reporters.ofOwner(sender.ownerId)) {
-      // The sender's own reporter is where it runs, not a machine left out (the mockup lists only the others).
-      if (r.adminSecret || r.key === sender.reporterKey || listed.has(r.key)) continue;
-      let why: LeftOut['why'] = 'no orchestrator running';
-      if (r.peers === null) why = 'reporter too old to message';
-      else if (!r.peers) why = 'messaging off on the machine';
-      else if ((await this.rights.effective(sender.reporterKey, r.key)).level === 'none') why = 'no right to see it';
-      leftOut.push({ machine: r.machine, why });
-    }
+    const leftOut: LeftOut[] = machines.filter((r) => !listed.has(r.key)).map((r) => ({ machine: r.machine, why: leftOutWhy(r, rights.get(r.key)) }));
     return { peers, leftOut, people: await this.peopleOf(sender) };
   }
 
@@ -317,7 +302,7 @@ export class PgPeerMessages {
     const tooMany = (list: LiveOrchestrator[]): Refusal =>
       refuse(409, `There are ${list.length} orchestrators called ${plain}, so Podium cannot tell which one you mean. Send to one by its id: ${ids(list)}. podium_peers lists the ids.`);
     if (/^\d+$/.test(wantId)) {
-      const hit = await this.byAgentId(sender, Number(wantId), address);
+      const hit = await this.byAgentId(sender, Number(wantId), address, reachable);
       // The id names the agent; the name and machine in front of it must be the ones it has, so `Lower Left@Mac#7` is never delivered to agent 7 under another name.
       const named = matches.some((o) => o.agentId === Number(wantId));
       return hit && (named || ('ok' in hit && hit.status === 409)) ? hit : unseen;
@@ -334,9 +319,9 @@ export class PgPeerMessages {
     return unseen;
   }
 
-  /** The reachable agent with this id, a refusal when it is the sender or when it has ended (#1284), or null when the sender has never been able to see one. */
-  private async byAgentId(sender: LiveOrchestrator, agentId: number, address: string): Promise<LiveOrchestrator | Refusal | null> {
-    const hit = (await this.reachable(sender)).find((o) => o.agentId === agentId);
+  /** The reachable agent with this id (from `reachable` when the caller has already read it), a refusal when it is the sender or when it has ended (#1284), or null when the sender has never been able to see one. */
+  private async byAgentId(sender: LiveOrchestrator, agentId: number, address: string, reachable?: LiveOrchestrator[]): Promise<LiveOrchestrator | Refusal | null> {
+    const hit = (reachable ?? (await this.reachable(sender))).find((o) => o.agentId === agentId);
     if (hit) return hit.sessionId === sender.sessionId ? refuse(422, `${address} is this orchestrator. Send to another one; podium_peers lists them.`) : hit;
     return this.gone(sender, agentId);
   }
@@ -391,8 +376,8 @@ export class PgPeerMessages {
     const id = newId();
     // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
       [id, sender.owner, sender.ownerId, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.agentId, sender.name, sender.machine, wrote.from_name, clean, now, now],
     );
     await this.trail({ kind: 'delivered', message: (await this.row(id)) as MessageRow });
@@ -433,8 +418,8 @@ export class PgPeerMessages {
       const state: MessageState = approvalWhy ? 'approval' : 'ready';
       // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
       await this.db.run(
-        `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
+        `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
         [id, sender.owner, sender.ownerId, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.agentId, target.agentId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now],
       );
       let requestId: string | null = null;
@@ -476,7 +461,7 @@ export class PgPeerMessages {
       const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
       const now = this.now();
       for (const d of picked) {
-        if (d.kind === 'message') await this.db.run(`UPDATE peer_messages SET state = 'handed', handed = 1, state_at = ? WHERE id = ? AND state = 'ready'`, [now, d.id]);
+        if (d.kind === 'message') await this.db.run(`UPDATE peer_messages SET state = 'handed', state_at = ? WHERE id = ? AND state = 'ready'`, [now, d.id]);
       }
       return picked;
     });
@@ -581,59 +566,31 @@ export class PgPeerMessages {
   // ---- Reading -----------------------------------------------------------------------------------------------------
 
   async conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]> {
-    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages.
+    // A summary never carries the text, so it is not read: this backs the open Traffic read, over every owner's messages (or one owner's, which the database narrows).
+    const owner = filter.ownerId ?? null;
     const all = await this.rows(
       `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at
-       FROM peer_messages ORDER BY sent_at, seq`,
+       FROM peer_messages${owner === null ? '' : ' WHERE owner_id = ?'} ORDER BY sent_at, seq`,
+      owner === null ? [] : [owner],
     );
-    const owner = filter.ownerId ?? null;
     const groups = new Map<string, MessageRow[]>();
     for (const m of all) {
-      if (owner !== null && m.ownerId !== owner) continue;
       const pair = ordered(m.fromSession, m.toSession).join('|');
       const g = groups.get(pair) ?? [];
       g.push(m);
       groups.set(pair, g);
     }
-    const out: ConversationSummary[] = [];
-    for (const g of groups.values()) {
-      const s = await this.summary(g);
-      if (filter.since !== undefined && s.lastAt < filter.since) continue;
-      if (filter.liveOnly && !this.liveDir.has(s.a.sessionId) && !this.liveDir.has(s.b.sessionId)) continue;
-      out.push(s);
-    }
-    return out.sort((x, y) => y.lastAt - x.lastAt);
+    const kept = [...groups.values()]
+      .map((g) => ({ g, head: headOf(g) }))
+      .filter(({ g, head: { a, b } }) => (filter.since === undefined || (g.at(-1) as MessageRow).sentAt >= filter.since) && (!filter.liveOnly || this.liveDir.has(a.sessionId) || this.liveDir.has(b.sessionId)));
+    return (await this.summaries(kept.map(({ g }) => g), kept.map(({ head }) => head))).sort((x, y) => y.lastAt - x.lastAt);
   }
 
-  /** One conversation's summary, from its messages in order. The names are the newest message's. */
-  private async summary(g: MessageRow[]): Promise<ConversationSummary> {
-    const last = g.at(-1) as MessageRow;
-    // The names are the newest message an agent wrote; a person's message in a conversation between two agents carries the person's name.
-    const named = [...g].reverse().find((m) => m.author === 'agent') ?? last;
-    const from = { sessionId: named.fromSession, name: named.fromName, machine: named.fromMachine, reporterKey: named.fromKey };
-    const to = { sessionId: named.toSession, name: named.toName, machine: named.toMachine, reporterKey: named.toKey };
-    const [a, b] = from.sessionId <= to.sessionId ? [from, to] : [to, from];
-    const ab = await this.rights.effective(a.reporterKey, b.reporterKey);
-    const ba = await this.rights.effective(b.reporterKey, a.reporterKey);
-    const paused = ab.paused || ba.paused;
-    let state: ConversationSummary['state'] = 'active';
-    if (g.some((m) => m.state === 'approval')) state = 'waiting';
-    else if (paused) state = 'paused';
-    return {
-      link: named.link,
-      a,
-      b,
-      owner: named.owner,
-      ownerId: named.ownerId,
-      messages: shownCount(g),
-      lastAt: last.sentAt,
-      state,
-      paused,
-      ...(paused ? pausedByOf(ab, ba) : {}),
-      aToB: canSend(ab.level),
-      bToA: canSend(ba.level),
-      roundTrips: { used: roundTripsUsed(g), cap: (await this.rights.limits(named.ownerId)).roundTrips },
-    };
+  /** The summaries of these conversations (each one's messages in order): the rights of every link and the limits of every owner are read once for all of them, so the statements do not grow with the conversations (#1309). */
+  private async summaries(groups: MessageRow[][], heads: SummaryHead[] = groups.map(headOf)): Promise<ConversationSummary[]> {
+    const rights = await this.rights.effectiveMany(heads.flatMap(linksOf));
+    const caps = await this.rights.limitsMany(heads.map((h) => h.named.ownerId));
+    return groups.map((g, i) => toSummary(g, heads[i]!, rights[2 * i]!, rights[2 * i + 1]!, caps[i]!.roundTrips));
   }
 
   conversation(a: string, b: string): Promise<MessageRow[]> {
@@ -687,8 +644,8 @@ export class PgPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
       [id, target.owner, input.ownerId, link, fromKey, target.reporterKey, fromSession, input.toSession, input.withSession ? (this.liveDir.get(input.withSession)?.agentId ?? (await this.agentOf(input.withSession))) : null, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null],
     );
     return (await this.row(id)) as MessageRow;
@@ -705,7 +662,7 @@ export class PgPeerMessages {
       return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not send the message. It would never be taken.') : refuse(404, 'There is no such agent.');
     }
     if (target.ownerId === input.personId) return refuse(422, 'That agent is yours. Write to it from your own conversation with it.');
-    if (target.peers !== true || target.ownerId === null || !(await this.onPersonReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
+    if (target.peers !== true || target.ownerId === null || !(await this.onOwnReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
     const limits = await this.rights.limits(target.ownerId);
     if (clean.length > limits.maxChars) {
       return refuse(422, overLimitWords(clean.length, limits.maxChars));
@@ -726,8 +683,8 @@ export class PgPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
       [id, target.owner, target.ownerId, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null],
     );
     if (state === 'approval') {
@@ -791,7 +748,7 @@ export class PgPeerMessages {
   async conversationOf(a: string, b: string): Promise<ConversationSummary | null> {
     // A summary never carries the text, so it is not read: only this pair's rows, by its two session ids.
     const rows = await this.rows(`SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at FROM peer_messages WHERE ${PAIR_WHERE} ORDER BY sent_at, seq`, [a, b, b, a]);
-    return rows.length > 0 ? this.summary(rows) : null;
+    return rows.length > 0 ? (await this.summaries([rows]))[0]! : null;
   }
 
   async conversationCounts(ownerIds: number[]): Promise<Record<number, number>> {
@@ -802,29 +759,35 @@ export class PgPeerMessages {
 
   async ownerConversations(ownerId: number, opts: { includeHidden?: boolean; pairs?: string[] } = {}): Promise<OwnerConversation[]> {
     if (opts.pairs && opts.pairs.length === 0) return [];
+    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends. The database finds only those rows (#1309).
+    const me = personKeyOf(ownerId);
     const all = await this.db.all<DbMessage>(
       `SELECT id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, '' AS text, sent_at, state, state_at, why, approved, author, author_id, edited_at, deleted_at, hidden_at
-       FROM peer_messages ORDER BY sent_at, seq`,
+       FROM peer_messages WHERE owner_id = ? OR from_session = ? OR to_session = ? ORDER BY sent_at, seq`,
+      [ownerId, me, me],
     );
     const only = opts.pairs ? new Set(opts.pairs) : null;
-    // The person is in a conversation they own, and in one they started with another person's agent (#1034): there `person:<id>` is one of its two ends.
-    const me = personKeyOf(ownerId);
     const groups = new Map<string, DbMessage[]>();
     for (const r of all) {
-      if ((r.owner_id == null || Number(r.owner_id) !== ownerId) && r.from_session !== me && r.to_session !== me) continue;
       const pair = ordered(r.from_session, r.to_session).join('|');
       if (only && !only.has(pair)) continue;
       const g = groups.get(pair) ?? [];
       g.push(r);
       groups.set(pair, g);
     }
-    const out: OwnerConversation[] = [];
+    const shown: { g: DbMessage[]; hiddenAt: number | null }[] = [];
     for (const g of groups.values()) {
       const hiddenAt = g.every((r) => r.hidden_at != null) ? latestOf(g.map((r) => r.hidden_at as number)) : null;
       if (hiddenAt !== null && !opts.includeHidden) continue;
-      out.push({ ...(await this.summary(g.map(toRow))), hiddenAt });
+      shown.push({ g, hiddenAt });
     }
-    return out.sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+    const summaries = await this.summaries(shown.map(({ g }) => g.map(toRow)));
+    return shown.map(({ hiddenAt }, i) => ({ ...summaries[i]!, hiddenAt })).sort((x, y) => y.lastAt - x.lastAt || x.a.sessionId.localeCompare(y.a.sessionId) || x.b.sessionId.localeCompare(y.b.sessionId));
+  }
+
+  async conversationPairs(): Promise<[string, string][]> {
+    // order-insensitive: each pair is kept once and `pairsOf` sorts them.
+    return pairsOf(await this.db.all<{ from_session: string; to_session: string }>('SELECT DISTINCT from_session, to_session FROM peer_messages'));
   }
 
   async hideConversation(ownerId: number, a: string, b: string): Promise<number> {

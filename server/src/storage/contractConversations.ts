@@ -2,7 +2,8 @@
 // every adapter (`sameOnAll`), so every value is the same on all of them, and states the values it expects. The rule they hold: a conversation's text is never kept with,
 // copied into or returned with a channel's or a `peer_messages` row.
 import { expect, it } from 'vitest';
-import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import { onEachAdapter, sameOnAll, sortedText, type Openers } from './contractSame.js';
+import { counted } from './statementCount.js';
 import type { Conversation, ConversationChange, ConversationMemberInput, ConversationMessage, ConversationPage } from './types.js';
 
 const T0 = 1_800_000_000_000;
@@ -43,7 +44,7 @@ export function conversationCases(o: Openers): void {
       ['person', '1', 'Ed', null, T0, null],
       ['person', '2', 'Maya Kim', 1, T0, null],
     ]);
-    expect(first.conversation).toMatchObject({ createdBy: 1, createdAt: T0, lastAt: T0, messages: 0 });
+    expect(first.conversation).toMatchObject({ createdAt: T0, lastAt: T0, messages: 0 });
     expect(t.get('open again, the other way round')).toMatchObject({ created: false });
     expect(t.get('open with a name changed (the same people)')).toMatchObject({ created: false });
     expect(t.get('open three people')).toMatchObject({ created: true });
@@ -184,7 +185,7 @@ export function conversationCases(o: Openers): void {
     expect(t.get('markHanded (no such message)')).toBeNull();
     expect(t.get('edit (handed)')).toEqual({ ok: false, reason: 'locked' });
     expect(t.get('delete (handed)')).toEqual({ ok: false, reason: 'locked' });
-    expect(t.get('delete')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 150 } });
+    expect(t.get('delete')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 150, updatedAt: T0 + 150 } });
     expect(t.get('delete again')).toEqual({ ok: false, reason: 'deleted' });
     expect(t.get('edit (deleted)')).toEqual({ ok: false, reason: 'deleted' });
     expect(texts(t.get('page after the changes') as ConversationPage)).toEqual(['one, changed', '', 'three', 'four', 'five']);
@@ -244,6 +245,68 @@ export function conversationCases(o: Openers): void {
     // The purge took the first message's deliveries with it; the rest stay.
     expect(texts(t.get('page after purge') as ConversationPage)).toEqual(['one', 'person', 'plain', 'twice']);
     expect(t.get('post after remove')).toBeNull();
+  });
+
+  it('agrees on every adapter for deliveries staying with their own conversation (#1296): a state is set through its own conversation only, and removing or purging one conversation leaves another\'s', async () => {
+    const HAIKU: ConversationMemberInput = { kind: 'agent', ref: 'sess-notes', name: 'infra-notes' };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: a } = await c.open({ members: [ED, MAYA, TESTER], createdBy: 1 }, T0);
+      const { conversation: b } = await c.open({ members: [ED, JO, HAIKU], createdBy: 1 }, T0 + 1);
+      const { conversation: only } = await c.open({ members: [MAYA, HAIKU], createdBy: 2 }, T0 + 2);
+      const one = await c.post(a.id, say(ED, 'in a', { targets: [{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true }] }), T0 + 10) as ConversationMessage;
+      const two = await c.post(b.id, say(ED, 'in b', { targets: [{ kind: 'agent', ref: 'sess-notes', name: 'infra-notes', named: true }] }), T0 + 20) as ConversationMessage;
+      await c.post(only.id, say(MAYA, 'in only', { targets: [{ kind: 'agent', ref: 'sess-notes', name: 'infra-notes', named: true }] }), T0 + 30);
+      await rec('b message through a', c.setDelivery(a.id, two.id, { kind: 'agent', ref: 'sess-notes' }, 'delivered', T0 + 40));
+      await rec('a message through b', c.setDelivery(b.id, one.id, { kind: 'agent', ref: 'sess-tester' }, 'delivered', T0 + 40));
+      await rec('a after the wrong calls', c.page(a.id, { limit: 50 }));
+      await rec('b after the wrong calls', c.page(b.id, { limit: 50 }));
+      await rec('remove a', c.remove(a.id));
+      await rec('b after a is removed', c.page(b.id, { limit: 50 }));
+      await rec('maya is deleted: only goes', c.removePerson(2));
+      await rec('b after maya', c.page(b.id, { limit: 50 }));
+      await rec('purge before b', c.purge(T0 + 15));
+      await rec('b after an older purge', c.page(b.id, { limit: 50 }));
+      await rec('purge past b', c.purge(T0 + 25));
+      await rec('b after its purge', c.page(b.id, { limit: 50 }));
+    });
+    expect(t.get('b message through a')).toBeNull();
+    expect(t.get('a message through b')).toBeNull();
+    const queued = (text: string, ref: string, name: string) => [{ text, deliveries: [{ kind: 'agent', ref, name, named: true, state: 'queued', stateAt: text === 'in a' ? T0 + 10 : T0 + 20 }] }];
+    const view = (key: string) => (t.get(key) as ConversationPage).messages.map((m) => ({ text: m.text, deliveries: m.deliveries }));
+    expect(view('a after the wrong calls')).toEqual(queued('in a', 'sess-tester', 'Tester'));
+    for (const key of ['b after the wrong calls', 'b after a is removed', 'b after maya', 'b after an older purge']) expect(view(key), key).toEqual(queued('in b', 'sess-notes', 'infra-notes'));
+    expect(view('b after its purge')).toEqual([]);
+    expect(t.get('remove a')).toEqual({ removed: true, messages: 1 });
+    expect(t.get('maya is deleted: only goes')).toBe(1);
+    expect(t.get('purge before b')).toBe(0);
+    expect(t.get('purge past b')).toBe(1);
+  });
+
+  it('agrees on every adapter for the order of the deliveries of one message (#1296): by kind, then name, then reference, whatever order they were written or read in', async () => {
+    const ALPHA: ConversationMemberInput = { kind: 'agent', ref: 'sess-b', name: 'Alpha' };
+    const ZED: ConversationMemberInput = { kind: 'agent', ref: 'sess-a', name: 'Zed' };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: dm } = await c.open({ members: [ED, MAYA, TESTER, ALPHA, ZED], createdBy: 1 }, T0);
+      const target = (m: ConversationMemberInput, named: boolean) => ({ kind: m.kind, ref: m.ref, name: m.name, named });
+      // Written in the order Zed, Maya, Tester, Alpha, which is neither the order of the references (sess-a, sess-b, sess-tester, then the person) nor of the names.
+      const sent = await c.post(dm.id, say(ED, 'to four', { targets: [target(ZED, true), target(MAYA, true), target(TESTER, false), target(ALPHA, false)] }), T0 + 10) as ConversationMessage;
+      await rec('written', sent);
+      await rec('Alpha delivered', c.setDelivery(dm.id, sent.id, { kind: 'agent', ref: 'sess-b' }, 'delivered', T0 + 20));
+      await rec('Zed dropped', c.setDelivery(dm.id, sent.id, { kind: 'agent', ref: 'sess-a' }, 'dropped', T0 + 30));
+      await rec('page', c.page(dm.id, { limit: 50 }));
+      await rec('get', c.getMessage(dm.id, sent.id));
+    });
+    const expected = [
+      { kind: 'agent', ref: 'sess-b', name: 'Alpha', named: false, state: 'delivered', stateAt: T0 + 20 },
+      { kind: 'agent', ref: 'sess-tester', name: 'Tester', named: false, state: 'queued', stateAt: T0 + 10 },
+      { kind: 'agent', ref: 'sess-a', name: 'Zed', named: true, state: 'dropped', stateAt: T0 + 30 },
+      { kind: 'person', ref: '2', name: 'Maya Kim', named: true, state: null, stateAt: null },
+    ];
+    expect((t.get('written') as ConversationMessage).deliveries).toEqual(expected.map((d) => ({ ...d, state: d.kind === 'agent' ? 'queued' : null, stateAt: d.kind === 'agent' ? T0 + 10 : null })));
+    expect((t.get('page') as ConversationPage).messages[0]!.deliveries).toEqual(expected);
+    expect((t.get('get') as ConversationMessage).deliveries).toEqual(expected);
   });
 
   it('agrees on every adapter for removing: a conversation, and a person who is deleted', async () => {
@@ -308,6 +371,38 @@ export function conversationCases(o: Openers): void {
     expect(t.get('maya is deleted: her agent goes with her and the conversation with it')).toBe(1);
     expect(t.get('get after')).toBeNull();
     expect((t.get('ids after') as string[]).length).toBe(1);
+  });
+
+  onEachAdapter(o, 'lists a member\'s conversations as `get` gives each, in a number of statements that does not grow with the conversations (#1309)', async (s) => {
+    const c = s.chat({ now: () => T0 }).conversations;
+    const ids: string[] = [];
+    const withAgent: string[] = [];
+    // Each conversation has a different set of people, some messages (ed's, then the other's) and a different last time; one is left by ed, one has an agent, one has no message.
+    const make = async (n: number): Promise<void> => {
+      for (let i = 0; i < n; i++) {
+        const other: ConversationMemberInput = { kind: 'person', ref: String(1000 + ids.length), name: `P${ids.length}` };
+        const { conversation } = await c.open({ members: i % 3 === 2 ? [ED, other, TESTER] : [ED, other], createdBy: 1 }, T0 + ids.length);
+        ids.push(conversation.id);
+        if (i % 3 === 2) withAgent.push(conversation.id);
+        for (let k = 0; k < i % 4; k++) await c.post(conversation.id, say(k % 2 === 0 ? ED : other, `m${ids.length}-${k}`), T0 + 1000 + ids.length * 10 + k);
+      }
+    };
+    const check = async (): Promise<number> => {
+      const { value, statements } = await counted(() => c.listFor({ kind: 'person', ref: '1' }));
+      const each = (await Promise.all(ids.map((id) => c.get(id)))).filter((x): x is Conversation => x !== null);
+      expect(value).toEqual(each.sort((a, b) => b.lastAt - a.lastAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)));
+      return statements;
+    };
+    await make(3);
+    const small = await check();
+    await make(27);
+    await c.leave(ids[4]!, { kind: 'person', ref: '1' }, T0 + 5000);
+    ids.splice(4, 1);
+    const large = await check();
+    // The agent sees only its own, with the same members as `get` gives.
+    expect(sortedText((await c.listFor({ kind: 'agent', ref: 'sess-tester' })).map((x) => x.id))).toEqual(sortedText(withAgent));
+    expect(small).toBeLessThanOrEqual(3);
+    expect(large).toBe(small);
   });
 
   onEachAdapter(o, 'keeps a conversation out of every other audience: a channel and a direct message never hold its text, and it never holds theirs', async (s) => {

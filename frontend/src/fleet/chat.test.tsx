@@ -10,8 +10,15 @@ import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer, LEAVE_MS } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
+import { messageParts } from "./chatData";
 import type { Address, AdminRead, ChannelLink, Concluded,ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
+
+// A pass-through, so a test can count how many messages the thread parsed (#1311).
+vi.mock("./chatData", async (orig) => {
+  const m = await orig<typeof import("./chatData")>();
+  return { ...m, messageParts: vi.fn(m.messageParts) };
+});
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
@@ -291,16 +298,17 @@ function fakeChat(w: Fake = world()) {
       w.convoMessages[info.id] = text ? [{ id: "k1", author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] }] : [];
       return { ok: true as const, created: true, conversation: info, skipped: [] as string[] };
     }),
-    conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: w.convoMessages[id] ?? [], older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
+    conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: structuredClone(w.convoMessages[id] ?? []), older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
     sendConversation: vi.fn(async (id: string, text: string) => {
       const m: ConversationMessage = { id: `k${(w.convoMessages[id] ?? []).length + 1}`, author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] };
       w.convoMessages[id] = [...(w.convoMessages[id] ?? []), m];
       return { ok: true as const, message: m, skipped: [] as string[] };
     }),
-    editConversationMessage: vi.fn(async () => {
+    // Refused until a test says otherwise.
+    editConversationMessage: vi.fn(async (_id: string, _messageId: string, _text: string): Promise<{ ok: true; message: ConversationMessage }> => {
       throw new Error("not used by this suite");
     }),
-    deleteConversationMessage: vi.fn(async () => {
+    deleteConversationMessage: vi.fn(async (_id: string, _messageId: string): Promise<{ ok: true; message: ConversationMessage }> => {
       throw new Error("not used by this suite");
     }),
     addConversationMembers: vi.fn(async (id: string, members: ConversationMemberInput[]) => {
@@ -341,7 +349,7 @@ function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersF
     current = fleetReducer(current, { type: "chat" });
     view.rerender(<FleetView {...props} state={current} />);
   };
-  return { chat, state, signal, ...view };
+  return { chat, state, signal, peers: props.peersApi, ...view };
 }
 
 const row = (key: string) => screen.getByTestId(`chat-row-${key}`);
@@ -4319,6 +4327,120 @@ describe("conversations of people and agents (#1278)", () => {
     expect(within(screen.getByTestId("chat-conversation")).getByText("thanks")).toBeInTheDocument();
   });
 
+  // #1296: an open conversation reads on the console's signal like a thread does, and parses only what changed.
+  it("reads the open conversation and the overview again on a chat signal, once each, and shows what they returned", async () => {
+    const chat = withConvo();
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const read = { overview: chat.api.overview.mock.calls.length, convo: chat.api.conversationMessages.mock.calls.length };
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k3", "A message that came with the signal.", false)];
+    p.signal();
+    await flush();
+    expect({ overview: chat.api.overview.mock.calls.length - read.overview, convo: chat.api.conversationMessages.mock.calls.length - read.convo }).toEqual({ overview: 1, convo: 1 });
+    expect(within(screen.getByTestId("chat-conversation")).getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("parses only the message that arrived in an open conversation, and the one that was edited, not the ones already on screen", async () => {
+    const chat = withConvo(convo(), [cmessage("k1", "first", false), cmessage("k2", "second", true), cmessage("k3", "third", false)]);
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k4", "Only this one is new.", false)];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = chat.w.convoMessages.cnv_1!.map((m) => (m.id === "k2" ? { ...m, text: "second, edited on another console", editedAt: T0 } : m));
+    p.signal();
+    await flush();
+    expect(screen.getByText("second, edited on another console")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  describe("editing and deleting your own message (#1296: the rows are memoized, so the actions must still reach the page's latest props)", () => {
+    const opened = async () => {
+      const chat = withConvo();
+      const p = page({ chat });
+      await flush();
+      fireEvent.click(rowBtn("v:cnv_1"));
+      await flush();
+      return { chat, p, c: within(screen.getByTestId("chat-conversation")) };
+    };
+
+    it("saves an edit, keeps the box and what was typed while a signal reads the conversation again, and shows the saved text", async () => {
+      const { chat, p, c } = await opened();
+      chat.api.editConversationMessage.mockImplementation(async (id: string, mid: string, text: string) => {
+        const m = { ...chat.w.convoMessages[id]!.find((x) => x.id === mid)!, text, editedAt: T0 };
+        chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
+        return { ok: true as const, message: m };
+      });
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "yes, after lunch" } });
+      p.signal();
+      await flush();
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toHaveValue("yes, after lunch");
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(chat.api.editConversationMessage).toHaveBeenCalledWith("cnv_1", "k2", "yes, after lunch");
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(c.getByText("yes, after lunch")).toBeInTheDocument();
+      expect(c.getByText(/^edited /)).toBeInTheDocument();
+    });
+
+    it("closes the box on Cancel and on a save of the same text, without asking the server", async () => {
+      const { chat, c } = await opened();
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.click(c.getByRole("button", { name: "Cancel" }));
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(chat.api.editConversationMessage).not.toHaveBeenCalled();
+    });
+
+    it("shows the server's words when a save is refused, and a plain line when it did not answer, and keeps the box", async () => {
+      const { chat, c } = await opened();
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "changed" } });
+      chat.api.editConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "Podium has already sent this message to Tester, so it can no longer be changed." }));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.getByRole("alert")).toHaveTextContent("Podium has already sent this message to Tester, so it can no longer be changed.");
+      chat.api.editConversationMessage.mockRejectedValueOnce(new Error("offline"));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.getByRole("alert")).toHaveTextContent("Could not save: the server did not answer. Your message is unchanged. Try again.");
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toHaveValue("changed");
+    });
+
+    it("deletes after the question, leaves the note a delete leaves, and says so when the server refuses", async () => {
+      const { chat } = await opened();
+      chat.api.deleteConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "It is locked." }));
+      fireEvent.click(within(screen.getByTestId("chat-conversation")).getByRole("button", { name: "Delete message" }));
+      const dialog = within(screen.getByRole("alertdialog"));
+      fireEvent.click(dialog.getByRole("button", { name: "Delete message" }));
+      await flush();
+      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent("It is locked.");
+      chat.api.deleteConversationMessage.mockImplementationOnce(async (id: string, mid: string) => {
+        const m = { ...chat.w.convoMessages[id]!.find((x) => x.id === mid)!, text: "", deletedAt: T0, canChange: false };
+        chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
+        return { ok: true as const, message: m };
+      });
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete message" }));
+      await flush();
+      expect(chat.api.deleteConversationMessage).toHaveBeenLastCalledWith("cnv_1", "k2");
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(within(screen.getByTestId("chat-conversation")).getByText("You deleted this message.")).toBeInTheDocument();
+    });
+  });
+
   const agent = (name: string, machine = "ed-mbp") => ({ kind: "agent" as const, name, you: false, addedBy: "Ed", address: `${name}@${machine}`, sessionId: `s-${name}` });
   const withAgents = () => convo({ hasAgent: true, members: [...convo().members, agent("Tester"), agent("infra-notes")] });
   const openConvo = async (chat: ReturnType<typeof withConvo>) => {
@@ -4528,5 +4650,113 @@ describe("a conversation that keeps going after an agent in it ended (#1283)", (
     await flush();
     expect(screen.queryByTestId("chat-conversation-ended")).toBeNull();
     expect(screen.queryByTestId("chat-conversation-ended-line")).toBeNull();
+  });
+});
+
+// #1311: a chat signal makes the console read what changed once each, and a tick or an unrelated change does not draw the thread again.
+describe("a chat signal and the clock (#1311)", () => {
+  const seen = (p: ReturnType<typeof page>) => ({ overview: p.chat.api.overview.mock.calls.length, thread: p.chat.api.channelMessages.mock.calls.length, concluded: p.chat.api.concluded.mock.calls.length, peers: (p.peers.read as ReturnType<typeof vi.fn>).mock.calls.length });
+  const since = (a: ReturnType<typeof seen>, b: ReturnType<typeof seen>) => ({ overview: b.overview - a.overview, thread: b.thread - a.thread, concluded: b.concluded - a.concluded, peers: b.peers - a.peers });
+  const longThread = (n: number) => Array.from({ length: n }, (_, i) => cmsg(`g${i}`, `Message ${i}: \`inline\` and @Maya, then\n\`\`\`ts\nconst x = ${i};\n\`\`\``, { mine: i % 2 === 0, authorName: i % 2 === 0 ? "Ed" : "Maya", authorRef: i % 2 === 0 ? "Ed" : "Maya", createdAt: T0 - (n - i) * 60_000 }));
+
+  it("reads the overview, the open thread, what was concluded and My reporters once each, and shows what each returned", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(4);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const before = seen(p);
+    expect(before.concluded).toBe(1);
+    w.channels.general!.messages = [...w.channels.general!.messages, cmsg("g-new", "A message that came with the signal.")];
+    p.signal();
+    await flush();
+    expect(since(before, seen(p))).toEqual({ overview: 1, thread: 1, concluded: 1, peers: 1 });
+    expect(screen.getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("reads what was concluded once on the wall, and the notice shows what it returned", async () => {
+    window.location.hash = "#/";
+    const p = page({ view: "wall" });
+    await flush();
+    const before = seen(p);
+    p.chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    expect(since(before, seen(p))).toEqual({ overview: 0, thread: 0, concluded: 1, peers: 1 });
+    expect(screen.getByText("Tester ended.")).toBeInTheDocument();
+  });
+
+  it("shows the banner of an open Direct Message that was concluded, from the one read the wall and the page share", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0, undelivered: 2 }];
+    const was = chat.api.concluded.mock.calls.length;
+    p.signal();
+    await flush();
+    expect(chat.api.concluded.mock.calls.length - was).toBe(1);
+    expect(screen.getByTestId("chat-concluded")).toHaveTextContent("Tester ended.");
+    expect(screen.getByTestId("chat-concluded")).toHaveTextContent("2 messages you wrote to it were not delivered.");
+  });
+
+  it("parses only the message that arrived, not the ones already on screen", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    w.channels.general!.messages = [...w.channels.general!.messages, cmsg("g-new", "Only this one is new.")];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses again a message that was edited, and only that one", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    const msgs = structuredClone(w.channels.general!.messages);
+    msgs[2] = { ...msgs[2]!, text: "This one was edited on another console.", updatedAt: T0 };
+    w.channels.general!.messages = msgs;
+    p.signal();
+    await flush();
+    expect(screen.getByText("This one was edited on another console.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not parse a message on the 2 second clock, and still moves a time that shows the date when the day changes", async () => {
+    const jest = vi.useFakeTimers({ toFake: ["Date", "setInterval", "setTimeout"] });
+    jest.setSystemTime(T0);
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    const log = () => screen.getByRole("log", { name: "Messages" });
+    expect(within(log()).getByText("Today")).toBeInTheDocument();
+    expect(within(log()).getAllByText(/^14:\d\d$/).length).toBeGreaterThan(0);
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(parse).not.toHaveBeenCalled();
+    expect(within(log()).getByText("Today")).toBeInTheDocument();
+    // The next day: the divider says Yesterday and a stamp says the day it was written, as it did when every tick drew the page.
+    jest.setSystemTime(T0 + 86_400_000);
+    await act(async () => {
+      jest.advanceTimersByTime(2_000);
+    });
+    expect(within(log()).queryByText("Today")).toBeNull();
+    expect(within(log()).getByText("Yesterday")).toBeInTheDocument();
+    expect(within(log()).queryAllByText(/^14:\d\d$/)).toHaveLength(0);
+    expect(within(log()).getAllByText(/^Mon 14:\d\d$/).length).toBeGreaterThan(0);
+    p.unmount();
   });
 });

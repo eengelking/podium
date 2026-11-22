@@ -1,29 +1,22 @@
-// Orchestrator messaging in the OpenCode reporter (#969, #347, #414, SPEC 5.3): the three tools an orchestrator calls, the messages that arrive
-// for it, and the person's answers to a request. The words (what each tool answers, the frame a message comes under, the toasts) are
-// `core/peers.ts`, the same as Claude Code's. What is OpenCode's own is how a message enters (`session.prompt`, queued behind the turn that
-// runs, or steered into it at its next step, #1264) and how a tool reaches Podium: straight from the tool's call, with the reporter's own credential (the same `fetch` as its reports, so
-// the rights are the OpenCode reporter's own and not Claude Code's on the same machine), under a time limit.
+// Orchestrator messaging in the OpenCode reporter (#969, #347, #414, SPEC 5.3): the tools an orchestrator calls, the messages that arrive
+// for it, and the person's answers to a request. The tools themselves (what each is, says and does, and how a call's outcome reads) are
+// `core/peerTools.ts`, and the words are `core/peers.ts`, the same as Claude Code's. What is OpenCode's own is how a message enters
+// (`session.prompt`, queued behind the turn that runs, or steered into it at its next step, #1264) and how a tool reaches Podium: straight
+// from the tool's call, with the reporter's own credential (the same `fetch` as its reports, so the rights are the OpenCode reporter's own and
+// not Claude Code's on the same machine), under a time limit.
 //
 // A peer message only ever becomes a framed prompt. It never touches answering (`answering.ts`): no ask, no approval, no command.
 import type { PeerDelivery, PeerRequest, PeerResult } from '../core/protocol.ts';
-import { sessionPath, type Responder } from '../core/respond.ts';
+import type { Responder } from '../core/respond.ts';
 import type { Transport } from '../core/transport.ts';
-import { redactText } from '../core/diffRedact.ts';
 import { isLaunchId } from '../core/launch.ts';
-import {
-  accessAnswer, answerPaused, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, convoSendAnswer, convoSendTarget, chatReadTarget, appliedLevel, deliveredLine, errorOf, endedNoticePrompt, findRequest, isAccessAnswer, isEndedNotice, isRequestId, listAnswer, noticePrompt, oneLine, peerPrompt,
-  refusalAnswer, requestAnsweredLine, requestLine, requestToast, SEND_NO_TO, sendAnswer, shortId, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
-} from '../core/peers.ts';
+import { deliveredLine, endedNoticePrompt, isAccessAnswer, isEndedNotice, noticePrompt, oneLine, peerPrompt, refusalAnswer, requestLine, requestToast, shortId } from '../core/peers.ts';
+import { peerPath, RequestBook, runPeerTool, type PeerCallOutcome, type PeerToolName } from '../core/peerTools.ts';
 import type { PromptDelivery } from './answering.ts';
 import type { Root } from './state.ts';
 
 /** How long a tool waits for Podium before it says it did not answer. */
 const PEER_CALL_WAIT_MS = 8000;
-/** Requests remembered for `/podium allow|decline|deliver`, after they leave the reply too, so a late answer hears how it closed. */
-const REQUESTS_KEPT = 50;
-
-const UNREACHABLE = 'Podium cannot be reached from this machine right now, so nothing left it. Try again in a minute; /podium shows the connection.';
-const UNANSWERED = 'Podium did not answer in time. It may still have taken it: podium_peers and Podium > Traffic show what arrived.';
 
 export interface PeersDeps {
   responder: Responder;
@@ -42,22 +35,9 @@ export interface PeersDeps {
   log?: (line: string) => void;
 }
 
-type Outcome = { status: number; text: string } | 'unreachable' | 'unanswered';
-
-/** The tools' input, as the model gives it: anything may be missing or of the wrong type. */
-interface ToolInput {
-  to?: unknown;
-  text?: unknown;
-  right?: unknown;
-  reason?: unknown;
-  channel?: unknown;
-  before?: unknown;
-}
-
 export class Peers {
-  /** Requests seen, by id, oldest first: each is toasted once. */
-  private readonly known = new Map<string, PeerRequest>();
-  private open: string[] = [];
+  /** The requests seen: each new one is toasted once. */
+  private readonly requests = new RequestBook();
 
   constructor(private readonly d: PeersDeps) {}
 
@@ -66,12 +46,8 @@ export class Peers {
     return !root.done && t.peers;
   }
 
-  private path(root: Root, rest: string): string {
-    return `${sessionPath(root.id)}/peers${rest}`;
-  }
-
   private result(root: Root, id: string, result: PeerResult): void {
-    this.d.responder.queue({ path: this.path(root, `/deliveries/${encodeURIComponent(id)}/result`), body: { result, at: this.d.now() } });
+    this.d.responder.queue({ path: peerPath(root.id, `/deliveries/${encodeURIComponent(id)}/result`), body: { result, at: this.d.now() } });
   }
 
   /** The reply's messaging fields. Unless the session takes part, nothing in them is taken, whatever the reply says. */
@@ -127,22 +103,15 @@ export class Peers {
 
   /** The owner's open requests: each new one is a toast (the only place a waiting message's text is shown). */
   private show(list: PeerRequest[]): void {
-    this.open = list.map((q) => q.id);
-    for (const q of list) {
-      const seen = this.known.has(q.id);
-      this.known.delete(q.id);
-      this.known.set(q.id, q);
-      if (!seen) this.d.notify?.(requestToast(q, shortId(q.id)));
-    }
-    for (const id of this.known.keys()) {
-      if (this.known.size <= REQUESTS_KEPT) break;
-      this.known.delete(id);
-    }
+    for (const q of this.requests.take(list)) this.d.notify?.(requestToast(q, shortId(q.id)));
   }
 
   /** The line `/podium` adds while requests wait: who and what, by short id, without a message's text. Empty when none. */
   openLine(): string {
-    return this.open.flatMap((id) => this.known.get(id) ?? []).map((q) => requestLine(q, shortId(q.id))).join('\n');
+    return this.requests
+      .opened()
+      .map((q) => requestLine(q, shortId(q.id)))
+      .join('\n');
   }
 
   private held(t: Transport): boolean {
@@ -150,7 +119,7 @@ export class Peers {
   }
 
   /** One call to Podium, at most `callMs`. One that was not even started is `unreachable`; one that was and has not come back is `unanswered`. */
-  private async call(t: Transport, method: 'GET' | 'POST', path: string, body?: unknown): Promise<Outcome> {
+  private async call(t: Transport, method: 'GET' | 'POST', path: string, body?: unknown): Promise<PeerCallOutcome> {
     if (this.held(t)) return 'unreachable';
     let timer: ReturnType<typeof setTimeout> | undefined;
     const limit = new Promise<'unanswered'>((resolve) => {
@@ -163,23 +132,6 @@ export class Peers {
     }
   }
 
-  private outcome(prefix: string, out: Outcome, ok: (body: Record<string, unknown>) => string): string {
-    if (out === 'unreachable') return `${prefix} ${UNREACHABLE}`;
-    if (out === 'unanswered') return `${prefix} ${UNANSWERED}`;
-    if (out.status >= 200 && out.status < 300) {
-      try {
-        return ok(JSON.parse(out.text) as Record<string, unknown>);
-      } catch {
-        return `${prefix} Podium's answer could not be read.`;
-      }
-    }
-    return refusalAnswer(prefix, errorOf(out.text) ?? `Podium answered ${out.status}`);
-  }
-
-  private owner(): string {
-    return this.d.owner()?.trim() || 'your person';
-  }
-
   /** The refusal when the session does not take part now, with the cause as far as the reporter knows it. */
   private off(prefix: string, root: Root | undefined, t: Transport | undefined): string {
     let why = ' in Podium right now';
@@ -190,80 +142,18 @@ export class Peers {
     return refusalAnswer(prefix, `orchestrator messaging is off for this session${why}`);
   }
 
-  /** `podium_peers`: the other orchestrators this one can reach. */
-  async list(root: Root | undefined, t: Transport | undefined, sub: boolean): Promise<string> {
-    if (sub) return SUBAGENT_PEERS;
-    if (!root || !t || !this.on(root, t)) return this.off('Not listed.', root, t);
-    return this.outcome('Not listed.', await this.call(t, 'GET', this.path(root, '')), (body) => listAnswer(body, this.owner()));
-  }
-
-  /** `podium_send`: a message to another orchestrator. Secrets are replaced before the text leaves the machine. */
-  async send(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
-    if (sub) return SUBAGENT_SEND;
-    if (!root || !t || !this.on(root, t)) return this.off('Not sent.', root, t);
-    const to = typeof input.to === 'string' ? input.to.trim() : '';
-    const raw = typeof input.text === 'string' ? input.text : '';
-    if (!to) return SEND_NO_TO;
-    if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
-    const red = redactText(raw);
-    // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
-    const target = channelSendTarget(to);
-    if (target && 'refusal' in target) return target.refusal;
-    if (target) {
-      const channel = target.channel;
-      const posted = await this.call(t, 'POST', `${sessionPath(root.id)}/chat/channels/${channel}/messages`, { text: red.text });
-      return this.outcome('Not sent.', posted, () => channelSendAnswer(channel, { owner: this.owner(), redactions: red.redactions }));
-    }
-    // An answer in a Direct Message of people and agents goes to that conversation (#1299); Podium decides whether this agent is in it and was written to.
-    const convoTarget = convoSendTarget(to);
-    if (convoTarget && 'refusal' in convoTarget) return convoTarget.refusal;
-    if (convoTarget) {
-      const posted = await this.call(t, 'POST', `${sessionPath(root.id)}/chat/conversations/${convoTarget.convo}/messages`, { text: red.text });
-      return this.outcome('Not sent.', posted, () => convoSendAnswer({ owner: this.owner(), redactions: red.redactions }));
-    }
-    const out = await this.call(t, 'POST', this.path(root, '/messages'), { to, text: red.text });
-    return this.outcome('Not sent.', out, (body) => sendAnswer(body, { owner: this.owner(), here: this.d.machine(), to, redactions: red.redactions }));
-  }
-
-  /** `podium_request_access`: asks the person for a right the orchestrator lacks. */
-  async access(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
-    if (sub) return SUBAGENT_ACCESS;
-    if (!root || !t || !this.on(root, t)) return this.off('Not asked.', root, t);
-    const to = typeof input.to === 'string' ? input.to.trim() : '';
-    if (!to) return 'Not asked. Say which machine: to is a machine, or "name@machine".';
-    if (input.right !== 'see' && input.right !== 'send') return 'Not asked. right must be see or send.';
-    const right = input.right;
-    const reason = typeof input.reason === 'string' ? redactText(input.reason).text : '';
-    const out = await this.call(t, 'POST', this.path(root, '/access'), { to, right, reason });
-    return this.outcome('Not asked.', out, (body) => accessAnswer(body, { owner: this.owner(), right, to }));
-  }
-
-  /** `podium_chat_read`: the list of channels (no channel given), or the last hour of General, My group or a public channel when this orchestrator was called into it. Podium decides what it may read; the answer starts with Podium's frame. */
-  async chatRead(root: Root | undefined, t: Transport | undefined, sub: boolean, input: ToolInput): Promise<string> {
-    if (sub) return SUBAGENT_CHAT_READ;
-    if (!root || !t || !this.on(root, t)) return this.off('Not read.', root, t);
-    const target = chatReadTarget(input);
-    if ('refusal' in target) return target.refusal;
-    if ('list' in target) return this.outcome('Not read.', await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels`), (body) => channelListAnswer(body, { owner: this.owner() }));
-    const channel = target.channel;
-    const out = await this.call(t, 'GET', `${sessionPath(root.id)}/chat/channels/${channel}/messages${target.query}`);
-    return this.outcome('Not read.', out, (body) => chatReadAnswer(body, { channel, owner: this.owner() }));
+  /** A messaging tool's call (`core/peerTools.ts` holds what each does): refused from a subagent's session, and while the session does not take part. */
+  tool(name: PeerToolName, root: Root | undefined, t: Transport | undefined, sub: boolean, input: unknown): Promise<string> {
+    const io =
+      root && t && this.on(root, t)
+        ? { sessionId: root.id, owner: this.d.owner()?.trim() || 'your person', machine: this.d.machine(), call: (method: 'GET' | 'POST', path: string, body?: unknown) => this.call(t, method, path, body) }
+        : null;
+    return runPeerTool(name, input, { subagent: sub, io, off: (prefix) => this.off(prefix, root, t) });
   }
 
   /** `/podium allow|decline|deliver <id>`: answered through the server's route, and the answer names the id. */
-  async answer(root: Root | undefined, t: Transport | undefined, answer: 'allow' | 'decline' | 'deliver', arg: string): Promise<string> {
-    if (!arg) return `Name the request: /podium ${answer} <id>. The id is in the request's toast.`;
-    if (!root || !t || !this.on(root, t)) return 'Orchestrator messaging is not on in this session, so nothing can be answered here. Answer in Podium > My reporters.';
-    const found = findRequest([...this.known.values()], arg);
-    if (found && 'ambiguous' in found) return `More than one request starts with ${arg}: ${found.ambiguous.map((q) => q.id).join(', ')}. Use more of the id.`;
-    const q = found?.request ?? null;
-    const id = q?.id ?? (isRequestId(arg) ? arg.trim() : null);
-    if (!id) return `No request ${arg} has reached this session. Requests show here as they arrive, and in Podium > My reporters.`;
-    const s = q ? shortId(q.id) : arg;
-    const res = await this.d.responder.call('POST', this.path(root, `/requests/${encodeURIComponent(id)}`), { answer });
-    if (!res) return `Request ${s} was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.`;
-    if (res.status !== 200) return `Request ${s} was not answered: ${errorOf(res.text) ?? `Podium answered ${res.status}`}.`;
-    this.open = this.open.filter((x) => x !== id);
-    return requestAnsweredLine(answer, s, q, appliedLevel(res.text), answerPaused(res.text));
+  answer(root: Root | undefined, t: Transport | undefined, answer: 'allow' | 'decline' | 'deliver', arg: string): Promise<string> {
+    const io = root && t && this.on(root, t) ? { sessionId: root.id, post: (path: string, body: unknown) => this.d.responder.call('POST', path, body) } : null;
+    return this.requests.answer(answer, arg, 'toast', io);
   }
 }

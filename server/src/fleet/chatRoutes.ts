@@ -2,14 +2,14 @@
 // the channels (chatChannelRoutes.ts), the direct messages (chatDmRoutes.ts) and what an agent may do with its reporter's token (chatAgentRoutes.ts).
 // This file is the gate they share, the overview (counts and names, never text), the read marker and the audit rows.
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import { mountChatAgentRoutes } from './chatAgentRoutes.js';
 import { mountChatChannelRoutes, type ChatBrowserDeps } from './chatChannelRoutes.js';
 import { mountChatDmRoutes } from './chatDmRoutes.js';
 import { mountChatConversationRoutes } from './chatConversationRoutes.js';
 import { channelName, GENERAL, type ChatEvent, type ChatViewer, type Fail } from './chatTypes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress } from '../storage/rows.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR } from '../storage/rows.js';
 import { peersEnabled, type BrowserHelpers, type PeerDeps } from './peerRoutes.js';
+import { refuser } from './routeGate.js';
 import type { Fleet } from './fleet.js';
 import type { Logger } from '../logging/logger.js';
 import type { PeopleStoreApi } from '../storage/types.js';
@@ -106,14 +106,13 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
 /** The browser side: every Chat route needs orchestrator messaging on and a signed-in viewer. */
 export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserHelpers): void {
   const { fleet, logger } = d;
+  const chatHandler = fleet.chat.handler;
   fleet.chat.people = d.people;
   wireChatLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);
 
-  const refuse = (req: Request, res: Response, f: Fail) => {
-    logger.warn('chat.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceAddress(req.ip)}: ${f.error}`, { status: f.status, reason: f.error, source: sourceAddress(req.ip) });
-    res.status(f.status).json({ ok: false, error: f.error, ...(f.reason ? { reason: f.reason } : {}) });
-  };
+  const refuseWith = refuser(logger, 'chat.refused');
+  const refuse = (req: Request, res: Response, f: Fail) => refuseWith(req, res, f.status, f.error, f.reason ? { reason: f.reason } : {});
 
   const viewer = async (req: Request, res: Response): Promise<ChatViewer | null> => {
     if (!enabled()) {
@@ -130,7 +129,7 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
 
   const deps: ChatBrowserDeps = { fleet, viewer, refuse };
 
-  browser.get('/chat', asyncHandler(async (req, res) => {
+  browser.get('/chat', chatHandler(async (req, res) => {
     const v = await viewer(req, res);
     if (!v) return;
     // `?owner=<name>`: an Admin browses that person's Chat (names and counts, never text).
@@ -142,7 +141,7 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     res.json(out);
   }));
 
-  browser.post('/chat/read', asyncHandler(async (req, res) => {
+  browser.post('/chat/read', chatHandler(async (req, res) => {
     const v = await viewer(req, res);
     if (!v) return;
     const b = (req.body ?? {}) as Record<string, unknown>;

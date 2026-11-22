@@ -279,7 +279,7 @@ const idOf = (owner: string | null | undefined): number | null => IDS[(owner ?? 
     });
 
     it('reads past a damaged row: bad JSON, bad values and unknown words fall back', async () => {
-      await db.run("INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES ('7', 7, 1, 'sometimes', 'later', '{oops')");
+      await db.run("INSERT INTO peer_owner_settings (owner_id, trust, on_request, new_send, limits_json) VALUES (7, 1, 'sometimes', 'later', '{oops')");
       expect(await rights.defaults(id('Dana'))).toEqual({ ...OWNER_DEFAULTS, trust: true });
       await db.run(`UPDATE peer_owner_settings SET limits_json = '{"roundTrips":0,"perMinute":3}'`);
       expect((await rights.defaults(id('Dana'))).limits).toEqual({ perMinute: 3 });
@@ -549,8 +549,8 @@ const idOf = (owner: string | null | undefined): number | null => IDS[(owner ?? 
 
     it("closes a message request whose message is no longer stored, and leaves one whose message is", async () => {
       await db.run(
-        `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, approved, handed)
-         VALUES ('kept', 'Dana', 'linux|mac', 'mac', 'linux', 's1', 's2', 'a', 'mac', 'b', 'linux', 'hi', 1, 'approval', 1, 0, 0)`,
+        `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, approved)
+         VALUES ('kept', 'Dana', 'linux|mac', 'mac', 'linux', 's1', 's2', 'a', 'mac', 'b', 'linux', 'hi', 1, 'approval', 1, 0)`,
       );
       const kept = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'kept' });
       const gone = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'gone' });

@@ -71,7 +71,7 @@ export class PublicChannels {
     const out = await this.store.channels.create({ name: asked.name, description: asked.description, link: asked.link, createdBy: viewer.name, createdById: viewer.personId }, this.core.host.now());
     if (!out.ok) return this.refusal(out, asked);
     this.core.onEvent({ kind: 'channel_opened', channel: out.channel.name, by: viewer.actor });
-    this.core.signal({ scope: 'public', owner: null });
+    this.core.signal('public');
     return { ok: true, channel: out.channel };
   }
 
@@ -85,7 +85,7 @@ export class PublicChannels {
     if (!out.ok) return this.refusal(out, { name: c.name });
     this.tellOpener(viewer, c, `edited the description of the channel ${c.name} you opened`);
     this.core.onEvent({ kind: 'channel_edited', channel: c.name, by: viewer.actor });
-    this.core.signal({ scope: 'public', owner: null });
+    this.core.signal('public');
     return { ok: true, channel: out.channel };
   }
 
@@ -104,9 +104,8 @@ export class PublicChannels {
     this.core.onEvent({ kind: 'channel_removed', channel: c.name, by: viewer.actor, messages: out.messages });
     const settings = this.store.settings;
     for (const scope of Object.keys(await settings.allFlags())) if (scope.startsWith(channelScopePrefix(c.name))) await settings.setFlags(scope, { paused: false, disconnected: false });
-    await this.store.readState.forget(channelThread(c.name));
-    await this.reads.forget(channelThread(c.name));
-    this.core.signal({ scope: 'public', owner: null });
+    await this.reads.drop(channelThread(c.name));
+    this.core.signal('public');
     return { ok: true, removed: out.messages };
   }
 

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { contractAdapterFor, openStorage, registerStorageKind, testedStorageKinds } from './index.js';
-import type { ContractAdapter } from './contractAdapter.js';
+import type { ContractAdapter, PhysicalDifference } from './contractAdapter.js';
 import { runStorageContract } from './contract.js';
 import { differentialCases } from './contractDifferential.js';
 import { upgradeCases } from './contractUpgrade.js';
@@ -19,6 +19,45 @@ const NOT_CALLED = new Set<string>([
   // Callbacks the routes assign to the store; the store never offers them as an operation.
   'peers().onRights', 'peers().onMessage', 'peers().withSource', 'activity().recordings.trail',
 ]);
+
+/** True when `text` registers a case whose title begins with `title`: the title is the first argument of `it(` or `onEachAdapter(o, `, not a word in a comment or in some other string. */
+function registersCase(text: string, title: string): boolean {
+  const escaped = title.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const call = new RegExp(String.raw`(?:^|[^\w.])(?:it|test)\(\s*(['"\`])${escaped}|\bonEachAdapter\(\s*\w+,\s*(['"\`])${escaped}`, 'gm');
+  for (const m of text.matchAll(call)) {
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    // A call that follows `//` on its line is commented out.
+    if (!text.slice(lineStart, m.index + m[0].length).includes('//')) return true;
+  }
+  return false;
+}
+
+/**
+ * What is wrong with one adapter's layouts (DECISIONS 78), as the lines to print, or none. `found` is what its database says, `declared` its list, `tablesOf` the tables of every running adapter,
+ * and `caseText` reads the file of a contract case in `server/src/storage/` (null when there is none).
+ */
+function layoutProblems(
+  adapter: string,
+  found: readonly string[],
+  declared: readonly PhysicalDifference[],
+  tablesOf: Readonly<Record<string, readonly string[]>>,
+  caseText: (file: string) => string | null,
+): string[] {
+  const names = declared.map((d) => d.table);
+  const out = [
+    ...found.filter((t) => !names.includes(t)).map((t) => `${adapter}: the table ${t} is laid out another way and is not declared. Declare it in the adapter's list of physical differences with its reason, its measured gain and the contract case that proves the data is the same (DECISIONS 78), or make it the way every adapter's is.`),
+    ...declared.filter((d) => !found.includes(d.table)).map((d) => `${adapter}: ${d.id} declares ${d.table} laid out with ${d.option}, and the database does not have it that way. Remove the entry or make the layout.`),
+    ...declared.filter((d, i) => names.indexOf(d.table) !== i).map((d) => `${adapter}: ${d.table} is declared twice.`),
+  ];
+  for (const d of declared) {
+    for (const [other, tables] of Object.entries(tablesOf)) if (!tables.includes(d.table)) out.push(`${adapter}: ${d.id} declares ${d.table}, which ${other} does not have. A physical difference is only in how a table every adapter has is laid out.`);
+    for (const field of ['id', 'option', 'why', 'issue', 'gain'] as const) if (!d[field].trim()) out.push(`${adapter}: ${d.id || d.table} has no ${field}.`);
+    const text = caseText(d.case.file);
+    if (text === null) out.push(`${adapter}: ${d.id} names the contract case file ${d.case.file}, which is not in server/src/storage/.`);
+    else if (!registersCase(text, d.case.title)) out.push(`${adapter}: ${d.id} names the case "${d.case.title}", which ${d.case.file} does not hold as a case (the title must open an it() or an onEachAdapter(o, ...) call, and a comment or a string elsewhere does not count).`);
+  }
+  return out;
+}
 
 const kinds = testedStorageKinds();
 const adapters: ContractAdapter[] = (await Promise.all(kinds.map((k) => contractAdapterFor(k)))).map(noting);
@@ -56,6 +95,50 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
       expect(a.filter((n) => !b.includes(n)), `in ${first!.name} and not in ${other.name}`).toEqual([]);
       expect(b.filter((n) => !a.includes(n)), `in ${other.name} and not in ${first!.name}`).toEqual([]);
     }
+  });
+
+  // How a table is laid out on disk is not in the names above, and no store call can see it (DECISIONS 78). Each adapter declares the tables it lays out another way, with the case that holds
+  // their data the same, and its database is asked: a layout that is not declared fails, and so does a declaration the database does not bear out.
+  it('declares every table an adapter lays out another way, and the database bears each declaration out', async () => {
+    const tablesOf = Object.fromEntries(await Promise.all(running.map(async (a) => [a.name, Object.keys((await a.schema()).tables)] as const)));
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const caseText = (file: string): string | null => {
+      if (!/^\w+\.ts$/.test(file)) return null;
+      try {
+        return readFileSync(path.join(here, file), 'utf8');
+      } catch {
+        return null;
+      }
+    };
+    for (const a of running) {
+      const others = Object.fromEntries(Object.entries(tablesOf).filter(([name]) => name !== a.name));
+      expect(layoutProblems(a.name, await a.layouts(), a.physical, others, caseText)).toEqual([]);
+    }
+  });
+
+  // The check above is only worth having if it fails when it should.
+  it('fails for a layout that is not declared, a declaration the database does not have, and an entry with no case', () => {
+    const entry: PhysicalDifference = { id: 'x-layout', table: 'orders', option: 'OPT', why: 'a reason', issue: '#1', gain: '10%', case: { file: 'adapters.test.ts', title: 'declares every table an adapter lays out another way' } };
+    const tables = { other: ['orders', 'lines'] };
+    const read = (f: string): string | null => (f === 'adapters.test.ts' ? readFileSync(fileURLToPath(import.meta.url), 'utf8') : null);
+    expect(layoutProblems('mine', ['orders'], [entry], tables, read)).toEqual([]);
+    expect(layoutProblems('mine', ['orders', 'lines'], [entry], tables, read).join('\n')).toMatch(/the table lines is laid out another way and is not declared/);
+    expect(layoutProblems('mine', [], [entry], tables, read).join('\n')).toMatch(/x-layout declares orders laid out with OPT, and the database does not have it that way/);
+    expect(layoutProblems('mine', ['orders'], [entry], { other: ['lines'] }, read).join('\n')).toMatch(/which other does not have/);
+    expect(layoutProblems('mine', ['orders'], [{ ...entry, case: { file: 'nowhere.ts', title: 'x' } }], tables, read).join('\n')).toMatch(/nowhere\.ts, which is not in server\/src\/storage/);
+    expect(layoutProblems('mine', ['orders'], [{ ...entry, case: { file: 'adapters.test.ts', title: ['a case', 'that is', 'not there'].join(' ') } }], tables, read).join('\n')).toMatch(/which adapters\.test\.ts does not hold/);
+    // A title in a comment, or in a string that is not a case, does not make a case, and a title that opens an it() or an onEachAdapter() does, as a prefix of the whole title.
+    const named = { ...entry, case: { file: 'x.ts', title: 'keeps the rows' } };
+    const withText = (body: string) => layoutProblems('mine', ['orders'], [named], tables, () => body).join('\n');
+    expect(withText("// keeps the rows of orders\n  it('something else', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("const label = 'keeps the rows';\n  it('something else', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  // it('keeps the rows of orders', async () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  it('something else', () => {}); // it('keeps the rows of orders', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  // an old case:\n  it('keeps the rows of orders when it is purged', async () => {});")).toBe('');
+    expect(withText("  it('keeps the rows of orders when it is purged', async () => {});")).toBe('');
+    expect(withText("  onEachAdapter(o, 'keeps the rows of orders', async (s) => {});")).toBe('');
+    expect(layoutProblems('mine', ['orders'], [{ ...entry, gain: ' ' }], tables, read).join('\n')).toMatch(/has no gain/);
+    expect(layoutProblems('mine', ['orders'], [entry, { ...entry, id: 'again' }], tables, read).join('\n')).toMatch(/orders is declared twice/);
   });
 
   // The measurement helper of each adapter (#755): its SQL is the adapter's own, so a seeded table and an index it can drop and create are checked here.

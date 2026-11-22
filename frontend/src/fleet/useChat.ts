@@ -1,11 +1,12 @@
 // Chat's reads (#1034). The overview and the open thread are read when the page opens and again whenever the console's `chat`
 // signal (or a reconnect) moves `rev`; the signal carries no text, so message text is only ever read from the routes. There is
 // no interval here: a page that waits for a signal and also polls would hide a signal that never came.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
 import { PAGE_SIZE, mergeGone, plain, type ConversationInfo, type ConversationMessage, type GoneRead, type AdminRead, type Address, type Cross, type CrossRole, type ChatApi, type ChatOverview, type ChannelMessage, type DirectMessage, type DirectPageRead, type Party } from "./chatData";
 import { ReadGate } from "./readGate";
+import { Landing, LANDING_WAIT_MS } from "./landing";
 
 export interface OverviewRead {
   data: ChatOverview | null;
@@ -38,7 +39,12 @@ function earliestEnd(d: ChatOverview | null, readAt: number): number | null {
   return best;
 }
 
-export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: string | null = null): OverviewRead {
+/** The `Landing` the page's reads share (#1311). */
+export function useLanding(): Landing {
+  return useState(() => new Landing())[0];
+}
+
+export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: string | null, landing: Landing): OverviewRead {
   const [data, setData] = useState<ChatOverview | null>(null);
   const [dataOwner, setDataOwner] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -47,30 +53,36 @@ export function useChatOverview(api: ChatApi, on: boolean, rev: number, owner: s
   const [tries, setTries] = useState(0);
   const [gone, setGone] = useState<GoneRead[]>([]);
   const [gate] = useState(() => new ReadGate());
-  const reload = useCallback(async () => {
+  const reload = useCallback(() => {
     const at = gate.fresh();
-    try {
-      const d = await api.overview(owner);
-      // The server sends each record of a deleted conversation once and marks it seen, so a read that a newer one replaced must still
-      // keep them (#1051). They are the viewer's own, so only a read of the viewer's own list carries them.
-      if (owner === null && d.goneReads?.length) {
-        const incoming = d.goneReads;
-        setGone((cur) => mergeGone(cur, incoming));
-      }
-      if (!gate.land(at)) return;
-      setData(d);
-      setDataOwner(owner);
-      if (typeof d.serverTime === "number") {
-        setSkew(d.serverTime - Date.now());
-        setReadAt(d.serverTime);
-      }
-      setLoadError(null);
-    } catch (err) {
-      if (!gate.land(at)) return;
-      setLoadError(plain(failReason(err)));
-    }
-    setTries((n) => n + 1);
-  }, [api, gate, owner]);
+    return landing.run(
+      async () => {
+        const d = await api.overview(owner);
+        return () => {
+          // The server sends each record of a deleted conversation once and marks it seen, so a read that a newer one replaced must still
+          // keep them (#1051). They are the viewer's own, so only a read of the viewer's own list carries them.
+          if (owner === null && d.goneReads?.length) {
+            const incoming = d.goneReads;
+            setGone((cur) => mergeGone(cur, incoming));
+          }
+          if (!gate.land(at)) return;
+          setData(d);
+          setDataOwner(owner);
+          if (typeof d.serverTime === "number") {
+            setSkew(d.serverTime - Date.now());
+            setReadAt(d.serverTime);
+          }
+          setLoadError(null);
+          setTries((n) => n + 1);
+        };
+      },
+      (err) => () => {
+        if (!gate.land(at)) return;
+        setLoadError(plain(failReason(err)));
+        setTries((n) => n + 1);
+      },
+    );
+  }, [api, gate, owner, landing]);
   useEffect(() => {
     if (!on) {
       setData(null);
@@ -140,165 +152,221 @@ export interface ThreadRead {
 
 const fromChannel = (m: ChannelMessage): ThreadMessage => ({ id: m.id, at: m.createdAt, channel: m, direct: null });
 const fromDirect = (m: DirectMessage): ThreadMessage => ({ id: m.id, at: m.sentAt, channel: null, direct: m });
-const fromAny = (m: ChannelMessage | DirectMessage): ThreadMessage => ("authorKind" in m ? fromChannel(m) : fromDirect(m));
+
+type ReadError = { status: number | null; text: string };
+const readError = (err: unknown): ReadError => ({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
+
+/** One page as a paging read has it: the messages as the view holds them, where the earlier ones start, and what else the read carried (`extra`). */
+interface Page<T, X> {
+  messages: T[];
+  older: string | null;
+  total: number;
+  extra: X;
+}
+
+/** What a paged view shows. `pages` is how many requests the earlier messages took, so a read after a signal asks for as many. */
+interface View<T, X> {
+  latest: T[];
+  earlier: T[];
+  pages: number;
+  older: string | null;
+  total: number;
+  extra: X | null;
+  loaded: boolean;
+  error: ReadError | null;
+  loadingEarlier: boolean;
+}
+
+const EMPTY: View<never, never> = { latest: [], earlier: [], pages: 0, older: null, total: 0, extra: null, loaded: false, error: null, loadingEarlier: false };
+
+/** Waits for `p`, and no longer than a Landing waits for a read that has not answered; the timer never outlives the wait. */
+async function within(p: Promise<unknown>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([p, new Promise((done) => (timer = setTimeout(done, LANDING_WAIT_MS)))]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A page as the view holds it: a message already held and unchanged stays the same object, so a memoized row is not drawn again (#1311). */
+function reuse<T extends { id: string }>(page: T[], held: readonly T[]): T[] {
+  const was = new Map(held.map((h) => [h.id, h]));
+  return page.map((next) => {
+    const old = was.get(next.id);
+    return old && JSON.stringify(old) === JSON.stringify(next) ? old : next;
+  });
+}
 
 /**
- * The newest page of the open thread, and the earlier pages the person asked for. A read after a signal replaces the newest
+ * The newest page of an open thread or conversation, and the earlier pages the person asked for, read through `readPage`. A read after a signal replaces the newest
  * page and reads the earlier ones again, one request for each page kept, so an edit or a delete made in a page already shown (on another
  * console) appears without a reload (#1269). The signal says that something changed and not what, so there is nothing smaller to read.
- * The earlier pages go when the thread now holds fewer messages than are shown (it was cleared or deleted); a delete of one message
- * leaves a row behind, so the total stays and it is not taken for a clear.
+ * The earlier pages go when it now holds fewer messages than are shown (it was cleared or deleted); a delete of one message
+ * leaves a row behind, so the total stays and it is not taken for a clear. `readPage` is the same function until what it reads changes.
  */
-export function useThread(api: ChatApi, sel: Selection | null, rev: number, owner: string | null = null): ThreadRead {
-  const [latest, setLatest] = useState<ThreadMessage[]>([]);
-  const [earlier, setEarlier] = useState<ThreadMessage[]>([]);
-  const [older, setOlder] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [head, setHead] = useState<ThreadHead | null>(null);
-  const [reads, setReads] = useState<AdminRead[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<ThreadRead["error"]>(null);
-  const [loadingEarlier, setLoadingEarlier] = useState(false);
+function usePaged<T extends { id: string }, X>(key: string | null, readPage: (before: string | null) => Promise<Page<T, X>>, rev: number, landing: Landing) {
+  const [view, setView] = useState<View<T, X>>(EMPTY);
+  // The view as of the last thing that landed, for the reads that follow a signal: state is stale inside them.
+  const now = useRef<View<T, X>>(EMPTY);
+  const put = useCallback((next: Partial<View<T, X>>) => {
+    now.current = { ...now.current, ...next };
+    setView(now.current);
+  }, []);
   const [gate] = useState(() => new ReadGate());
-  const key = selKey(sel) === null ? null : `${selKey(sel)}${owner ? `@${owner}` : ""}`;
   const shown = useRef<string | null>(null);
-  const cursor = useRef<string | null>(null);
-  const kept = useRef(0);
-  const latestLen = useRef(0);
-  // The earlier pages, for the read that follows a signal (state is stale inside it), and how many requests they took.
-  const earlierNow = useRef<ThreadMessage[]>([]);
-  const pagesKept = useRef(0);
+  // Counts the threads opened, so a page asked for in one is never put in a later one, even when the person comes back to the same thread.
+  const epoch = useRef(0);
+  // The read for the latest signal until it has landed, and the page Earlier messages is reading: each lands before the other starts from the view, so neither replaces the other's.
+  // Each waits for the other for the Landing's bound at most, so a request that is slow or never answers holds nothing for good.
+  const reading = useRef<Promise<unknown>>(Promise.resolve());
+  const loading = useRef<Promise<unknown>>(Promise.resolve());
 
-  const readPage = useCallback(
-    (before: string | null) => {
-      if (!sel) return Promise.reject(new Error("no thread"));
-      const o = { before, limit: PAGE_SIZE };
-      return sel.kind === "channel" ? api.channelMessages(sel.id, owner ? { ...o, owner } : o) : api.dmMessages(sel.a, sel.b, o);
-    },
-    [api, sel, owner],
-  );
-
-  const reload = useCallback(async () => {
-    if (!sel) return;
-    const at = gate.fresh();
-    try {
+  /** Reads the newest page and the earlier pages kept; returns what to do when they land, or null when a newer read replaced this one. */
+  const read = useCallback(
+    async (at: number): Promise<(() => void) | null> => {
       const r = await readPage(null);
-      if (!gate.land(at)) return;
-      const msgs = r.messages.map((m) => ("authorKind" in m ? fromChannel(m as ChannelMessage) : fromDirect(m as DirectMessage)));
-      // Fewer messages than are shown means it was cleared or deleted: the earlier pages go.
-      if (r.total < kept.current + latestLen.current) {
-        setEarlier([]);
-        earlierNow.current = [];
-        kept.current = 0;
-        pagesKept.current = 0;
-      }
+      await within(loading.current);
+      if (!gate.land(at)) return null;
+      const was = now.current;
+      const held = [...was.latest, ...was.earlier];
+      const latest = reuse(r.messages, held);
+      // Fewer messages than are shown means it was cleared or deleted: the earlier pages go. They go when the read lands (below), because
+      // a read that a newer one replaces while it waits in the Landing must leave the pages the view still shows as they were.
+      const cleared = r.total < was.earlier.length + was.latest.length;
       // The earlier pages are read again from the new page's cursor back to the oldest message that was shown, so an edit or a delete in
       // them lands, and a message that arrived does not push the oldest one off the end. A page that cannot be read leaves them as they were.
-      let again: { msgs: ThreadMessage[]; pages: number; cursor: string | null } | null = null;
-      if (kept.current > 0) {
-        const target = earlierNow.current[0]?.id;
+      let again: { earlier: T[]; pages: number; older: string | null } | null = null;
+      if (!cleared && was.earlier.length > 0) {
+        const target = was.earlier[0]!.id;
         let before = r.older;
-        const got: ThreadMessage[][] = [];
+        const got: T[][] = [];
         try {
-          for (let n = 0; n < pagesKept.current + 2 && before; n++) {
+          for (let n = 0; n < was.pages + 2 && before; n++) {
             const pr = await readPage(before);
-            if (!gate.land(at)) return;
-            const page = pr.messages.map(fromAny);
+            if (!gate.land(at)) return null;
+            const page = reuse(pr.messages, held);
             got.unshift(page);
             before = pr.older;
             if (page.some((m) => m.id === target)) break;
           }
-          again = { msgs: got.flat(), pages: got.length, cursor: before };
+          again = { earlier: got.flat(), pages: got.length, older: before };
         } catch {
           again = null;
         }
       }
-      if (!gate.land(at)) return;
-      if (again) {
-        setEarlier(again.msgs);
-        earlierNow.current = again.msgs;
-        kept.current = again.msgs.length;
-        pagesKept.current = again.pages;
-        cursor.current = again.cursor;
-        setOlder(again.cursor);
-      }
-      latestLen.current = msgs.length;
-      setLatest(msgs);
-      setTotal(r.total);
-      // With no earlier pages kept, the cursor is this page's.
-      if (kept.current === 0) {
-        cursor.current = r.older;
-        setOlder(r.older);
-      }
-      if ("a" in r) {
-        const d = r as DirectPageRead;
-        setHead({ a: d.a, b: d.b, owner: d.owner, paused: d.paused, ended: d.ended, roundTrips: d.roundTrips, cross: d.cross ?? null, pausedBy: d.pausedBy ?? null, pausedByAdmin: d.pausedByAdmin ?? null });
-      } else setHead(null);
-      setReads((r as { adminReads?: AdminRead[] }).adminReads ?? []);
-      setError(null);
-      setLoaded(true);
-    } catch (err) {
-      if (!gate.land(at)) return;
-      setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
-      setLoaded(true);
-    }
-  }, [sel, readPage, gate]);
+      return () => {
+        if (!gate.land(at)) return;
+        const cur = now.current;
+        const earlier = cleared ? [] : (again?.earlier ?? cur.earlier);
+        put({
+          latest,
+          earlier,
+          pages: cleared ? 0 : (again?.pages ?? cur.pages),
+          // With no earlier pages kept, the cursor is this page's.
+          older: again ? again.older : earlier.length === 0 ? r.older : cur.older,
+          total: r.total,
+          extra: r.extra,
+          error: null,
+          loaded: true,
+        });
+      };
+    },
+    [readPage, gate, put],
+  );
+
+  const reload = useCallback(async () => {
+    if (key === null) return;
+    const at = gate.fresh();
+    const run = landing.run(
+      () => read(at),
+      (err) => () => {
+        if (gate.land(at)) put({ error: readError(err), loaded: true });
+      },
+    );
+    reading.current = Promise.allSettled([run]);
+    await run;
+  }, [key, gate, landing, read, put]);
 
   useEffect(() => {
     if (key !== shown.current) {
       // Another thread: nothing of the old one shows under the new heading.
       shown.current = key;
-      setLatest([]);
-      setEarlier([]);
-      setOlder(null);
-      setTotal(0);
-      setHead(null);
-      setReads([]);
-      setLoaded(false);
-      setError(null);
-      cursor.current = null;
-      kept.current = 0;
-      latestLen.current = 0;
-      earlierNow.current = [];
-      pagesKept.current = 0;
+      epoch.current += 1;
+      reading.current = loading.current = Promise.resolve();
+      put(EMPTY);
     }
     if (key === null) return;
     void reload();
     return () => gate.drop();
     // rev moving is the signal: read again.
-  }, [key, rev, reload, gate]);
+  }, [key, rev, reload, gate, put]);
 
   const loadEarlier = useCallback(async () => {
-    const before = cursor.current;
-    if (!sel || !before) return;
-    setLoadingEarlier(true);
+    if (key === null || !now.current.older || now.current.loadingEarlier) return;
+    put({ loadingEarlier: true });
+    const opened = epoch.current;
+    // A read for a signal that is still out lands first, and this page is read from the cursor it leaves.
+    await within(
+      (async () => {
+        for (let out = reading.current; ; out = reading.current) {
+          await out;
+          if (out === reading.current) return;
+        }
+      })(),
+    );
+    if (epoch.current !== opened) return;
+    const before = now.current.older;
+    // The read cleared the earlier pages: there is nothing before them to ask for.
+    if (!before) return put({ loadingEarlier: false });
+    const fetching = readPage(before);
+    loading.current = fetching.catch(() => undefined);
     try {
-      const r = await readPage(before);
-      const msgs = r.messages.map((m) => ("authorKind" in m ? fromChannel(m as ChannelMessage) : fromDirect(m as DirectMessage)));
-      cursor.current = r.older;
-      setOlder(r.older);
-      kept.current += msgs.length;
-      pagesKept.current += 1;
-      earlierNow.current = [...msgs, ...earlierNow.current];
-      setEarlier(earlierNow.current);
-      setError(null);
+      const r = await fetching;
+      // Another thread opened while this page was out: it is not this one's page, and the new view is already clear.
+      if (epoch.current !== opened) return;
+      const cur = now.current;
+      put({ earlier: [...r.messages, ...cur.earlier], pages: cur.pages + 1, older: r.older, error: null, loadingEarlier: false });
     } catch (err) {
-      setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
+      if (epoch.current === opened) put({ error: readError(err), loadingEarlier: false });
     }
-    setLoadingEarlier(false);
-  }, [sel, readPage]);
+  }, [key, readPage, put]);
 
-  const patch = useCallback((m: ChannelMessage | DirectMessage) => {
-    const next = fromAny(m);
-    const swap = (list: ThreadMessage[]) => (list.some((x) => x.id === m.id) ? list.map((x) => (x.id === m.id ? next : x)) : list);
-    setLatest(swap);
-    earlierNow.current = swap(earlierNow.current);
-    setEarlier(earlierNow.current);
-  }, []);
+  const patch = useCallback(
+    (m: T) => {
+      const swap = (list: T[]) => (list.some((x) => x.id === m.id) ? list.map((x) => (x.id === m.id ? m : x)) : list);
+      put({ latest: swap(now.current.latest), earlier: swap(now.current.earlier) });
+    },
+    [put],
+  );
 
-  const seen = new Set(latest.map((m) => m.id));
-  const messages = [...earlier.filter((m) => !seen.has(m.id)), ...latest];
-  return { messages, total, older, head, reads, loaded, error, loadingEarlier, loadEarlier, reload, patch };
+  const messages = useMemo(() => {
+    const seen = new Set(view.latest.map((m) => m.id));
+    return [...view.earlier.filter((m) => !seen.has(m.id)), ...view.latest];
+  }, [view.earlier, view.latest]);
+  return { messages, total: view.total, older: view.older, extra: view.extra, loaded: view.loaded, error: view.error, loadingEarlier: view.loadingEarlier, loadEarlier, reload, patch };
+}
+
+/** The open channel or Direct Message: its pages (see `usePaged`), and for a Direct Message its head. */
+export function useThread(api: ChatApi, sel: Selection | null, rev: number, owner: string | null, landing: Landing): ThreadRead {
+  const readPage = useCallback(
+    async (before: string | null): Promise<Page<ThreadMessage, { head: ThreadHead | null; reads: AdminRead[] }>> => {
+      // Nothing is read while there is no thread (`usePaged` has no key then).
+      const open = sel!;
+      const o = { before, limit: PAGE_SIZE };
+      if (open.kind === "channel") {
+        const r = await api.channelMessages(open.id, owner ? { ...o, owner } : o);
+        return { messages: r.messages.map(fromChannel), older: r.older, total: r.total, extra: { head: null, reads: r.adminReads ?? [] } };
+      }
+      const r: DirectPageRead = await api.dmMessages(open.a, open.b, o);
+      const head = { a: r.a, b: r.b, owner: r.owner, paused: r.paused, ended: r.ended, roundTrips: r.roundTrips, cross: r.cross ?? null, pausedBy: r.pausedBy ?? null, pausedByAdmin: r.pausedByAdmin ?? null };
+      return { messages: r.messages.map(fromDirect), older: r.older, total: r.total, extra: { head, reads: r.adminReads ?? [] } };
+    },
+    [api, sel, owner],
+  );
+  const { extra, patch, ...t } = usePaged(selKey(sel) === null ? null : `${selKey(sel)}${owner ? `@${owner}` : ""}`, readPage, rev, landing);
+  const patchAny = useCallback((m: ChannelMessage | DirectMessage) => patch("authorKind" in m ? fromChannel(m) : fromDirect(m)), [patch]);
+  return { ...t, head: extra?.head ?? null, reads: extra?.reads ?? [], patch: patchAny };
 }
 
 /** What `@` can mean in a channel, read when the box first needs it and again each time it opens, so a new agent shows. */
@@ -329,7 +397,7 @@ export interface ConversationRead {
   older: string | null;
   reads: AdminRead[];
   loaded: boolean;
-  error: { status: number | null; text: string } | null;
+  error: ReadError | null;
   loadingEarlier: boolean;
   loadEarlier: () => Promise<void>;
   reload: () => Promise<void>;
@@ -338,83 +406,18 @@ export interface ConversationRead {
 }
 
 /**
- * The open conversation of people and agents (#1278): the newest page, and the earlier pages the person asked for. It reads again whenever the console's content-free
- * `chat` signal moves `rev`. An Admin's read of one with an agent in it is recorded by the server before this lands.
+ * The open conversation of people and agents (#1278), read the way a thread is (see `usePaged`) whenever the console's content-free `chat` signal moves `rev`.
+ * An Admin's read of one with an agent in it is recorded by the server before this lands.
  */
-export function useConversation(api: ChatApi, id: string | null, rev: number): ConversationRead {
-  const [info, setInfo] = useState<ConversationInfo | null>(null);
-  const [latest, setLatest] = useState<ConversationMessage[]>([]);
-  const [earlier, setEarlier] = useState<ConversationMessage[]>([]);
-  const [older, setOlder] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [reads, setReads] = useState<AdminRead[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<ConversationRead["error"]>(null);
-  const [loadingEarlier, setLoadingEarlier] = useState(false);
-  const [gate] = useState(() => new ReadGate());
-  const shown = useRef<string | null>(null);
-  const cursor = useRef<string | null>(null);
-
-  const reload = useCallback(async () => {
-    if (!id) return;
-    const at = gate.fresh();
-    try {
-      const r = await api.conversationMessages(id, { limit: PAGE_SIZE });
-      if (!gate.land(at)) return;
-      setInfo(r.conversation);
-      setLatest(r.messages);
-      setReads(r.adminReads ?? []);
-      setTotal(r.total);
-      // Earlier pages stay while the thread holds at least as many messages as are shown; a smaller total means it was cleared.
-      setEarlier((cur) => (r.total < cur.length + r.messages.length ? [] : cur));
-      if (cursor.current === null || r.total < r.messages.length) cursor.current = r.older;
-      setOlder((cur) => (cur === null && cursor.current === null ? r.older : (cursor.current ?? r.older)));
-      setLoaded(true);
-      setError(null);
-    } catch (err) {
-      if (!gate.land(at)) return;
-      setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
-      setLoaded(true);
-    }
-  }, [api, id, gate]);
-
-  useEffect(() => {
-    if (shown.current !== id) {
-      shown.current = id;
-      cursor.current = null;
-      setInfo(null);
-      setLatest([]);
-      setEarlier([]);
-      setOlder(null);
-      setTotal(0);
-      setReads([]);
-      setLoaded(false);
-      setError(null);
-    }
-    if (!id) return;
-    void reload();
-    return () => gate.drop();
-  }, [id, rev, reload, gate]);
-
-  const loadEarlier = useCallback(async () => {
-    if (!id || !older || loadingEarlier) return;
-    setLoadingEarlier(true);
-    try {
-      const r = await api.conversationMessages(id, { before: older, limit: PAGE_SIZE });
-      setEarlier((cur) => [...r.messages, ...cur]);
-      cursor.current = r.older;
-      setOlder(r.older);
-    } catch (err) {
-      setError({ status: err instanceof RespondError ? err.status : null, text: plain(failReason(err)) });
-    }
-    setLoadingEarlier(false);
-  }, [api, id, older, loadingEarlier]);
-
-  const patch = useCallback((m: ConversationMessage) => {
-    const put = (list: ConversationMessage[]) => list.map((x) => (x.id === m.id ? m : x));
-    setLatest(put);
-    setEarlier(put);
-  }, []);
-
-  return { info, messages: [...earlier, ...latest], total, older, reads, loaded, error, loadingEarlier, loadEarlier, reload, patch };
+export function useConversation(api: ChatApi, id: string | null, rev: number, landing: Landing): ConversationRead {
+  const readPage = useCallback(
+    async (before: string | null): Promise<Page<ConversationMessage, { info: ConversationInfo; reads: AdminRead[] }>> => {
+      // Nothing is read while there is no conversation (`usePaged` has no key then).
+      const r = await api.conversationMessages(id!, { before, limit: PAGE_SIZE });
+      return { messages: r.messages, older: r.older, total: r.total, extra: { info: r.conversation, reads: r.adminReads ?? [] } };
+    },
+    [api, id],
+  );
+  const { extra, ...t } = usePaged(id, readPage, rev, landing);
+  return { ...t, info: extra?.info ?? null, reads: extra?.reads ?? [] };
 }

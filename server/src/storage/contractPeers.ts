@@ -2,12 +2,13 @@
 // access, and the messages, answers, retention and views built on them. Each runs one scenario over every adapter
 // (`sameOnAll`). Ids of messages and requests are generated, so they are scrubbed from what is compared and used as they come.
 import { it, expect } from 'vitest';
-import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import { onEachAdapter, sameOnAll, sortedText, type Openers } from './contractSame.js';
 import type { Report } from '../fleet/protocol.js';
 import { personKeyOf, type Actor, type MessageRow, type PeerChange } from '../fleet/peerTypes.js';
 import type { ReporterSeen } from './rows.js';
 import type { PeerStoreApi, Storage } from './types.js';
 import { session } from './contract.js';
+import { counted } from './statementCount.js';
 import type { SessionRow } from './rows.js';
 /** A stored session of ed (or eve), bound to the person's id as a report from their token binds it (#1284). */
 const sess = (over: Partial<SessionRow> & { id: string }): SessionRow => session({ owner_id: over.owner === 'eve' ? EVE_ID : ED_ID, ...over });
@@ -129,6 +130,13 @@ export function peerCases(o: Openers): void {
       await rec('defaults', r.defaults(ED_ID));
       await rec('limits (stricter)', r.limits(ED_ID, SERVER_LIMITS));
       await rec('limits (another owner)', r.limits(EVE_ID, SERVER_LIMITS));
+      // An owner's defaults are one row, found by the person's id (#1296): writing again changes it, and another person's row is apart.
+      await rec('set defaults again', peers.setDefaults(ED_ID, { trust: true, limits: { roundTrips: 4 } }, ED));
+      await rec('defaults (set again)', r.defaults(ED_ID));
+      await rec('set defaults (another owner)', peers.setDefaults(EVE_ID, { newSend: 'send' }, ED));
+      await rec('defaults (another owner)', r.defaults(EVE_ID));
+      await rec('defaults (the first owner, after)', r.defaults(ED_ID));
+      await rec('limits (set again)', r.limits(ED_ID, SERVER_LIMITS));
       // three requests in the same millisecond, then one later: oldest first, the tie decided by one rule
       await rec('request 1', r.requestAccess({ ownerId: ED_ID, fromKey: a, toKey: b, right: 'see', reason: 'one', by: 'alpha', fromSession: 'sa' }));
       await rec('request 2', r.requestAccess({ ownerId: ED_ID, fromKey: a, toKey: c, right: 'send', reason: 'two', by: 'alpha', fromSession: 'sa' }));
@@ -142,6 +150,10 @@ export function peerCases(o: Openers): void {
       await rec('open (other owner)', r.openRequests(EVE_ID));
     });
     expect(((t.get('open') as { reason?: string }[]) ?? []).length).toBeGreaterThan(0);
+    expect(t.get('defaults (set again)')).toMatchObject({ trust: true, limits: { roundTrips: 4 } });
+    expect(t.get('defaults (another owner)')).toMatchObject({ trust: false, newSend: 'send', limits: {} });
+    expect(t.get('defaults (the first owner, after)')).toEqual(t.get('defaults (set again)'));
+    expect(t.get('limits (set again)')).toEqual({ ...SERVER_LIMITS, roundTrips: 4 });
   });
 
   it('lists open requests made in the same millisecond in the order they were made, whatever their pair, kind, reason or id', async () => {
@@ -193,6 +205,17 @@ export function peerCases(o: Openers): void {
     });
     expect((t.get('send') as { ok: boolean }).ok).toBe(true);
     expect((t.get('send too long') as { ok: boolean }).ok).toBe(false);
+    // The reply to a send is what a reporter's `podium_send` is answered from (SPEC 6.8): the same keys, and the same types, whichever database built it (#1296).
+    const SEND_KEYS = ['approvalWhy', 'id', 'ok', 'paused', 'requestId', 'roundTrips', 'state', 'to'];
+    for (const label of ['send', 'send (needs approval)']) {
+      const reply = t.get(label) as Record<string, unknown>;
+      expect(sortedText(Object.keys(reply)), `${label}: the keys of the reply`).toEqual(SEND_KEYS);
+      expect(sortedText(Object.keys(reply.roundTrips as object)), `${label}: roundTrips`).toEqual(['cap', 'used']);
+      expect(sortedText(Object.keys(reply.to as object)), `${label}: to`).toEqual(['machine', 'name']);
+      expect(reply).toMatchObject({ ok: true, id: expect.any(String), state: expect.any(String), paused: expect.any(Boolean), to: { name: expect.any(String), machine: expect.any(String) }, roundTrips: { used: expect.any(Number), cap: expect.any(Number) } });
+    }
+    expect(t.get('send')).toMatchObject({ approvalWhy: null, requestId: null });
+    expect(t.get('send (needs approval)')).toMatchObject({ state: 'approval', approvalWhy: expect.any(String), requestId: expect.any(String) });
   });
 
   it('agrees on every adapter that a message is handed over to an agent in the middle of a turn, and held only while a permission prompt is open (#1252)', async () => {
@@ -600,7 +623,7 @@ export function peerCases(o: Openers): void {
     expect(t.get('too long')).toMatchObject({ ok: false, status: 422 });
     expect(t.get("the person's own agent")).toMatchObject({ ok: false, status: 422 });
     expect(t.get('first message waits for approval')).toMatchObject({ author: 'person', fromName: 'Eve', fromSession: EVE_KEY, fromKey: EVE_KEY, toSession: 'sb', owner: 'ed', state: 'approval' });
-    expect(t.get('the same agent again while it waits')).toMatchObject({ ok: false, status: 409 });
+    expect(t.get('the same agent again while it waits')).toMatchObject({ ok: false, status: 409, error: 'Your earlier message to beta still waits for ed to approve it. Wait for the answer before you write again.' });
     expect(t.get('a request is open') as unknown[]).toHaveLength(1);
     expect(t.get('a request is open')).toMatchObject([{ kind: 'message', owner: 'ed', fromKey: EVE_KEY, by: 'Eve' }]);
     expect((t.get('nothing is handed over yet') as { peerDeliveries: unknown[] }).peerDeliveries).toEqual([]);
@@ -609,7 +632,7 @@ export function peerCases(o: Openers): void {
     expect(t.get('a third person list')).toEqual([]);
     expect((t.get('owner read') as { messages: { text: string }[] }).messages.map((x) => x.text)).toEqual(['hello beta']);
     expect(t.get('reporters grid leaves the person out')).toEqual([]);
-    expect(t.get('past the cap')).toMatchObject({ ok: false, status: 429 });
+    expect(t.get('past the cap')).toMatchObject({ ok: false, status: 429, error: 'You already have 5 messages waiting for ed to approve. Wait for answers before you write more.' });
     expect(state('waiting for sx2')).toBe('approval');
     expect(t.get('decline')).toMatchObject({ ok: true });
     expect(t.get('no link after a decline')).toBeNull();
@@ -1395,5 +1418,169 @@ export function peerCases(o: Openers): void {
     expect(t.get('the reporter after Ed is deleted')).toMatchObject({ owner: 'ed', ownerId: null });
     expect(t.get('the reporter after the newcomer reports')).toMatchObject({ owner: 'ed' });
     expect((t.get('the newcomer\'s reporters') as string[]).length).toBe(1);
+  });
+
+  onEachAdapter(o, 'lists the conversations with their rights and limits in a number of statements that does not grow with the conversations (#1309)', async (s) => {
+    const clock = { now: T0 };
+    const { peers, a, b, c } = await setUp(s, clock);
+    const m = peers.messages;
+    for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
+    await peers.rights.setRight(ED_ID, a, c, 'ask', ED);
+    await peers.setDefaults(ED_ID, { limits: { roundTrips: 3 } }, ED);
+    expect(sortedText((await peers.reporters.getMany([a, c, 'nope'])).map((r) => r.key))).toEqual(sortedText([a, c]));
+    // One conversation waits for approval, and one more is a person's own with an agent.
+    expect((await m.send('sa', 'gamma@box-c', 'may I?')) as { ok: boolean }).toMatchObject({ ok: true });
+    expect(await m.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', text: 'from ed' })).toMatchObject({ author: 'person' });
+    let made = 0;
+    const make = async (n: number): Promise<void> => {
+      for (let k = 0; k < n; k++, made++) {
+        await peers.note(`x${made}`, a, 'ed', ED_ID, waiting(`xa${made}`, 'box-a'));
+        await peers.note(`y${made}`, b, 'ed', ED_ID, waiting(`yb${made}`, 'box-b'));
+        clock.now += 61_000; // past the rate window of the sender
+        expect(await m.send(`x${made}`, `yb${made}@box-b`, `hi ${made}`)).toMatchObject({ ok: true });
+      }
+    };
+    const measure = async (): Promise<Record<string, number>> => {
+      const cost: Record<string, number> = {};
+      const run = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+        const r = await counted(fn);
+        cost[name] = r.statements;
+        return r.value;
+      };
+      const mine = await run('ownerConversations', () => m.ownerConversations(ED_ID));
+      const owned = await run('conversations (owner)', () => m.conversations({ ownerId: ED_ID }));
+      await run('conversations (every owner)', () => m.conversations({}));
+      await run('conversations (live only, since)', () => m.conversations({ liveOnly: true, since: T0 }));
+      await run('conversationOf', () => m.conversationOf('x0', 'y0'));
+      await run('conversationPairs', () => m.conversationPairs());
+      // The conversations of a person are the ones they own (a person's own with an agent is theirs too), and each is the summary `conversationOf` gives.
+      expect(sortedText(mine.map((x) => x.a.sessionId + '|' + x.b.sessionId))).toEqual(sortedText(owned.map((x) => x.a.sessionId + '|' + x.b.sessionId)));
+      for (const x of mine) {
+        const { hiddenAt, ...summary } = x;
+        expect(hiddenAt).toBeNull();
+        expect(await m.conversationOf(x.a.sessionId, x.b.sessionId)).toEqual(summary);
+      }
+      return cost;
+    };
+    await make(3);
+    const small = await measure();
+    await make(27);
+    const large = await measure();
+    const list = await m.ownerConversations(ED_ID);
+    // Rights, limits and state as each conversation has them: the owner's own limit of 3 round trips, an open link both ways, the one that asks for approval waiting, the person's own with no link to read.
+    expect(list).toHaveLength(30 + 2);
+    expect(list.find((x) => x.a.sessionId === 'x0')).toMatchObject({ messages: 1, state: 'active', paused: false, aToB: true, bToA: true, owner: 'ed', ownerId: ED_ID, roundTrips: { used: 0, cap: 3 } });
+    expect(list.find((x) => x.a.sessionId === 'sa' && x.b.sessionId === 'sc')).toMatchObject({ state: 'waiting', aToB: true, bToA: false });
+    expect(list.find((x) => x.a.sessionId === ED_KEY)).toMatchObject({ messages: 1, state: 'active' });
+    expect(await m.conversationPairs()).toEqual(list.map((x): [string, string] => [x.a.sessionId, x.b.sessionId]).sort((p, q) => (p.join('|') < q.join('|') ? -1 : 1)));
+    expect(large, 'statements at 32 conversations against 5').toEqual(small);
+    // One link is one read of its own right row, the reporters and the owner\'s trust; a person\'s link is its row alone.
+    const one = await counted(() => peers.rights.effective(a, b));
+    expect(one.value).toEqual({ level: 'send', paused: false });
+    expect(one.statements).toBe(3);
+    expect((await counted(() => peers.rights.effective(ED_KEY, a))).statements).toBe(1);
+    for (const [name, n] of Object.entries(small)) expect(n, name).toBeLessThanOrEqual(6);
+  });
+
+  it('answers who an agent can reach the same on every adapter: the list, the machines left out and why, the agents it can address and the refusals (#1296)', async () => {
+    const t = await sameOnAll(o, async (s, rec) => {
+      const clock = { now: T0 };
+      const { peers, a, b, c, eve } = await setUp(s, clock);
+      const m = peers.messages;
+      const reporter = (id: string, name: string, over: Partial<ReporterSeen> = {}): Promise<string> => s.reporters.record({ ...seen(id, name, 'ed', `s-${id}`), ...over }, T0);
+      const off = await reporter('d', 'box-d', { peers: false });
+      await reporter('f', 'box-f', { peers: null });
+      const idle = await reporter('g', 'box-g');
+      const hidden = await reporter('h', 'box-h');
+      const pausedBox = await reporter('k', 'box-k');
+      const adminBox = await reporter('i', 'box-i', { credential: 'admin secret' });
+      const quiet = await reporter('j', 'box-j');
+      for (const to of [b, pausedBox, off, idle]) await peers.rights.setRight(ED_ID, a, to, 'send', ED);
+      await peers.rights.setRight(ED_ID, b, a, 'send', ED);
+      await peers.rights.setRight(ED_ID, a, c, 'ask', ED);
+      await peers.rights.setRight(ED_ID, a, adminBox, 'send', ED);
+      await peers.rights.pauseLink(ED_ID, a, pausedBox, true, ED);
+      await peers.note('sb2', b, 'ed', ED_ID, waiting('beta', 'box-b'));
+      await peers.note('sd', off, 'ed', ED_ID, waiting('delta box', 'box-d'));
+      await peers.note('sk', pausedBox, 'ed', ED_ID, waiting('kappa', 'box-k'));
+      await peers.note('sh', hidden, 'ed', ED_ID, waiting('hotel', 'box-h'));
+      await peers.note('sq', quiet, 'ed', ED_ID, { ...waiting('quiet', 'box-j'), session: { ...waiting('quiet', 'box-j').session, peers: false } });
+      await peers.note('sx', eve, 'ed', ED_ID, waiting('crossed', 'box-e'));
+      await peers.note('sadm', adminBox, 'ed', ED_ID, waiting('root', 'box-i'));
+      await peers.note('sidle', idle, 'ed', ED_ID, waiting('idle one', 'box-g'));
+      await rec('list for alpha', m.list('sa'));
+      await rec('list for beta', m.list('sb'));
+      await rec('list for a hidden agent', m.list('sh'));
+      await rec('list for an agent with messaging off', m.list('sq'));
+      await rec('list for an agent on another person\'s reporter', m.list('sx'));
+      await rec('list for an unknown session', m.list('nope'));
+      for (const [label, to] of [['by name', 'kappa@box-k'], ['by name and id', 'beta@box-b#2'], ['the wrong name for an id', 'beta 2@box-b#2'], ['by a bare id', '#3'], ['ambiguous by machine', 'beta@box-b'], ['an agent it has no right to', 'hotel@box-h'], ['an agent with messaging off', 'quiet@box-j'], ['an agent on the admin secret', 'root@box-i'], ['itself', 'alpha@box-a'], ['another person\'s agent', 'delta@box-e'], ['a machine of nobody', 'nobody@box-x']] as const) {
+        clock.now += 61_000;
+        await rec(`send ${label}`, m.send('sa', to, `hi ${label}`));
+      }
+    });
+    // Who is listed, in the order the address gives, with the level and the pause each link has.
+    expect((t.get('list for alpha') as { peers: { address: string; level: string; paused: boolean }[] }).peers.map((p) => `${p.address} ${p.level} ${p.paused}`)).toEqual([
+      'beta 2@box-b send false', 'beta@box-b send false', 'delta box@box-d send false', 'gamma@box-c ask false', 'idle one@box-g send false', 'kappa@box-k send true',
+    ]);
+    // Every machine of the person that is not listed, with the reason, in the order the reporters are kept.
+    expect((t.get('list for alpha') as { leftOut: { machine: string; why: string }[] }).leftOut).toEqual([
+      { machine: 'box-f', why: 'reporter too old to message' },
+      { machine: 'box-h', why: 'no right to see it' },
+      { machine: 'box-j', why: 'no right to see it' },
+    ]);
+    expect(t.get('list for an unknown session')).toEqual({ peers: [], leftOut: [], people: [] });
+    expect(t.get('list for a hidden agent')).toMatchObject({ peers: [] });
+    expect(t.get('list for an agent with messaging off')).toEqual({ peers: [], leftOut: [], people: [] });
+    expect(t.get('list for an agent on another person\'s reporter')).toEqual({ peers: [], leftOut: [], people: [] });
+    expect(t.get('send by name')).toMatchObject({ ok: true, paused: true });
+    expect(t.get('send by name and id')).toMatchObject({ ok: true });
+    expect(t.get('send the wrong name for an id')).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('send by a bare id')).toMatchObject({ ok: true, state: 'approval' });
+    expect(t.get('send ambiguous by machine')).toMatchObject({ ok: true });
+    for (const label of ['an agent it has no right to', 'an agent with messaging off', 'an agent on the admin secret', 'another person\'s agent', 'a machine of nobody']) expect(t.get(`send ${label}`), label).toMatchObject({ ok: false, status: 404 });
+    expect(t.get('send itself')).toMatchObject({ ok: false, status: 422 });
+  });
+
+  onEachAdapter(o, 'resolves who an agent can reach in a number of statements that does not grow with the agents and machines (#1296)', async (s) => {
+    const clock = { now: T0 };
+    const { peers, a } = await setUp(s, clock);
+    const m = peers.messages;
+    let made = 0;
+    // Each step adds an agent on a reporter of its own that `alpha` may send to, and one machine with no agent that it may not see.
+    const make = async (n: number): Promise<void> => {
+      for (let k = 0; k < n; k++, made++) {
+        const key = await s.reporters.record(seen(`r${made}`, `box-r${made}`, 'ed', `s-r${made}`), T0);
+        await peers.rights.setRight(ED_ID, a, key, 'send', ED);
+        await peers.note(`sr${made}`, key, 'ed', ED_ID, waiting(`agent ${made}`, `box-r${made}`));
+        await s.reporters.record(seen(`q${made}`, `box-q${made}`, 'ed', `s-q${made}`), T0);
+      }
+    };
+    const measure = async (): Promise<Record<string, number>> => {
+      const cost: Record<string, number> = {};
+      const run = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+        const r = await counted(fn);
+        cost[name] = r.statements;
+        return r.value;
+      };
+      const list = await run('list', () => m.list('sa'));
+      expect(list.peers.length).toBeGreaterThanOrEqual(made);
+      expect(list.leftOut.length).toBeGreaterThanOrEqual(made);
+      clock.now += 61_000;
+      expect(await run('send by name', () => m.send('sa', `agent ${made - 1}@box-r${made - 1}`, 'hi'))).toMatchObject({ ok: true });
+      clock.now += 61_000;
+      expect(await run('send by id', () => m.send('sa', `#${list.peers.find((p) => p.name === `agent ${made - 2}`)?.id}`, 'hi'))).toMatchObject({ ok: true });
+      clock.now += 61_000;
+      expect(await run('send to nobody', () => m.send('sa', 'nobody@box-x', 'hi'))).toMatchObject({ ok: false, status: 404 });
+      return cost;
+    };
+    await make(5);
+    const small = await measure();
+    await make(25);
+    const large = await measure();
+    expect(large, 'statements at 30 agents against 5').toEqual(small);
+    // The list is the sender's reporter, the person's reporters, the agents' reporters, the rights (their own rows, the reporters and the trust) and the people: 7 statements whatever the number of agents.
+    expect(small.list, 'list').toBeLessThanOrEqual(7);
+    for (const [name, n] of Object.entries(small)) expect(n, name).toBeLessThanOrEqual(16);
   });
 }

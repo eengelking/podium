@@ -11,6 +11,7 @@ import { ACTIVITY_HISTORY_DEFAULTS } from '../fleet/activityHistoryTypes.js';
 import { MAIN_LOOP, RECORDING_DEFAULTS, type ActivityEntry, type RecordingAdminRow, type RecordingBatch, type Report } from '../fleet/protocol.js';
 import { fixtureReport } from '../fleet/testing.js';
 import { PeopleError, nameKey } from './rows.js';
+import { sortedText } from './contractSame.js';
 import { settingsCases } from './contractSettings.js';
 import { reportCases } from './contractReports.js';
 import { txCases } from './contractTx.js';
@@ -342,6 +343,9 @@ function ownCases(adapter: ContractAdapter): void {
       expect(by[claude]).toEqual(['podium-reporter-claudecode', 'newer']);
       expect(by[other]).toEqual(['podium-reporter-opencode', 'newer']);
       expect(await lookup.get(other)).toMatchObject({ reporterName: 'podium-reporter-opencode' });
+      // Many at once (#1309): the ones that exist, each once, and nothing for a key with none or for no keys.
+      expect(sortedText((await lookup.getMany([claude, other, 'nope', claude])).map((r) => r.key))).toEqual(sortedText([claude, other]));
+      expect(await lookup.getMany([])).toEqual([]);
       await store.close();
     });
 

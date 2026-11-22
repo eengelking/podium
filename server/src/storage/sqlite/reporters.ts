@@ -4,6 +4,7 @@
 // know: it cannot tell a reporter that is turned off from one that cannot reach it. All statements are parameterized.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { checkReporter } from '../../fleet/compat.js';
+import { chunksOf } from '../batches.js';
 import { clampPage, likeTerm } from './people.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
 import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, canonicalReporterName, storedReporterNames, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, sameAccount, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
@@ -212,6 +213,8 @@ export class ReporterStore {
         const r = this.stmt(`SELECT ${cols} FROM reporters WHERE key = ? AND kind = 'mod'`).get(key) as DbPeerRef | undefined;
         return r ? ref(r) : null;
       },
+      // order-insensitive: the reporters are put into a map by key.
+      getMany: (keys) => chunksOf([...new Set(keys)]).flatMap((part) => (this.db.prepare(`SELECT ${cols} FROM reporters WHERE kind = 'mod' AND key IN (${part.map(() => '?').join(', ')})`).all(...part) as unknown as DbPeerRef[]).map(ref)),
       ofOwner: (ownerId) => (ownerId === null ? [] : (this.stmt(`SELECT ${cols} FROM reporters WHERE ${mine}`).all({ ownerId }) as unknown as DbPeerRef[]).map(ref)),
     };
   }

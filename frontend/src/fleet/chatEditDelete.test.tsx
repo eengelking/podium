@@ -12,6 +12,7 @@ import { fleetReducer } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
 import type { Address, ChannelMessage, ChatApi, ChatOverview, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
 import { useThread, type Selection } from "./useChat";
+import { Landing } from "./landing";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
@@ -748,7 +749,8 @@ describe("live refresh of earlier pages", () => {
   const ids = (r: { current: { messages: { id: string }[] } }) => r.current.messages.map((m) => m.id);
   const loaded = async (s: ReturnType<typeof paged>, pages: number) => {
     vi.useRealTimers();
-    const hook = renderHook(({ rev }) => useThread(s.api, SEL, rev), { initialProps: { rev: 0 } });
+    const landing = new Landing();
+    const hook = renderHook(({ rev }) => useThread(s.api, SEL, rev, null, landing), { initialProps: { rev: 0 } });
     await waitFor(() => expect(hook.result.current.loaded).toBe(true));
     for (let i = 0; i < pages; i++) await act(async () => void (await hook.result.current.loadEarlier()));
     return hook;
@@ -794,6 +796,130 @@ describe("live refresh of earlier pages", () => {
     await waitFor(() => expect(result.current.total).toBe(7));
     await waitFor(() => expect(ids(result)).toEqual(["m2", "m3", "m4", "m5", "m6", "m7"]));
     expect(result.current.older).toBe("m2");
+  });
+
+  it("does not put an earlier page of the old thread under another one when it lands after the switch (#1296)", async () => {
+    const s = paged();
+    vi.useRealTimers();
+    const landing = new Landing();
+    const hook = renderHook(({ sel }) => useThread(s.api, sel, 0, null, landing), { initialProps: { sel: SEL } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    let land: () => void = () => undefined;
+    const held = new Promise<void>((r) => (land = r));
+    const real = s.channelMessages.getMockImplementation()!;
+    s.channelMessages.mockImplementationOnce(async (...a: Parameters<typeof real>) => {
+      const out = await real(...a);
+      await held;
+      return out;
+    });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await flush();
+    s.channelMessages.mockImplementationOnce(() => new Promise(() => undefined));
+    hook.rerender({ sel: { kind: "channel", id: "other" } });
+    await act(async () => {
+      land();
+      await pending;
+    });
+    expect(hook.result.current.messages).toEqual([]);
+    expect(hook.result.current.older).toBeNull();
+    expect(hook.result.current.loadingEarlier).toBe(false);
+  });
+
+  it("keeps the page Earlier messages loaded while a read for a signal waits in the Landing, and the result of that read (#1296)", async () => {
+    const s = paged();
+    vi.useRealTimers();
+    const landing = new Landing();
+    const hook = renderHook(({ rev }) => useThread(s.api, SEL, rev, null, landing), { initialProps: { rev: 0 } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    await act(async () => void (await hook.result.current.loadEarlier()));
+    expect(ids(hook.result)).toEqual(["m3", "m4", "m5", "m6"]);
+    // Another read is out, so the read for the signal waits in the Landing with its answer; a message arrives and a message is edited with it.
+    let release: () => void = () => undefined;
+    void landing.run(() => new Promise((done) => (release = () => done(null))), () => () => undefined);
+    s.all.push(row("m7", "newest"));
+    s.all[3] = row("m4", "text m4, edited", { editedAt: T0 });
+    hook.rerender({ rev: 1 });
+    await flush();
+    // The person asks for the earlier page meanwhile.
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await flush();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    await waitFor(() => expect(ids(hook.result)).toEqual(["m1", "m2", "m3", "m4", "m5", "m6", "m7"]));
+    expect(hook.result.current.messages.find((m) => m.id === "m4")?.channel?.text).toBe("text m4, edited");
+    expect(hook.result.current.older).toBeNull();
+    expect(hook.result.current.total).toBe(7);
+    expect(hook.result.current.loadingEarlier).toBe(false);
+  });
+
+  it("keeps the result of a read for a signal that comes while Earlier messages is still reading, and the page it loads (#1296)", async () => {
+    const s = paged();
+    vi.useRealTimers();
+    const landing = new Landing();
+    const hook = renderHook(({ rev }) => useThread(s.api, SEL, rev, null, landing), { initialProps: { rev: 0 } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    await act(async () => void (await hook.result.current.loadEarlier()));
+    let land: () => void = () => undefined;
+    const held = new Promise<void>((r) => (land = r));
+    const real = s.channelMessages.getMockImplementation()!;
+    s.channelMessages.mockImplementationOnce(async (...a: Parameters<typeof real>) => {
+      const out = await real(...a);
+      await held;
+      return out;
+    });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await flush();
+    s.all.push(row("m7", "newest"));
+    s.all[3] = row("m4", "text m4, edited", { editedAt: T0 });
+    hook.rerender({ rev: 1 });
+    await flush();
+    await act(async () => {
+      land();
+      await pending;
+    });
+    await waitFor(() => expect(ids(hook.result)).toEqual(["m1", "m2", "m3", "m4", "m5", "m6", "m7"]));
+    expect(hook.result.current.messages.find((m) => m.id === "m4")?.channel?.text).toBe("text m4, edited");
+    expect(hook.result.current.older).toBeNull();
+    expect(hook.result.current.loadingEarlier).toBe(false);
+  });
+
+  it("asks for no earlier page of a thread that was left for another while it waited behind a read for a signal (#1296)", async () => {
+    const s = paged();
+    vi.useRealTimers();
+    const landing = new Landing();
+    const hook = renderHook(({ sel, rev }) => useThread(s.api, sel, rev, null, landing), { initialProps: { sel: SEL, rev: 0 } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    await act(async () => void (await hook.result.current.loadEarlier()));
+    let release: () => void = () => undefined;
+    void landing.run(() => new Promise((done) => (release = () => done(null))), () => () => undefined);
+    hook.rerender({ sel: SEL, rev: 1 });
+    await flush();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    await flush();
+    hook.rerender({ sel: { kind: "channel", id: "other" }, rev: 1 });
+    await flush();
+    s.channelMessages.mockClear();
+    await act(async () => {
+      release();
+      await pending;
+    });
+    expect(ids(hook.result)).toEqual(["m5", "m6"]);
+    expect(hook.result.current.loadingEarlier).toBe(false);
+    expect(s.channelMessages.mock.calls.filter(([, o]) => o?.before)).toEqual([]);
   });
 
   it("still sees a clear: fewer messages than are shown drops the earlier pages", async () => {

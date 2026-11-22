@@ -307,7 +307,7 @@ export class Fleet {
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),
       // The stream goes to every open console, so it carries a change counter and a coarse scope only: no name, count or id (#1034).
-      signal: (s: ChatSignal & { rev: number }) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
+      signal: (s: ChatSignal) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
       warn: (what, err) => this.logger.warn('chat.failed', `podium: ${what}: ${(err as Error).message}`, { reason: (err as Error).message }),
     };
     this.chat = new ChatService(host, storage.chat({ now }));
@@ -1051,7 +1051,8 @@ export class Fleet {
 
   /** Once a second: stale transitions, drops, lingering done sessions, carry-forward samples. */
   sweep(): Promise<void> {
-    return this.serial.exclusive(() => this.sweepNow());
+    // Every session the sweep ends is one change to Chat's lists, so the consoles hear of the sweep once (#1296).
+    return this.serial.exclusive(() => this.chat.batch(() => this.sweepNow()));
   }
 
   private async sweepNow(): Promise<void> {

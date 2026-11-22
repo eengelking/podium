@@ -52,7 +52,7 @@ describe('the upsert and insert-ignore sites', () => {
     const found = sites().map((s) => `${s.file}:${s.table}:${s.kind}`).sort();
     expect(found).toEqual([
       'activityHistory.ts:loops:update', 'activityHistory.ts:stored_sessions:update', 'activityHistorySettings.ts:settings:update',
-      'chat.ts:chat_admin_owed:update', 'chat.ts:chat_read_state:update', 'chat.ts:chat_read_state:update', 'schema.ts:chat_admin_owed:update', 'schema.ts:chat_read_state:update', 'chat.ts:settings:update', 'chat.ts:settings:update', 'chat.ts:settings:update',
+      'chat.ts:chat_admin_owed:update', 'chat.ts:chat_read_state:update', 'schema.ts:chat_admin_owed:update', 'schema.ts:chat_admin_owed:update', 'schema.ts:chat_read_state:update', 'schema.ts:settings:update', 'chat.ts:settings:update', 'chat.ts:settings:update',
       'featureFlags.ts:settings:update',
       'fleet.ts:agent_texts:update', 'fleet.ts:agent_texts:update', 'fleet.ts:agents:update', 'fleet.ts:agents:update', 'fleet.ts:blowouts:update', 'fleet.ts:events:skip',
       'fleet.ts:samples:update', 'fleet.ts:samples:update', 'fleet.ts:session_waits:update', 'fleet.ts:sessions:update',
@@ -273,14 +273,13 @@ describe.skipIf(!TEST_MARIADB)('the upsert and insert-ignore sites on a database
 
   it('chat read state: the (person, thread) pair', async () => {
     const chat = s.chat({ now: () => 5 });
-    await chat.readState.bump(1, 'grp_a', true);
-    await chat.readState.bump(1, 'grp_a', false);
-    await chat.readState.bump(1, 'grp_b', false);
-    await chat.readState.bump(2, 'grp_a', false);
-    await chat.readState.markRead(1, 'grp_b', 'm9');
-    expect(await db.all('SELECT person, thread, unread, mentions, last_read FROM chat_read_state ORDER BY person, thread')).toEqual([
-      { person: '#1', thread: 'grp_a', unread: 2, mentions: 1, last_read: null }, { person: '#1', thread: 'grp_b', unread: 0, mentions: 0, last_read: 'm9' },
-      { person: '#2', thread: 'grp_a', unread: 1, mentions: 0, last_read: null },
+    await chat.readState.bumpMany('grp_a', [{ personId: 1, mention: true }]);
+    await chat.readState.bumpMany('grp_a', [{ personId: 1, mention: false }, { personId: 2, mention: false }]);
+    await chat.readState.bumpMany('grp_b', [{ personId: 1, mention: false }]);
+    await chat.readState.markRead(1, 'grp_b');
+    // A thread read to the end keeps no row (#1296).
+    expect(await db.all('SELECT person_id, thread, unread, mentions FROM chat_read_state ORDER BY person_id, thread')).toEqual([
+      { person_id: 1, thread: 'grp_a', unread: 2, mentions: 1 }, { person_id: 2, thread: 'grp_a', unread: 1, mentions: 0 },
     ]);
   });
 });

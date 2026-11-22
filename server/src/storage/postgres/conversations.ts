@@ -3,7 +3,7 @@
 // A call that reads then writes is one transaction, and the gate in `PgDb.tx` takes them one at a time, as the SQLite lock does.
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  DELIVERY_COLS, MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, checkTargets, firstDeliveryState, membersKey, newConversationId, newConversationMessageId, nextDeliveryState, refuseConversationChange, toConversation, toConversationMessage,
+  DELIVERY_COLS, MAX_CONVERSATION_MEMBERS, MEMBER_COLS, MESSAGE_COLS, checkAuthor, checkMembers, checkNewMembers, checkTargets, firstDeliveryState, membersKey, newConversationId, newConversationMessageId, nextDeliveryState, refuseConversationChange, toConversation, toConversationMessage, toConversations,
   type DbConversation, type DbConversationMessage, type DbDelivery, type DbMember,
 } from '../conversationRows.js';
 import type { Conversation, ConversationChange, ConversationDeliveryState, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationPage, ConversationPostInput, ConversationsApi } from '../types.js';
@@ -18,7 +18,7 @@ class PgConversations {
   ) {}
 
   private row(id: string): Promise<DbConversation | undefined> {
-    return this.db.get<DbConversation>('SELECT id, created_by, created_at, members_key FROM conversations WHERE id = ?', [id]);
+    return this.db.get<DbConversation>('SELECT id, created_at, members_key FROM conversations WHERE id = ?', [id]);
   }
 
   private membersOf(id: string): Promise<DbMember[]> {
@@ -51,7 +51,7 @@ class PgConversations {
       const found = await this.db.get<{ id: string }>('SELECT id FROM conversations WHERE members_key = ? ORDER BY created_at, id LIMIT 1', [key]);
       if (found) return { conversation: (await this.load(found.id)) as Conversation, created: false };
       const id = newConversationId(await this.scope());
-      await this.db.run('INSERT INTO conversations (id, created_by, created_at, members_key) VALUES (?, ?, ?, ?)', [id, input.createdBy, at, key]);
+      await this.db.run('INSERT INTO conversations (id, created_at, members_key) VALUES (?, ?, ?)', [id, at, key]);
       for (const m of members) await this.insertMember(id, m, m.kind === 'person' && input.createdBy !== null && m.ref === String(input.createdBy) ? null : input.createdBy, at);
       return { conversation: (await this.load(id)) as Conversation, created: true };
     });
@@ -66,10 +66,17 @@ class PgConversations {
   }
 
   async listFor(member: MemberRef): Promise<Conversation[]> {
-    const ids = await this.db.all<{ id: string }>('SELECT conversation_id AS id FROM conversation_members WHERE member_kind = ? AND member_ref = ? AND left_at IS NULL ORDER BY conversation_id', [member.kind, member.ref]);
-    const list: Conversation[] = [];
-    for (const r of ids) list.push((await this.load(r.id)) as Conversation);
-    return list.sort((a, b) => b.lastAt - a.lastAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    // The conversations the member is in now, and their members and message totals: three statements however many there are (#1309).
+    const mine = 'SELECT conversation_id FROM conversation_members WHERE member_kind = ? AND member_ref = ? AND left_at IS NULL';
+    const args = [member.kind, member.ref];
+    return toConversations(
+      // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
+      await this.db.all<DbConversation>(`SELECT id, created_at, members_key FROM conversations WHERE id IN (${mine})`, args),
+      // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
+      await this.db.all<DbMember>(`SELECT ${MEMBER_COLS} FROM conversation_members WHERE conversation_id IN (${mine})`, args),
+      // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
+      await this.db.all<{ conversation_id: string; last: number | null; n: number }>(`SELECT conversation_id, MAX(created_at) AS last, COUNT(*) AS n FROM conversation_messages WHERE conversation_id IN (${mine}) GROUP BY conversation_id`, args),
+    );
   }
 
   addMembers(id: string, members: ConversationMemberInput[], addedBy: number | null, at: number): Promise<Conversation | null> {
@@ -115,13 +122,13 @@ class PgConversations {
       const mid = newConversationMessageId(await this.scope());
       // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
       await this.db.run(
-        `INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
-        [mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, at, input.replyTo ?? null],
+        `INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, reply_to, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
+        [mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, input.replyTo ?? null],
       );
       for (const t of targets) {
         const state = firstDeliveryState(t.kind);
-        await this.db.run('INSERT INTO conversation_deliveries (conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, mid, t.kind, t.ref, t.name, t.named ? 1 : 0, state, state === null ? null : at]);
+        await this.db.run('INSERT INTO conversation_deliveries (message_id, member_kind, member_ref, member_name, named, state, state_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [mid, t.kind, t.ref, t.name, t.named ? 1 : 0, state, state === null ? null : at]);
       }
       return this.message(id, mid);
     });
@@ -131,15 +138,16 @@ class PgConversations {
     return this.db.get<DbConversationMessage>(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE id = ? AND conversation_id = ?`, [messageId, id]);
   }
 
-  private deliveriesOf(id: string, messageIds: string[]): Promise<DbDelivery[]> {
+  /** The deliveries of messages already read out of one conversation, so a message id is enough to find them. */
+  private deliveriesOf(messageIds: string[]): Promise<DbDelivery[]> {
     if (!messageIds.length) return Promise.resolve([]);
     const marks = messageIds.map(() => '?').join(', ');
-    return this.db.all<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id IN (${marks}) ORDER BY message_id, member_kind, member_ref`, [id, ...messageIds]);
+    return this.db.all<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE message_id IN (${marks}) ORDER BY message_id, member_kind, member_ref`, messageIds);
   }
 
   private async message(id: string, messageId: string): Promise<ConversationMessage | null> {
     const r = await this.raw(id, messageId);
-    return r ? toConversationMessage(r, await this.deliveriesOf(id, [messageId])) : null;
+    return r ? toConversationMessage(r, await this.deliveriesOf([messageId])) : null;
   }
 
   async page(id: string, opts: { before?: string | null; limit: number }): Promise<ConversationPage> {
@@ -150,7 +158,7 @@ class PgConversations {
       : await this.db.all<DbConversationMessage>(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, seq DESC LIMIT ?`, [id, limit + 1]);
     const kept = rows.slice(0, limit).reverse();
     const oldest = kept[0];
-    const deliveries = await this.deliveriesOf(id, kept.map((r) => r.id));
+    const deliveries = await this.deliveriesOf(kept.map((r) => r.id));
     return { messages: kept.map((r) => toConversationMessage(r, deliveries)), older: rows.length > limit && oldest ? encodeCursor(Number(oldest.created_at), Number(oldest.seq)) : null };
   }
 
@@ -162,7 +170,7 @@ class PgConversations {
     return this.db.tx(async () => {
       const refused = refuseConversationChange(await this.raw(id, messageId), x.author);
       if (refused) return refused;
-      await this.db.run('UPDATE conversation_messages SET text = ?, edited_at = ?, updated_at = ? WHERE id = ?', [x.text, x.now, x.now, messageId]);
+      await this.db.run('UPDATE conversation_messages SET text = ?, edited_at = ? WHERE id = ?', [x.text, x.now, messageId]);
       return { ok: true, message: (await this.message(id, messageId)) as ConversationMessage };
     });
   }
@@ -171,7 +179,7 @@ class PgConversations {
     return this.db.tx(async () => {
       const refused = refuseConversationChange(await this.raw(id, messageId), x.author);
       if (refused) return refused;
-      await this.db.run("UPDATE conversation_messages SET text = '', deleted_at = ?, updated_at = ? WHERE id = ?", [x.now, x.now, messageId]);
+      await this.db.run("UPDATE conversation_messages SET text = '', deleted_at = ? WHERE id = ?", [x.now, messageId]);
       return { ok: true, message: (await this.message(id, messageId)) as ConversationMessage };
     });
   }
@@ -186,17 +194,18 @@ class PgConversations {
 
   setDelivery(id: string, messageId: string, member: MemberRef, state: ConversationDeliveryState, at: number): Promise<ConversationMessage | null> {
     return this.db.tx(async () => {
-      const d = await this.db.get<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?`, [id, messageId, member.kind, member.ref]);
+      if (!(await this.raw(id, messageId))) return null;
+      const d = await this.db.get<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE message_id = ? AND member_kind = ? AND member_ref = ?`, [messageId, member.kind, member.ref]);
       if (!d) return null;
       const next = nextDeliveryState(d.state, state);
-      if (next) await this.db.run('UPDATE conversation_deliveries SET state = ?, state_at = ? WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?', [next, at, id, messageId, member.kind, member.ref]);
+      if (next) await this.db.run('UPDATE conversation_deliveries SET state = ?, state_at = ? WHERE message_id = ? AND member_kind = ? AND member_ref = ?', [next, at, messageId, member.kind, member.ref]);
       return this.message(id, messageId);
     });
   }
 
   /** Deletes the conversation, its members, its messages and their deliveries. Returns how many messages. */
   private async erase(id: string): Promise<number> {
-    await this.db.run('DELETE FROM conversation_deliveries WHERE conversation_id = ?', [id]);
+    await this.db.run('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE conversation_id = ?)', [id]);
     const n = await this.db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversations WHERE id = ?', [id]);
@@ -238,7 +247,7 @@ export async function removePersonOf(db: PgDb, personId: number): Promise<number
     const now = left.filter((m) => m.left_at == null);
     if (now.some((m) => m.member_kind === 'person')) await db.run('UPDATE conversations SET members_key = ? WHERE id = ?', [membersKey(now.map((m) => ({ kind: m.member_kind, ref: m.member_ref }))), id]);
     else {
-      await db.run('DELETE FROM conversation_deliveries WHERE conversation_id = ?', [id]);
+      await db.run('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE conversation_id = ?)', [id]);
       await db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversations WHERE id = ?', [id]);

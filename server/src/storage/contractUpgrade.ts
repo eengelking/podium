@@ -429,7 +429,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       legacyGroup('grp_00000000_early', 3, 'ed', 500),
     ], {}, {
       people: [{ name: 'Ed', createdAt: 1000 }],
-      readState: [{ person: 'ed', thread: 'public', unread: 4 }, { person: 'ed', thread: 'dm:person:ed|sa', unread: 2 }, { person: 'ghost', thread: 'public', unread: 9 }],
+      // A thread at zero (`group:ed`) is a row an older server kept after the person read it, and is no row now (#1296).
+      readState: [{ person: 'ed', thread: 'public', unread: 4 }, { person: 'ed', thread: 'dm:person:ed|sa', unread: 2 }, { person: 'ed', thread: 'group:ed', unread: 0 }, { person: 'ghost', thread: 'public', unread: 9 }],
       channels: [{ name: 'eds', createdBy: 'ed', createdByName: 'Ed', createdAt: T0 }, { name: 'ghosts', createdBy: 'ghost', createdByName: 'Ghost', createdAt: T0 }],
       flags: [{ scope: 'group:ed', value: 'p' }, { scope: 'group:ghost', value: 'p' }, { scope: 'public:person:ghost', value: 'd' }],
     });
@@ -440,6 +441,7 @@ export function upgradeCases(o: UpgradeOpeners): void {
       expect((await chat.group.page({ ownerId: ed }, { limit: 10 })).messages.map((m) => m.text)).toEqual(['grp_00000000_ed']);
       // A direct message's person end is the person's id too, as the peer tables' own upgrade writes it.
       expect((await chat.readState.list(ed)).map((r): [string, number] => [r.thread, r.unread]).sort(byPair)).toEqual([[`dm:person:${ed}|sa`, 2], ['public', 4]]);
+      expect(await chat.readState.get(ed, `group:${ed}`)).toEqual({ personId: ed, thread: `group:${ed}`, unread: 0, mentions: 0 });
       expect(await chat.channels.get('eds')).toMatchObject({ createdById: ed });
       expect(await chat.settings.flags(`group:${ed}`)).toMatchObject({ paused: true });
       // The rows of a name that is no person's go to nobody: a person who takes it later finds none of them.
@@ -464,6 +466,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const page = await chat.public.page('general', { limit: 10 });
       expect(page.messages.map((m) => [m.text, m.channel])).toEqual([['first', 'general'], ['second', 'general'], ['third', 'general']]);
       expect(page.messages[2]!.mentions[0]).toMatchObject({ sessionId: 'sa', state: 'held' });
+      // The stored `updated_at` went in a later step (#1296): a message an older database holds reads the time it was made, as it stored.
+      expect(page.messages.map((m) => [m.createdAt, m.updatedAt])).toEqual([[T0, T0], [T0, T0], [T0 + 5, T0 + 5]]);
       expect(await chat.public.count('general')).toBe(3);
       expect((await chat.public.heldMentions('general', {})).map((m) => m.text)).toEqual(['third']);
       expect(await chat.channels.list()).toEqual([]);
@@ -503,6 +507,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const groupPage = await chat.group.page(g, { limit: 10 });
       expect(publicPage.messages.map((m) => [m.text, m.editedAt, m.deletedAt, m.authorId])).toEqual([['public one', null, null, ed], ['public two', null, null, smith], ['public three', null, null, null], ['public four', null, null, null]]);
       expect(groupPage.messages.map((m) => [m.text, m.editedAt, m.deletedAt, m.authorId])).toEqual([['group one', null, null, ed], ['group two', null, null, null]]);
+      // The group's old name key columns (`owner`, `group_id`) went in a later step (#1296): the messages are still found by the person's id alone.
+      expect(groupPage.messages.map((m) => [m.ownerId, m.updatedAt])).toEqual([[ed, T0], [ed, T0 + 1]]);
       // A message whose author matches nobody, and an agent's, are nobody's to change.
       for (const who of [ed, smith, 0, 999]) {
         expect(await chat.public.editMessage('general', 'pub_00000000_c', { author: who, text: 'x', now: T0 + 10 })).toEqual({ ok: false, reason: 'not-yours' });
@@ -822,6 +828,8 @@ export function upgradeCases(o: UpgradeOpeners): void {
       const c = s.chat({ now: () => T0 + 1000 }).conversations;
       const old = await c.page(CID, { limit: 50 });
       expect(old.messages.map((m) => [m.text, m.deliveries])).toEqual([['before', []], ['an answer', []]]);
+      // The stored `updated_at` went in a later step (#1296): a message an older database holds reads the time it was made, as it stored.
+      expect(old.messages.map((m) => [m.createdAt, m.updatedAt])).toEqual([[T0, T0], [T0 + 1, T0 + 1]]);
       const next = await c.post(CID, { authorKind: 'person', authorRef: '1', authorName: 'Ed', authorId: 1, text: 'after', targets: [{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true }] }, T0 + 10);
       expect(next?.deliveries).toEqual([{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true, state: 'queued', stateAt: T0 + 10 }]);
       expect((await c.page(CID, { limit: 50 })).messages.map((m) => [m.text, m.deliveries.length])).toEqual([['before', 0], ['an answer', 0], ['after', 1]]);

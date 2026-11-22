@@ -4,7 +4,7 @@
 // it, and an Admin's pause, disconnect and Remove all messages in a group. The callout shown to the person in the terminal is the reporter's and is not in the console (docs/e2e/COVERAGE.md).
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
 // An Admin's "reading" is made through the API the way the Admin's open page makes it (a read of the thread and its 15-second ping), because only one browser is open at a time.
-// The page decides a reading has ended by the server's clock it was given and its own clock, so the spec waits the 30 seconds out, in a retrying query (it does not move the clock).
+// The page decides a reading has ended by the server's clock at its last read (it hides one only once a read made after its end has landed), so the spec waits the 30 seconds out, in a retrying query (it does not move the clock).
 import { seeded } from '../../../support/commands';
 
 const GROUP = 'c:group';

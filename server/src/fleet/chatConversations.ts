@@ -5,13 +5,12 @@
 // that read is recorded before it is answered and every person in it is told (the shared `AdminReads`). A conversation of people alone answers an Admin with `404`, as it
 // answers any stranger, so nothing says whether it exists, who is in it or how many messages it has.
 import { nameKey } from '../storage/rows.js';
-import { ENDED_NOTICE_MARK } from './protocol.js';
 import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage, ConversationTargetInput } from '../storage/types.js';
-import type { AdminReads, ReadSubject } from './chatAdminReads.js';
+import { readSubject, type AdminReads, type ReadSubject } from './chatAdminReads.js';
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
-import { type ChatCore, type DeliveryOutcome } from './chatCore.js';
+import { changeRefusal, changeState, endedNotice, type ChangeWords, type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import type { LiveOrchestrator } from './peerTypes.js';
-import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
+import { fail, noConversation, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** The thread a conversation's counts and Admin records are kept under. */
 const conversationThread = (id: string): string => `convo:${id}`;
@@ -19,6 +18,9 @@ const conversationThread = (id: string): string => `convo:${id}`;
 export const conversationOfThread = (thread: string): string | null => (thread.startsWith('convo:') ? thread.slice('convo:'.length) : null);
 
 const TEXT_MAX_GUARD = 100_000;
+/** What a conversation says when the store refuses to change a message, and of one an agent has been handed: it names no agent, since the message may have gone to several. */
+const CONVERSATION_WORDS: ChangeWords = { notFound: 'There is no such message.', notYours: 'You can change only your own messages.', deleted: 'That message was already deleted.' };
+const HANDED_WORDS = 'Podium has already sent this to an agent, so it can no longer be changed.';
 /** How long after a person's message an agent may answer it in the conversation (#1299): the window a channel gives an agent called into it. */
 const AGENT_ANSWER_WINDOW_MS = 60 * 60 * 1000;
 /** How many pages of the conversation one answer may read back through to find the message it answers: 10 of 100 is 1,000 messages. */
@@ -88,22 +90,6 @@ export class ConversationChat {
     return this.core.store.conversations;
   }
 
-  private get people() {
-    return this.core.people;
-  }
-
-  /** The people who can sign in, with ids, for turning names into members. */
-  private async directory(): Promise<{ id: number; name: string; key: string }[]> {
-    const out: { id: number; name: string; key: string }[] = [];
-    if (!this.people) return out;
-    for (let page = 1; page <= 20; page++) {
-      const got = await this.people.list({ page, pageSize: 100 });
-      for (const p of got.rows) if (p.revokedAt === null) out.push({ id: p.id, name: p.name, key: nameKey(p.name) });
-      if (got.rows.length < 100) break;
-    }
-    return out;
-  }
-
   private memberOf(viewer: ChatViewer, c: Conversation): ConversationMember | null {
     if (viewer.personId === null) return null;
     return c.members.find((m) => m.leftAt === null && m.kind === 'person' && m.ref === String(viewer.personId)) ?? null;
@@ -120,10 +106,6 @@ export class ConversationChat {
     return null;
   }
 
-  private peopleOf(c: Conversation): string[] {
-    return [...new Set(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => nameKey(m.name)))];
-  }
-
   /** The people in it by `people.id` (a person member's `ref`, #1284): who is told and owed the record, whatever they are called now. */
   private personIdsOf(c: Conversation): number[] {
     return [...new Set(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => Number(m.ref)))];
@@ -131,8 +113,8 @@ export class ConversationChat {
 
   /** Who is told when an Admin reads it: every person in it, in every live reporter session. */
   private subject(c: Conversation): ReadSubject {
-    const names = c.members.filter((m) => m.leftAt === null).map((m) => m.name).join(', ');
-    return { scope: 'dm', thread: conversationThread(c.id), owners: this.peopleOf(c), people: this.personIdsOf(c), phrase: `is reading your Podium conversation with ${names}` };
+    const here = c.members.filter((m) => m.leftAt === null);
+    return readSubject('dm', conversationThread(c.id), `is reading your Podium conversation with ${here.map((m) => m.name).join(', ')}`, { names: here.filter((m) => m.kind === 'person').map((m) => m.name), ids: this.personIdsOf(c) });
   }
 
   /** The thread's subject for the Admin records, from its conversation. Null when there is none, or none an Admin may read. */
@@ -186,7 +168,7 @@ export class ConversationChat {
    * is left out, so it is not even named (decision 74). The counts are 0: they are not the Admin's to see.
    */
   async listAbout(viewer: ChatViewer, name: string): Promise<ConversationInfo[]> {
-    const person = (await this.directory()).find((p) => p.key === nameKey(name));
+    const person = (await this.core.persons()).find((p) => p.key === nameKey(name));
     if (!person) return [];
     const mine = await this.store.listFor({ kind: 'person', ref: String(person.id) });
     const withAgent = mine.filter((c) => this.hasAgent(c));
@@ -231,7 +213,7 @@ export class ConversationChat {
       const other = now.length === 2 && now.every((m) => m.kind === 'person') ? now.find((m) => m.ref !== String(viewer.personId)) : undefined;
       if (other && !pair.has(other.ref)) pair.set(other.ref, c.id);
     }
-    const people = (await this.directory())
+    const people = (await this.core.persons())
       .filter((p) => p.id !== viewer.personId && (!needle || p.name.toLowerCase().includes(needle)))
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((p) => ({ name: p.name, conversation: pair.get(String(p.id)) ?? null }));
@@ -244,7 +226,7 @@ export class ConversationChat {
    */
   private async resolve(viewer: ChatViewer, raw: unknown): Promise<{ ok: true; members: ConversationMemberInput[] } | Fail> {
     if (!Array.isArray(raw) || raw.length === 0 || raw.length > 49) return fail(400, 'members must be a list of 1 to 49 people or agents.');
-    const dir = await this.directory();
+    const dir = await this.core.persons();
     const out: ConversationMemberInput[] = [];
     for (const item of raw as unknown[]) {
       const m = (item ?? {}) as Record<string, unknown>;
@@ -264,7 +246,6 @@ export class ConversationChat {
 
   private view(viewer: ChatViewer, m: ConversationMessage): ConversationMessageView {
     const mine = viewer.personId !== null && m.authorKind === 'person' && m.authorId === viewer.personId;
-    const handed = m.handedAt !== null;
     const gone = m.deletedAt !== null;
     return {
       id: m.id,
@@ -274,20 +255,17 @@ export class ConversationChat {
       editedAt: m.editedAt,
       deletedAt: m.deletedAt,
       replyTo: m.replyTo,
-      canChange: mine && !handed && !gone,
-      changeWhy: !mine || gone ? null : handed ? 'Podium has already sent this to an agent, so it can no longer be changed.' : null,
+      ...changeState(mine && !gone, m.handedAt !== null, () => HANDED_WORDS),
       deliveries: gone ? [] : m.deliveries.map((d) => ({ kind: d.kind, name: d.name, named: d.named, state: d.state })),
     };
   }
 
-  /** Cleans a person's text and checks its length against the Admin's limit. */
-  private async text(raw: unknown): Promise<{ ok: true; text: string } | Fail> {
+  /** Cleans a person's text and checks its length against the Admin's limit, in the conversation's words. */
+  private text(raw: unknown, limits: ChatLimits): { ok: true; text: string } | Fail {
     if (typeof raw !== 'string' || raw.length > TEXT_MAX_GUARD) return fail(400, 'text must be a string.');
-    const limits = await this.core.limits();
     const text = this.core.redact(raw).trim();
     if (!text) return fail(400, 'Write something to send.');
-    if (text.length > limits.maxChars) return fail(422, `A message is at most ${limits.maxChars} characters.`);
-    return { ok: true, text };
+    return this.core.tooLong(text.length, limits, 'convo') ?? { ok: true, text };
   }
 
   /**
@@ -298,7 +276,8 @@ export class ConversationChat {
     if (viewer.personId === null) return fail(403, 'Only a person can start a conversation. The admin secret has no person to write as.');
     const got = await this.resolve(viewer, body.members);
     if (!got.ok) return got;
-    const first = body.text === undefined || body.text === null ? null : await this.text(body.text);
+    const limits = body.text === undefined || body.text === null ? null : await this.core.limits();
+    const first = limits && this.text(body.text, limits);
     if (first && !first.ok) return first;
     const me: ConversationMemberInput = { kind: 'person', ref: String(viewer.personId), name: viewer.name };
     let opened;
@@ -310,7 +289,7 @@ export class ConversationChat {
     let message: ConversationMessageView | undefined;
     let skipped: string[] = [];
     if (first?.ok) {
-      const sent = await this.send(viewer, opened.conversation.id, { text: first.text });
+      const sent = await this.send(viewer, opened.conversation.id, { text: first.text }, limits);
       // The conversation exists now, so a refused first message is told with it and not as a failure of the whole: the person sends it again from the thread.
       if (!sent.ok) skipped = [`The first message was not sent: ${sent.error}`];
       else {
@@ -327,7 +306,7 @@ export class ConversationChat {
   async thread(viewer: ChatViewer, id: string, opts: { before?: string | null; limit: number }) {
     const c = await this.store.get(id);
     const role = c ? this.roleOf(viewer, c) : null;
-    if (!c || !role) return fail(404, 'There is no such conversation.');
+    if (!c || !role) return noConversation();
     let page;
     try {
       page = await this.store.page(id, { before: opts.before ?? null, limit: Math.min(MAX_LIMIT, opts.limit) });
@@ -346,7 +325,7 @@ export class ConversationChat {
   async reading(viewer: ChatViewer, id: string): Promise<{ ok: true } | Fail> {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a conversation that is not their own.');
     const c = await this.store.get(id);
-    if (!c || this.roleOf(viewer, c) !== 'admin') return fail(404, 'There is no such conversation.');
+    if (!c || this.roleOf(viewer, c) !== 'admin') return noConversation();
     await this.reads.note(viewer, this.subject(c), true);
     return { ok: true };
   }
@@ -361,33 +340,35 @@ export class ConversationChat {
   private followed(id: string, messageId: string, m: { kind: 'person' | 'agent'; ref: string }, o: DeliveryOutcome): void {
     const state = o.kind === 'took' ? 'delivered' : o.kind === 'queued' ? null : 'dropped';
     if (!state) return;
-    void this.store
-      .setDelivery(id, messageId, m, state, this.core.host.now())
-      .then(() => this.core.signal({ scope: 'dm', owner: null }))
-      .catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
+    this.core.also(
+      this.store
+        .setDelivery(id, messageId, m, state, this.core.host.now())
+        .then(() => this.core.signal('dm'))
+        .catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err)),
+    );
   }
 
   /** A member writes. The text is redacted and limited first. It is stored, every other person in it is counted one unread, and each agent in it is handed the text. */
-  async send(viewer: ChatViewer, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ConversationMessageView; skipped: string[] } | Fail> {
+  async send(viewer: ChatViewer, id: string, body: Record<string, unknown>, known: ChatLimits | null = null): Promise<{ ok: true; message: ConversationMessageView; skipped: string[] } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can write in it.');
     const c = await this.store.get(id);
-    if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
-    const t = await this.text(body.text);
+    if (!c || !this.memberOf(viewer, c)) return noConversation();
+    const limits = known ?? (await this.core.limits());
+    const t = this.text(body.text, limits);
     if (!t.ok) return t;
     // Who it is for (#1282): an @ names members of this conversation and no one else; with none, it is for every agent in it. A refusal stores and hands over nothing, and costs no rate.
     const present = c.members.filter((m) => m.leftAt === null);
     const named = resolveTargets(t.text, present.map((m) => this.asTarget(m)), { kind: 'person', ref: String(viewer.personId) });
     if (!named.ok) return fail(422, named.error);
     const targets: ConversationTargetInput[] = named.targets ?? present.filter((m) => m.kind === 'agent').map((m) => ({ kind: 'agent' as const, ref: m.ref, name: m.name, named: false }));
-    const limits = await this.core.limits();
-    const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, limits.perMinute);
-    if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+    const fast = this.core.tooFast(`convo:${nameKey(viewer.name)}`, limits, 'convo');
+    if (fast) return fast;
     const replyTo = typeof body.replyTo === 'string' && body.replyTo.length <= 80 ? body.replyTo : null;
     const stored = await this.store.post(id, { authorKind: 'person', authorRef: String(viewer.personId), authorName: viewer.name, authorId: viewer.personId, text: t.text, replyTo, targets }, this.core.host.now());
-    if (!stored) return fail(404, 'There is no such conversation.');
+    if (!stored) return noConversation();
     // Every other person in it is told there is something new: a count, never text. A person it names also has a mention.
     const namedPeople = new Set(targets.filter((x) => x.kind === 'person' && x.named).map((x) => x.ref));
-    for (const m of present) if (m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', namedPeople.has(m.ref));
+    await this.core.countMany(present.filter((m) => m.kind === 'person' && m.ref !== String(viewer.personId)).map((m) => ({ who: { id: Number(m.ref), name: m.name }, mention: namedPeople.has(m.ref) })), conversationThread(id), 'dm');
     const skipped: string[] = [];
     const ended = await this.endedIn([c]);
     for (const m of targets) {
@@ -422,16 +403,16 @@ export class ConversationChat {
    */
   async agentSend(o: LiveOrchestrator, id: string, body: Record<string, unknown>): Promise<{ ok: true; id: string; createdAt: number } | Fail> {
     const c = await this.store.get(id);
-    if (!c || !c.members.some((m) => m.leftAt === null && m.kind === 'agent' && m.ref === o.sessionId)) return fail(404, 'There is no such conversation.');
-    const t = await this.text(body.text);
-    if (!t.ok) return t;
+    if (!c || !c.members.some((m) => m.leftAt === null && m.kind === 'agent' && m.ref === o.sessionId)) return noConversation();
     const limits = await this.core.limits();
-    const wait = this.core.rate(`convo-agent:${o.sessionId}`, limits.perMinute);
-    if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+    const t = this.text(body.text, limits);
+    if (!t.ok) return t;
+    const fast = this.core.tooFast(`convo-agent:${o.sessionId}`, limits, 'convo');
+    if (fast) return fast;
     if (!(await this.askedWithinWindow(id, o.sessionId))) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
     const stored = await this.store.post(id, { authorKind: 'agent', authorRef: o.sessionId, authorName: o.name, text: t.text }, this.core.host.now());
-    if (!stored) return fail(404, 'There is no such conversation.');
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person') await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
+    if (!stored) return noConversation();
+    await this.core.countMany(c.members.filter((m) => m.leftAt === null && m.kind === 'person').map((m) => ({ who: { id: Number(m.ref), name: m.name }, mention: false })), conversationThread(id), 'dm');
     this.core.onEvent({ kind: 'conversation_sent', by: o.name, conversation: id, messageId: stored.id });
     return { ok: true, id: stored.id, createdAt: stored.createdAt };
   }
@@ -467,12 +448,13 @@ export class ConversationChat {
     if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change.');
     const c = await this.store.get(id);
     const role = c ? this.roleOf(viewer, c) : null;
-    if (!c || !role) return fail(404, 'There is no such conversation.');
+    if (!c || !role) return noConversation();
     if (role === 'admin') return fail(403, 'An Admin can read a conversation that has an agent in it, but cannot change its messages.');
     const now = this.core.host.now();
     let out;
     if (op === 'edit') {
-      const t = await this.text(body.text);
+      const limits = await this.core.limits();
+      const t = this.text(body.text, limits);
       if (!t.ok) return t;
       // Who a message is for is fixed when it is sent (#1282): an edit that names someone else, or no one, would leave the line under it describing the old text.
       const was = await this.store.getMessage(id, messageId);
@@ -483,17 +465,13 @@ export class ConversationChat {
         const after = now.ok ? (now.targets ?? []).map(key).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : null;
         if (before.length && JSON.stringify(before) !== JSON.stringify(after)) return fail(422, 'An edit cannot change who a message is for. Delete it and write it again to address someone else.');
       }
-      const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, (await this.core.limits()).perMinute);
-      if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+      const fast = this.core.tooFast(`convo:${nameKey(viewer.name)}`, limits, 'convo');
+      if (fast) return fast;
       out = await this.store.editMessage(id, messageId, { author: viewer.personId, text: t.text, now });
     } else out = await this.store.deleteMessage(id, messageId, { author: viewer.personId, now });
-    if (!out.ok) {
-      if (out.reason === 'not-found') return fail(404, 'There is no such message.');
-      if (out.reason === 'not-yours') return fail(403, 'You can change only your own messages.');
-      return fail(409, out.reason === 'deleted' ? 'That message was already deleted.' : 'Podium has already sent this to an agent, so it can no longer be changed.', out.reason);
-    }
+    if (!out.ok) return changeRefusal(out.reason, CONVERSATION_WORDS, () => HANDED_WORDS);
     this.core.onEvent({ kind: op === 'edit' ? 'conversation_message_edited' : 'conversation_message_deleted', by: viewer.actor, conversation: id, messageId });
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) this.core.signal({ scope: 'dm', owner: nameKey(m.name) });
+    this.core.signal('dm');
     return { ok: true, message: this.view(viewer, out.message) };
   }
 
@@ -501,7 +479,7 @@ export class ConversationChat {
   async addMembers(viewer: ChatViewer, id: string, body: Record<string, unknown>): Promise<{ ok: true; conversation: ConversationInfo } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can add to it.');
     const c = await this.store.get(id);
-    if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
+    if (!c || !this.memberOf(viewer, c)) return noConversation();
     const got = await this.resolve(viewer, body.members);
     if (!got.ok) return got;
     let next;
@@ -510,9 +488,9 @@ export class ConversationChat {
     } catch (err) {
       return fail(400, (err as Error).message);
     }
-    if (!next) return fail(404, 'There is no such conversation.');
+    if (!next) return noConversation();
     this.core.onEvent({ kind: 'conversation_members_added', by: viewer.actor, conversation: id, count: got.members.length });
-    for (const m of next.members) if (m.leftAt === null && m.kind === 'person') this.core.signal({ scope: 'dm', owner: nameKey(m.name) });
+    this.core.signal('dm');
     return { ok: true, conversation: this.info(viewer, next, undefined, await this.endedIn([next])) };
   }
 
@@ -520,12 +498,12 @@ export class ConversationChat {
   async leave(viewer: ChatViewer, id: string): Promise<{ ok: true; deleted: boolean } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can leave it.');
     const c = await this.store.get(id);
-    if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
+    if (!c || !this.memberOf(viewer, c)) return noConversation();
     const out = await this.store.leave(id, { kind: 'person', ref: String(viewer.personId) }, this.core.host.now());
-    if (!out) return fail(404, 'There is no such conversation.');
+    if (!out) return noConversation();
     if (out.deleted) await this.reads.forget(conversationThread(id));
     this.core.onEvent({ kind: 'conversation_left', by: viewer.actor, conversation: id, deleted: out.deleted });
-    this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
+    this.core.signal('dm');
     return { ok: true, deleted: out.deleted };
   }
 
@@ -543,13 +521,12 @@ export class ConversationChat {
       if (!stays) {
         const out = await this.store.remove(c.id);
         if (!out.removed) continue;
-        await this.core.store.readState.forget(conversationThread(c.id));
-        await this.reads.forget(conversationThread(c.id));
+        await this.reads.drop(conversationThread(c.id));
         const withNames = c.members.filter((m) => m.leftAt === null && m.ref !== sessionId).map((m) => m.name);
         this.core.concluded.add(people, { thread: conversationThread(c.id), agent: gone.name, with: withNames });
         this.core.onEvent({ kind: 'dm_concluded', owner: people.map(String).join(','), a: c.id, b: sessionId, count: out.messages });
       }
-      const told = `${ENDED_NOTICE_MARK} ${stays ? `${gone.name} ended. It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.` : `${gone.name} ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone.name}.`}`;
+      const told = endedNotice(gone.name, stays);
       // A conversation that stays is found again by a later end of the same session (finished, then deleted), so each agent is told once per conversation.
       for (const m of others) {
         const key = `${c.id}|${sessionId}|${m.ref}`;
@@ -557,7 +534,7 @@ export class ConversationChat {
         this.core.noticed.add(key);
         await this.core.host.peers.messages.notice(m.ref, told);
       }
-      this.core.signal({ scope: 'dm', owner: null });
+      this.core.signal('dm');
     }
   }
 

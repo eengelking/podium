@@ -11,7 +11,8 @@ import { Router, type Request, type RequestHandler, type Response } from 'expres
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, sourceAddress, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
+import { refuser, sourceOf } from './routeGate.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, FILE_DIFF, MY_USAGE, type SessionRow } from '../storage/rows.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { checkNameToken } from './nameToken.js';
 import type { RespondBridge } from './respondBridge.js';
@@ -85,8 +86,6 @@ function readCookie(req: Request, name: string): string | null {
   return null;
 }
 
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
-
 /** Whether a mod's credential owns the session: a person's token their own sessions (by id, never by name: #1284), the admin secret those owned by Admin. */
 export function credentialOwns(id: Identity, row: SessionRow): boolean {
   if (row.owner === null) return false;
@@ -153,10 +152,7 @@ export function mountRespondRoutes(router: Router, d: RespondDeps): RespondAcces
   const myUsageEnabled = (): boolean => d.token !== null && fleet.features.featureOn(MY_USAGE);
   const signInEnabled = (): boolean => enabled() || diffEnabled() || historyEnabled() || myUsageEnabled() || (d.alsoSignIn?.() ?? false);
 
-  const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('respond.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason, ...extra });
-  };
+  const refuse = refuser(logger, 'respond.refused', { session: true });
 
   // ---- what became of a delivery (#304) ----------------------------------------------------------
 
