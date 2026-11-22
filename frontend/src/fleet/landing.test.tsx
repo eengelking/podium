@@ -7,53 +7,68 @@ import type { ChatApi, ChatOverview, ChannelMessage } from "./chatData";
 
 const GENERAL: Selection = { kind: "channel", id: "general" };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const nothing = () => () => undefined;
+
+/** A read that answers when told to, with what it would do when it lands. */
+function held() {
+  let answer!: (apply?: () => void) => void;
+  const read = new Promise<(() => void) | null>((done) => (answer = (apply) => done(apply ?? null)));
+  return { read: () => read, answer };
+}
 
 describe("Landing", () => {
   afterEach(() => vi.useRealTimers());
 
-  it("runs what the reads hand over together, when the last read that started has ended", async () => {
+  it("runs what the reads hand over together, when the last read that started has answered", async () => {
     const lane = new Landing();
     const ran: string[] = [];
-    lane.start();
-    lane.start();
-    const a = lane.end(() => ran.push("a"));
+    const a = held();
+    const b = held();
+    const both = Promise.all([lane.run(a.read, nothing), lane.run(b.read, nothing)]);
+    a.answer(() => void ran.push("a"));
     await Promise.resolve();
     expect(ran).toEqual([]);
-    const b = lane.end(() => ran.push("b"));
-    await Promise.all([a, b]);
+    b.answer(() => void ran.push("b"));
+    await both;
     expect(ran).toEqual(["a", "b"]);
   });
 
-  it("runs a read that is alone at once", async () => {
+  it("runs a read that is alone at once, and what a failed read says to do", async () => {
     const lane = new Landing();
     const ran: string[] = [];
-    lane.start();
-    await lane.end(() => ran.push("a"));
-    expect(ran).toEqual(["a"]);
+    await lane.run(async () => () => void ran.push("a"), nothing);
+    await lane.run(() => Promise.reject(new Error("no")), (err) => () => void ran.push((err as Error).message));
+    expect(ran).toEqual(["a", "no"]);
   });
 
-  it("lets a read land on its own when the other has not come back after a while", async () => {
+  it("lets answers land on their own when a request never answers, and loses nothing", async () => {
     vi.useFakeTimers();
     const lane = new Landing();
     const ran: string[] = [];
-    lane.start();
-    lane.start();
-    const a = lane.end(() => ran.push("a"));
+    const hung = held();
+    const hungRun = lane.run(hung.read, nothing);
+    const first = lane.run(async () => () => void ran.push("first"), nothing);
     await vi.advanceTimersByTimeAsync(LANDING_WAIT_MS - 1);
     expect(ran).toEqual([]);
     await vi.advanceTimersByTimeAsync(2);
-    await a;
-    expect(ran).toEqual(["a"]);
-    // The one that hung comes back later and lands by itself.
-    await lane.end(() => ran.push("late"));
-    expect(ran).toEqual(["a", "late"]);
+    await first;
+    expect(ran).toEqual(["first"]);
+    // The next answer waits the same while the request is still out, and lands too.
+    const next = lane.run(async () => () => void ran.push("next"), nothing);
+    await vi.advanceTimersByTimeAsync(LANDING_WAIT_MS + 1);
+    await next;
+    expect(ran).toEqual(["first", "next"]);
+    // The request that hung answers at last, and lands by itself.
+    hung.answer(() => void ran.push("late"));
+    await hungRun;
+    expect(ran).toEqual(["first", "next", "late"]);
   });
 });
 
-describe("the overview and the open thread after one signal", () => {
-  const overview = (n: number) => ({ enabled: true, serverTime: 1000 + n, me: { id: 1, name: "Ed", admin: false, person: true }, channels: [], directs: [], agents: [], people: [], version: n }) as unknown as ChatOverview;
-  const msg = (id: string): ChannelMessage => ({ id, authorKind: "person", authorName: "Ed", authorRef: "Ed", text: id, createdAt: 1, updatedAt: 1, replyTo: null, issue: null, project: null, milestone: null, mine: true, mentions: [] });
+const message = (id: string, text = id): ChannelMessage => ({ id, authorKind: "person", authorName: "Ed", authorRef: "Ed", text, createdAt: 1, updatedAt: 1, replyTo: null, issue: null, project: null, milestone: null, mine: true, mentions: [] });
+const overview = (n: number) => ({ enabled: true, serverTime: 1000 + n, me: { id: 1, name: "Ed", admin: false, person: true }, channels: [], directs: [], agents: [], people: [], version: n }) as unknown as ChatOverview;
 
+describe("the overview and the open thread after one signal", () => {
   function setup(delays: { overview: number; thread: number }) {
     let n = 0;
     const api = {
@@ -63,7 +78,7 @@ describe("the overview and the open thread after one signal", () => {
       }),
       channelMessages: vi.fn(async () => {
         await sleep(delays.thread);
-        return { ok: true as const, channel: "general" as const, messages: Array.from({ length: n + 1 }, (_, i) => msg(`m${i}`)), older: null, total: n + 1 };
+        return { ok: true as const, channel: "general" as const, messages: Array.from({ length: n + 1 }, (_, i) => message(`m${i}`)), older: null, total: n + 1 };
       }),
     } as unknown as ChatApi;
     const seen: { overview: number; thread: number }[] = [];
@@ -127,46 +142,78 @@ describe("the overview and the open thread after one signal", () => {
 
   it("resolves a reload once its answer is in state", async () => {
     const api = { overview: vi.fn(async () => overview(0)) } as unknown as ChatApi;
-    const host = renderHook(() => useChatOverview(api, true, 0));
+    const host = renderHook(() => useChatOverview(api, true, 0, null, useLanding()));
     await act(async () => {
       await host.result.current.reload();
     });
     expect(host.result.current.data).not.toBeNull();
   });
+});
 
-  it("keeps the earlier pages the state shows when a read that found the thread cleared is replaced before it lands", async () => {
-    const m = (id: string): ChannelMessage => ({ id, authorKind: "person", authorName: "Ed", authorRef: "Ed", text: id, createdAt: 1, updatedAt: 1, replyTo: null, issue: null, project: null, milestone: null, mine: true, mentions: [] });
-    let newest: ChannelMessage[] = [m("m3"), m("m4")];
-    let total = 4;
+describe("a thread read that waits in the landing", () => {
+  /** A thread of General whose newest page is `newest` and whose earlier page is m1 and m2, and a read that holds the landing until `release`. */
+  function held_thread(first: ChannelMessage[], total: number) {
+    const state = { newest: first, total };
     const api = {
       channelMessages: vi.fn(async (_id: string, o: { before: string | null }) =>
-        o.before ? { ok: true as const, channel: "general" as const, messages: [m("m1"), m("m2")], older: null, total } : { ok: true as const, channel: "general" as const, messages: newest, older: "c", total },
+        o.before ? { ok: true as const, channel: "general" as const, messages: [message("m1"), message("m2")], older: null, total: state.total } : { ok: true as const, channel: "general" as const, messages: state.newest, older: "c", total: state.total },
       ),
     } as unknown as ChatApi;
     const landing = new Landing();
+    const hold = held();
     const host = renderHook(({ rev }) => useThread(api, GENERAL, rev, null, landing), { initialProps: { rev: 0 } });
-    await act(async () => {
-      await sleep(20);
-    });
-    await act(async () => void (await host.result.current.loadEarlier()));
-    expect(host.result.current.messages.map((x) => x.id)).toEqual(["m1", "m2", "m3", "m4"]);
-    // Another read is out, so the thread's reads wait in the landing; the first of them found the thread cleared, a second signal replaces it.
-    landing.start();
-    newest = [m("m5")];
-    total = 1;
+    const settle = () => act(async () => void (await sleep(20)));
+    return { state, host, landing, settle, hold, release: () => act(async () => void (hold.answer(), await sleep(20))) };
+  }
+
+  it("keeps the earlier pages the state shows when a read that found the thread cleared is replaced before it lands", async () => {
+    const t = held_thread([message("m3"), message("m4")], 4);
+    await t.settle();
+    await act(async () => void (await t.host.result.current.loadEarlier()));
+    expect(t.host.result.current.messages.map((x) => x.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    // Another read is out, so the thread's reads wait; the first of them found the thread cleared, a second signal replaces it.
+    void t.landing.run(t.hold.read, nothing);
+    t.state.newest = [message("m5")];
+    t.state.total = 1;
+    t.host.rerender({ rev: 1 });
+    await t.settle();
+    t.state.newest = [message("m5"), message("m6")];
+    t.state.total = 2;
+    t.host.rerender({ rev: 2 });
+    await t.settle();
+    await t.release();
+    expect(t.host.result.current.messages.map((x) => x.id)).toEqual(["m5", "m6"]);
+  });
+
+  it("ends on the edited text when a message is edited while a read that has the old text is out", async () => {
+    let text = "old text";
+    let out = false;
+    const answers: (() => void)[] = [];
+    const api = {
+      channelMessages: vi.fn(async () => {
+        const page = { ok: true as const, channel: "general" as const, messages: [message("m3", text)], older: null, total: 1 };
+        // After the first read, each read answers when the test says so, with the text it was asked for under.
+        return out ? new Promise<typeof page>((done) => answers.push(() => done(page))) : page;
+      }),
+    } as unknown as ChatApi;
+    const landing = new Landing();
+    const host = renderHook(({ rev }) => useThread(api, GENERAL, rev, null, landing), { initialProps: { rev: 0 } });
+    const settle = () => act(async () => void (await sleep(20)));
+    await settle();
+    out = true;
     host.rerender({ rev: 1 });
-    await act(async () => {
-      await sleep(20);
-    });
-    newest = [m("m5"), m("m6")];
-    total = 2;
+    await settle();
+    // The edit shows at once, and its own signal starts a newer read, which the older one must not overwrite when it answers last.
+    act(() => host.result.current.patch(message("m3", "edited text")));
+    expect(host.result.current.messages[0]!.channel!.text).toBe("edited text");
+    text = "edited text";
     host.rerender({ rev: 2 });
-    await act(async () => {
-      await sleep(20);
-    });
-    await act(async () => {
-      await landing.end(() => undefined);
-    });
-    expect(host.result.current.messages.map((x) => x.id)).toEqual(["m5", "m6"]);
+    await settle();
+    expect(answers).toHaveLength(2);
+    answers[1]!();
+    await settle();
+    answers[0]!();
+    await settle();
+    expect(host.result.current.messages.map((x) => x.channel!.text)).toEqual(["edited text"]);
   });
 });

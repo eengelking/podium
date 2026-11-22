@@ -1,9 +1,8 @@
-// Chat's reads after one `chat` signal land together (#1311). The overview and the open thread are two requests; each used to put its answer into
-// state as it came, so the page drew twice for one signal, and again for each of the other reads on the console. A page that reads from several hooks
-// gives them one `Landing`: a read says it has started, and when it ends it hands over what it would do with its answer; when the last read that started
-// has ended they all run in one go, which React draws once.
+// Chat's reads after one `chat` signal land together (#1311). The overview and the open thread are two requests, and each put its answer into state as it
+// came, so the page was drawn twice for one signal. Reads that share a `Landing` hand over what they would do with their answer, and when the last read
+// that started has answered they all run in one go, which React draws once.
 
-/** How long a read that came back waits for another that has not, before it lands on its own: a request that hangs must not hold the rest of the page. */
+/** How long an answer waits for a read that has not answered, before it lands on its own: a request that hangs must not hold the rest of the page. */
 export const LANDING_WAIT_MS = 1500;
 
 export class Landing {
@@ -11,21 +10,23 @@ export class Landing {
   private held: (() => void)[] = [];
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  /** A read starts. Every `start` is followed by one `end`. */
-  start(): void {
+  /** Runs one read. `read` fetches and returns what to do when the answer lands (null: nothing), `failed` what to do when it threw. Resolves once that is done. */
+  async run(read: () => Promise<(() => void) | null>, failed: (err: unknown) => () => void): Promise<void> {
     this.open += 1;
-  }
-
-  /** A read ends with what it would do to state. Resolves once that has been done. */
-  end(apply: () => void): Promise<void> {
-    return new Promise<void>((done) => {
+    let apply: (() => void) | null;
+    try {
+      apply = await read();
+    } catch (err) {
+      apply = failed(err);
+    }
+    await new Promise<void>((done) => {
       this.held.push(() => {
-        apply();
+        apply?.();
         done();
       });
-      this.open = Math.max(0, this.open - 1);
+      this.open -= 1;
       if (this.open === 0) this.flush();
-      else if (this.timer === null) this.timer = setTimeout(() => this.flush(), LANDING_WAIT_MS);
+      else this.timer ??= setTimeout(() => this.flush(), LANDING_WAIT_MS);
     });
   }
 

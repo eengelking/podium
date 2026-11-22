@@ -12,7 +12,7 @@ import { agentState } from "./components/ChatSidebar";
 import { ChatThread, DeleteMessageDialog } from "./components/ChatThread";
 import { ChatConversation } from "./components/ChatConversation";
 import { ConcludedBanner } from "./components/ChatEnded";
-import { useConcluded, type ConcludedRead } from "./useConcluded";
+import type { ConcludedRead } from "./useConcluded";
 import { ChannelModal, DirectModal, type DirectDone } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
 import type { MenuAct, MenuAt } from "./components/ChatMenu";
@@ -44,10 +44,10 @@ interface ChatPageProps {
   sessions: Record<string, SessionView>;
   rev: number;
   api: ChatApi;
-  /** The clock of a page that prints a time only as a time of day or a day's name: it moves with the date, not with the 2 second tick (#1311). */
+  /** Moves with the date, not the 2 second tick: the page prints a time only as a time of day or a day's name (#1311). */
   now: number;
-  /** What was concluded, read once by the console for the wall and for this page (#1311); read here when the console does not pass it. */
-  concluded?: ConcludedRead;
+  /** What was concluded, read once by the console for the wall and this page (#1311). */
+  concluded: ConcludedRead;
   openWith?: string | null;
 }
 
@@ -75,7 +75,7 @@ function ChatBody(props: ChatPageProps) {
   const { api, sessions, rev } = props;
   // An Admin reads a person's conversations by choosing the person: the overview and the open thread are then that person's.
   const [readAs, setReadAs] = useState<string | null>(null);
-  // The overview and the open thread are read for the same signal and land together, so the page is drawn once for the two (#1311).
+  // The overview and the open thread answer one signal and land together, so the page is drawn once for the two (#1311).
   const landing = useLanding();
   const overview = useChatOverview(api, true, rev, readAs, landing);
   const o = overview.data;
@@ -83,7 +83,7 @@ function ChatBody(props: ChatPageProps) {
   const stale = !!o && overview.owner !== readAs;
   const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
   // A reading is hidden when its time has passed and a read has landed since, never on the clock alone (#1051).
-  // The server's clock at the last read that landed, as a reading's end is judged by it; before the first read, or from a server that sends no time, the browser's.
+  // A reading's end is judged by the server's clock at the last read that landed (the browser's before the first, or when the server sends none).
   const serverNow = overview.readAt || Date.now();
   // The records of a conversation that has since been deleted come once, and the server marks them seen; they stay while this page is open (#1051).
   const gone = overview.gone;
@@ -121,9 +121,7 @@ function ChatBody(props: ChatPageProps) {
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
   let sel: Selection = picked && picked.kind !== "convo" ? picked : GENERAL;
   // A Direct Message that was concluded because an agent in it ended stays open with a banner that says so, until the person leaves it (#1283).
-  // The console reads it once for the wall and this page; a page rendered on its own reads it here.
-  const ownConcluded = useConcluded(api, props.concluded === undefined, rev);
-  const concluded = props.concluded ?? ownConcluded;
+  const { concluded } = props;
   const endedHere = picked?.kind === "dm" && !picked.fresh ? (concluded.items.find((c) => c.thread === picked.key) ?? null) : null;
   if (o && picked?.kind === "dm" && !picked.fresh && !endedHere && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
   // A channel an Admin removed leaves the list, and the page falls back to General.

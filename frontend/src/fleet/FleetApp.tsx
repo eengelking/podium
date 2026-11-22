@@ -232,10 +232,8 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const peersOn = state.features["peer-messaging"] === true;
   const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters, state.chatRev);
   // Direct Messages concluded because an agent in them ended (#1283): a notice each on the wall, read again whenever the console's chat signal moves.
-  // The Chat page shows the same list (the line in an open thread), so it is read here once for both (#1311); a person signed in on the Chat page is
-  // read for even when "me" is not a person (an Admin with no person of their own), as the page did itself.
+  // The Chat page draws from the same list, so it is read here once for both (#1311). It is also read for a signed-in Admin with no person of their own on Chat, as the page did.
   const concluded = useConcluded(chatApiProp ?? chatApi, peersOn && (me !== null || (chat && signedIn?.signedIn === true)), state.chatRev);
-  // Chat prints a time only as a time of day or the name of a day, so its clock moves with the date and not with the 2 second tick (#1311).
   const chatNow = useDayNow(now);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
