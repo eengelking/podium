@@ -144,6 +144,27 @@ describe('answer: what Podium is shown and what OpenCode takes', () => {
   });
 });
 
+describe('a message written in a Direct Message with several members (#1296)', () => {
+  const hint = 'To answer in this conversation, so that the people in it see the answer, use podium_send to "convo:cnv_ab12".';
+
+  it('reaches the model through the reporter with convo:<id> to answer in, with or without the console frame, and a message not from Chat never gets it', async () => {
+    const { host, calls } = fakeHost();
+    const { r } = rig(host, true, true, podium({ deliveries: [
+      D({ id: 'm1', kind: 'message', text: 'Both of you: status?', chat: true, convo: 'cnv_ab12' }),
+      D({ id: 'm2', kind: 'message', text: 'Framed: status?', chat: true, convo: 'cnv_ab12', via: 'console' }),
+      D({ id: 'm3', kind: 'message', text: 'Not from Chat.', convo: 'cnv_ab12' }),
+    ] }));
+    await r.tick();
+    await r.tick();
+    const prompts = calls.filter((c) => c.startsWith('prompt'));
+    expect(prompts).toHaveLength(3);
+    expect(prompts[0]).toContain(hint);
+    expect(prompts[1]).toContain(hint);
+    expect(prompts[1]).not.toContain('person:Ed');
+    expect(prompts[2]).not.toContain('convo:');
+  });
+});
+
 describe('host: answering inside OpenCode', () => {
   const baseDeps = (over: Partial<HostDeps> = {}) => {
     const calls: string[] = [];

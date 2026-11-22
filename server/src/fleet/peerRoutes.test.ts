@@ -268,6 +268,19 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     expect((await request(s.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', s.ed.token).send({ to: 'Tester@ci-runner-01' })).status).toBe(400);
   });
 
+  it('refuses a `to` that is blank or longer than 200 characters with 400 and its path, and takes one of exactly 200 as far as the lookup (#1296)', async () => {
+    const s = await linked('send');
+    const to = (v: string) => request(s.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', s.ed.token).send({ to: v, text: 'x' });
+    for (const v of ['a'.repeat(201), '   ']) {
+      const out = await to(v);
+      expect(out.status).toBe(400);
+      expect(out.body).toEqual({ ok: false, error: 'to must be name@machine', path: '$.to' });
+    }
+    expect(storedMessages(s)).toBe(0);
+    // 200 characters is inside the limit: the address is looked up, finds nobody, and the answer is the one for an unknown agent.
+    expect((await to('a'.repeat(200))).status).toBe(404);
+  });
+
   it('answers a delivery result for an unknown id with 404, and checks the result', async () => {
     const s = await linked('send');
     const route = '/api/fleet/sessions/sess-tester/peers/deliveries/dlv_nope/result';
