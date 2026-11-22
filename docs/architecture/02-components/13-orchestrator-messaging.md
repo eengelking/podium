@@ -102,7 +102,18 @@ another person's agent for a message. Files: `server/src/fleet/chat.ts`, `chatCo
 purpose. `ChatCore` has what both sides share and touches no message: the Admin's limits, redaction (`scrubStored`), the per-author
 rate limit, the read-state counts and the stream signal, the audit callback, and `deliver`, which hands a text to an agent through
 responding's message path (`RespondStore.message`) so the Admin's respond flags and the reporter's own consent apply as they do for the
-console's message box. `ChannelChat` is General, the public channels (#1035) and My group: posting, paging, the `@` address book, mentions and their
+console's message box. Each rule the audiences repeated lives there once (#1310), with the audience's own words as a parameter:
+`screen` checks a text before it is scanned (a string with something in it, `tooLong`, `tooFast`) and `cleaned` scans it and checks
+something is left; `tooLong` and `tooFast` refuse a text over the length or the rate in the words of `chat` (a channel and a Direct Message) or `convo`
+(a conversation); `ChannelChat.change` and `DirectChat.change` are the one edit-and-delete flow of each; `changeRefusal`, `changeState` and `sentWords` are the refusal of a change and the rule for whether a message can
+still be changed; `endedNotice` is what an agent hears when the agent it was written with ends. A new audience adds its words to
+those tables and uses the same screen and refusal functions, but still writes its own change function, because the order of its checks and its
+store steps are its own. The stream signal is a scope and nothing else: `signal(scope)`
+sends `chat {rev, scope}`, and the owner, the counts and the approvals a signal once also built were never sent and are gone.
+`routeGate.ts` holds the logged refusal every route file shares (`refuser`) and the gate a reporter's token passes for its person's
+session (`agentGate`), and `chatAdminReads.ts` has the one builder of an Admin read's subject (`readSubject`) that the group, the Direct
+Message, the conversation, the list, a session's read and a replay all use, so a new path that shows an Admin a person's content
+is told to the person by building its subject there. `ChannelChat` is General, the public channels (#1035) and My group: posting, paging, the `@` address book, mentions and their
 delivery state, and the stop buttons. `DirectChat` is the Direct Messages: a person writing to one agent or into a conversation
 between two, a person writing to another person's agent, the link between them, hide and show, and delete. `channels` never
 reads a conversation and `direct` never reads a channel, and `chatSeparation.test.ts` holds the files to it. Where they need each

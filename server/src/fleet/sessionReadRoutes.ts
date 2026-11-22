@@ -2,26 +2,21 @@
 // Never Reads in Silence"). They live on responding's /respond router, so they share its sign-in, its cross-site check and its no-store header.
 // What an Admin reads is recorded by the route that serves it, through `AdminReads.noteSession` before anything is sent; these three routes only tell the
 // person. Nothing here carries any text: a name, a time and a kind.
-import { Router, type Request, type Response } from 'express';
+import { Router } from 'express';
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
-import { sourceAddress } from '../storage/rows.js';
+import { refuser } from './routeGate.js';
 import { LOOP_ID, isSessionReadKind, readNeedsLoop } from './sessionReads.js';
 import { MAIN_LOOP } from './protocol.js';
 import { asyncHandler } from './asyncHandler.js';
-
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
 export function mountSessionReadRoutes(browser: Router, d: PeerDeps, h: BrowserHelpers): void {
   const { fleet, logger } = d;
   const reads = (): Fleet['chat']['adminReads'] => fleet.chat.adminReads;
   const json = jsonBody({ limit: '1kb' });
 
-  const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('session_reads.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason });
-  };
+  const refuse = refuser(logger, 'session_reads.refused', { session: true });
 
   // The Admins reading the signed-in person's own sessions now, by kind and session. The console reads it when the stream's `reads` counter moves. An Admin gets
   // only their own sessions' readers, like anyone: this names no one else's.

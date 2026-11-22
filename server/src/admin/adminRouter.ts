@@ -6,7 +6,8 @@ import { randomBytes } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { jsonBody } from '../jsonBody.js';
 import type { AdminActs } from '../fleet/adminActs.js';
-import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
+import { ADMIN_SECRET_ACTOR, PeopleError, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
+import { sourceOf } from '../fleet/routeGate.js';
 import type { ActivityHistoryApi, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
@@ -105,8 +106,6 @@ export interface AdminRouterOptions {
 const COOKIE = 'podium_admin';
 const MAX_SESSIONS = 20;
 export const ADMIN_IDLE_MS = 10 * 60_000;
-
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
 function readCookie(req: Request, name: string): string | null {
   for (const part of (req.get('cookie') ?? '').split(';')) {

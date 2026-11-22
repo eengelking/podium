@@ -5,10 +5,10 @@
 import { isSentToAgent, mergesAsOne } from '../storage/peerEdit.js';
 import { nameKey } from '../storage/rows.js';
 import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser, type MessageRow, type MessageState, type MessageTrail, type OwnerConversation, type PersonLinkOp, type Refusal } from './peerTypes.js';
-import { ENDED_NOTICE_MARK, PEER_DROP_WORDS } from './protocol.js';
-import { ChatCore, type DeliveryOutcome } from './chatCore.js';
-import type { AdminReads, ReadSubject, Told } from './chatAdminReads.js';
-import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
+import { PEER_DROP_WORDS } from './protocol.js';
+import { ChatCore, changeRefusal, changeState, endedNotice, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
+import { readSubject, type AdminReads, type ReadSubject, type Told } from './chatAdminReads.js';
+import { dmThread, emptyMessage, fail, isPersonId, noConversation, noOwnMessages, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 export interface PartyView {
   sessionId: string;
@@ -116,19 +116,20 @@ interface DirectMessageView {
 
 const rank = (s: MessageState): number => (s === 'dropped' || s === 'declined' ? 3 : s === 'delivered' ? 0 : 1);
 
-/** The names of the agents a message was sent to, in words: `Tester`, `Tester and dev`. */
-const named = (names: string[]): string => (names.length <= 1 ? (names[0] ?? 'the agent') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
 const lockedWords = (rows: MessageRow[]): string => {
   // The rows that were sent name the agents; when the caller knows only that the store said locked, every row it has names one.
   const sent = rows.filter((r) => isSentToAgent(r));
-  return `Podium has already sent this message to ${named([...new Set((sent.length ? sent : rows).map((r) => r.toName))])}, so it can no longer be changed.`;
+  return sentWords([...new Set((sent.length ? sent : rows).map((r) => r.toName))]);
 };
+
+/** What a Direct Message says when the store refuses to change a message. */
+const DIRECT_WORDS: ChangeWords = { notFound: 'There is no such message in this conversation.', notYours: 'Only the person who wrote a message can change it.', deleted: 'This message has already been deleted.' };
 
 /** Whether the viewer may change the message these rows are (the rows of one message), and when not, why. The author is the person's id; the lock is the store's predicate over every row. */
 function changeOf(rows: MessageRow[], viewer: ChatViewer | null): { canChange: boolean; changeWhy: string | null } {
   const first = rows[0]!;
-  if (first.deletedAt !== null || viewer === null || viewer.personId === null || first.author !== 'person' || first.authorId === null || first.authorId !== viewer.personId) return { canChange: false, changeWhy: null };
-  return rows.some((r) => isSentToAgent(r)) ? { canChange: false, changeWhy: lockedWords(rows) } : { canChange: true, changeWhy: null };
+  const mine = first.deletedAt === null && viewer !== null && viewer.personId !== null && first.author === 'person' && first.authorId !== null && first.authorId === viewer.personId;
+  return changeState(mine, rows.some((r) => isSentToAgent(r)), () => lockedWords(rows));
 }
 
 /** A conversation's rows as the thread shows them, each message with the rows it is made of: a person's text that went to both agents of a conversation is one message. */
@@ -247,7 +248,7 @@ export class DirectChat {
 
   /** Who is in a conversation across owners, and where the link between them stands. Null for any other conversation. */
   private async crossOf(c: ConversationSummary, viewer: ChatViewer): Promise<CrossInfo | null> {
-    const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    const personEnd = this.personEnd(c);
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId));
     if (!personEnd || !agentEnd || (c.ownerId !== null && personEnd.sessionId === personId(c.ownerId))) return null;
     const row = await this.peerStore.rights.personLink(personEnd.sessionId, agentEnd.reporterKey);
@@ -387,7 +388,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) {
       const fresh = this.newWith(viewer, a, b);
-      if (!fresh) return fail(404, 'There is no such conversation.');
+      if (!fresh) return noConversation();
       const o = this.liveOf(fresh.sessionId)!;
       const me = { sessionId: personId(viewer.personId!), name: viewer.name, machine: '', reporterKey: '' };
       const agent = { sessionId: o.sessionId, name: o.name, machine: o.machine, reporterKey: o.reporterKey };
@@ -397,9 +398,9 @@ export class DirectChat {
     }
     const role = this.role(viewer, c);
     // Someone who is not in it hears what they hear of a conversation that is not there, so the answer does not say which ones exist (#1051).
-    if (!role) return fail(404, 'There is no such conversation.');
+    if (!role) return noConversation();
     // A conversation whose owner is no longer anyone (a person since deleted) belongs to nobody, so no one reads it (#1284).
-    if (c.ownerId === null) return fail(404, 'There is no such conversation.');
+    if (c.ownerId === null) return noConversation();
     let page;
     try {
       page = await this.peers.page(c.ownerId, a, b, opts);
@@ -417,20 +418,15 @@ export class DirectChat {
 
   /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners, in every live reporter session of each. */
   private async subject(c: ConversationSummary): Promise<ReadSubject> {
-    return { scope: 'dm', thread: dmThread(c.a.sessionId, c.b.sessionId), owners: this.peopleOf(c), people: this.peopleIdsOf(c), phrase: `is reading your Podium conversation between ${c.a.name} and ${c.b.name}` };
-  }
-
-  /** The people of a conversation, folded: its owner, and the person who wrote when it is across owners. Names, for the Admin log and the console's signals. */
-  private peopleOf(c: ConversationSummary): string[] {
-    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    return [...new Set([nameKey(c.owner), ...(person ? [nameKey(person.name)] : [])])];
+    const person = this.personEnd(c);
+    return readSubject('dm', dmThread(c.a.sessionId, c.b.sessionId), `is reading your Podium conversation between ${c.a.name} and ${c.b.name}`, { names: [c.owner, ...(person ? [person.name] : [])], ids: this.peopleIdsOf(c) });
   }
 
   /**
    * The people of a conversation by `people.id` (#1284), who are told and owed the record: the owner by the id the conversation kept, and the person who wrote by the id in their end of the link
    * (`person:<id>`). An end that is no person (`person:gone:<name>`, a deleted person) is no one, never a newcomer who has since taken the name.
    */
-  private peopleIdsOf(c: ConversationSummary): number[] {
+  private peopleIdsOf(c: Pick<ConversationSummary, 'a' | 'b' | 'ownerId'>): number[] {
     const ids = new Set<number>();
     if (c.ownerId !== null) ids.add(c.ownerId);
     for (const p of [c.a, c.b]) {
@@ -481,7 +477,7 @@ export class DirectChat {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a conversation that is not their own.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
-    if (!c) return fail(404, 'There is no such conversation.');
+    if (!c) return noConversation();
     if (this.role(viewer, c) !== 'admin') return fail(403, 'That conversation is yours, so reading it is not recorded.');
     await this.reads.note(viewer, await this.subject(c), true);
     return { ok: true };
@@ -498,7 +494,7 @@ export class DirectChat {
     // Another person's agent (#1034): the person asks its owner. The agent's owner writes to it from their own conversation with it.
     if (c && role === 'owner' && [c.a.sessionId, c.b.sessionId].some((id) => isPersonId(id) && id !== me)) return fail(409, 'This conversation is with another person. Write to your agent from your own conversation with it.');
     if (c && role === 'sender') return this.sendAcrossDm(viewer, [a, b].find((id) => !isPersonId(id))!, body);
-    if (c && !role) return fail(404, 'There is no such conversation.');
+    if (c && !role) return noConversation();
     if (c && role !== 'owner') return fail(403, 'Only the people in a conversation can add to it, and an Admin can read it.');
     const fresh = c ? null : this.newWith(viewer, a, b);
     if (!c && !fresh) {
@@ -508,14 +504,13 @@ export class DirectChat {
       const known = other !== null && !isPersonId(other) && !this.liveOf(other) ? await this.core.host.sessionOf(other) : null;
       // Only the person's own agent is named: another person's stored session is not theirs to learn exists, or what it is called.
       if (known !== null && viewer.personId !== null && known.ownerId === viewer.personId) return fail(409, `${known.name} has ended, so Podium did not queue the message. It would never be taken.`);
-      return fail(404, 'There is no such conversation.');
+      return noConversation();
     }
     if (fresh && !fresh.own) return this.sendAcrossDm(viewer, fresh.sessionId, body);
-    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
     // The checks that cost nothing come before the scan for secrets, which reads every character: type, length, then rate (#1051).
-    const early = await this.early(viewer, body.text, true);
-    if (early) return early;
-    const text = this.core.redact(body.text);
+    const checked = await this.core.screen(body.text, `person:${nameKey(viewer.name)}`);
+    if ('ok' in checked) return checked;
+    const text = this.core.redact(checked.raw);
     const agents = [a, b].filter((id) => !isPersonId(id));
     const want = Array.isArray(body.to) ? body.to.filter((x): x is string => typeof x === 'string') : agents;
     if (!want.length || want.some((id) => !agents.includes(id))) return fail(400, 'to must name an agent of this conversation.');
@@ -532,7 +527,7 @@ export class DirectChat {
     const stored: MessageRow[] = [];
     for (const sid of live) {
       const o = this.liveOf(sid)!;
-      if (o.ownerId === null || o.ownerId !== viewer.personId) return fail(404, 'There is no such conversation.');
+      if (o.ownerId === null || o.ownerId !== viewer.personId) return noConversation();
       const other = agents.find((x) => x !== sid);
       // The person's own conversation with this one agent: it may answer in the thread. A word added to a conversation between two agents has no such thread to answer in.
       const sent = this.core.deliver(sid, viewer.name, o.name, text, 'chat', !other, null, viewer.personId);
@@ -555,7 +550,7 @@ export class DirectChat {
       const first = errors[0]!;
       return fail(first.status, first.error);
     }
-    this.core.signal({ scope: 'dm', owner });
+    this.core.signal('dm');
     return { ok: true as const, message: directMessages(stored, viewer)[0]!, skipped, errors };
   }
 
@@ -563,11 +558,11 @@ export class DirectChat {
 
   /** The conversation and the stored message a change is about, when the viewer is a person in that conversation and the message is one of its own; otherwise the refusal. */
   private async changeScope(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ c: ConversationSummary; a: string; b: string; row: MessageRow } | Fail> {
-    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    if (viewer.personId === null) return noOwnMessages();
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
     const role = c ? this.role(viewer, c) : null;
-    if (!c || !role) return fail(404, 'There is no such conversation.');
+    if (!c || !role) return noConversation();
     // An Admin reads a conversation and stops it; a message is changed by its author, from their own part of it.
     if (role === 'admin') return fail(403, 'An Admin can read a conversation but cannot change its messages.');
     const row = id.length <= 64 ? await this.peers.message(id) : null;
@@ -588,21 +583,15 @@ export class DirectChat {
   }
 
   private async refused(out: Extract<PeerChange, { ok: false }>, scope: { c: ConversationSummary; a: string; b: string; row: MessageRow }): Promise<Fail> {
-    const why = out.reason;
     // Over the length limit of the agent's owner: the send's own words and status.
     if (out.reason === 'too-long') return fail(out.status, out.error);
-    if (why === 'not-found') return fail(404, 'There is no such message in this conversation.');
-    if (why === 'not-yours') return fail(403, 'Only the person who wrote a message can change it.');
-    if (why === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
-    return fail(409, lockedWords((await this.rowsOf(scope.c, scope.a, scope.b, scope.row.id)) ?? [scope.row]), 'locked');
+    return changeRefusal(out.reason, DIRECT_WORDS, async () => lockedWords((await this.rowsOf(scope.c, scope.a, scope.b, scope.row.id)) ?? [scope.row]));
   }
 
   /** Tells the consoles of both people that a message changed, and the owner's count of what waits for them (a delete closes a request), and the Admin log: ids and where, never the text. */
-  private async changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, c: ConversationSummary, id: string): Promise<void> {
+  private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, c: ConversationSummary, id: string): void {
     this.core.onEvent({ kind, scope: 'dm', channel: null, owner: nameKey(c.owner), by: viewer.actor, messageId: id });
-    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) await this.tell(person.name, c.owner, c.ownerId);
-    else this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    this.tell(this.writer(c)?.name ?? c.owner, c.owner);
   }
 
   /** The message as a read returns it, now that it changed: every row it is made of, so a message to two agents answers with both. */
@@ -610,30 +599,32 @@ export class DirectChat {
     return directMessages((await this.rowsOf(scope.c, scope.a, scope.b, row.id)) ?? [row], viewer)[0]!;
   }
 
-  /** The author edits their own message: the new text is checked and redacted as a new one is, and nothing is delivered. The store decides who may and whether it is locked. */
-  async editMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: DirectMessageView } | Fail> {
-    const scope = await this.changeScope(viewer, rawA, rawB, id);
-    if ('status' in scope) return scope;
-    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    // The same order as a new message: length, then the person's limit, then the scan for secrets.
-    const early = await this.early(viewer, body.text, true);
-    if (early) return early;
-    const text = this.core.redact(body.text);
-    // A send refuses what is empty once cleaned; so does an edit, or it would leave a message with no text that is not a tombstone.
-    if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    const out = await this.peers.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
-    if (!out.ok) return this.refused(out, scope);
-    await this.changed('message_edited', viewer, scope.c, id);
-    return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
+  /** The author edits their own message: the new text is checked and redacted as a new one is, and nothing is delivered. */
+  editMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+    return this.change(viewer, rawA, rawB, id, body);
   }
 
-  /** The author deletes their own message: a tombstone stays for both people, and a request that waited for its owner is closed. The store decides who may and whether it is locked. */
-  async deleteMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+  /** The author deletes their own message: a tombstone stays for both people, and a request that waited for its owner is closed. */
+  deleteMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+    return this.change(viewer, rawA, rawB, id, null);
+  }
+
+  /** An edit (`edit` is the request's body) or a delete (null) of the author's own message. The store decides who may and whether it is locked. */
+  private async change(viewer: ChatViewer, rawA: string, rawB: string, id: string, edit: Record<string, unknown> | null): Promise<{ ok: true; message: DirectMessageView } | Fail> {
     const scope = await this.changeScope(viewer, rawA, rawB, id);
     if ('status' in scope) return scope;
-    const out = await this.peers.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
+    const by = () => ({ author: viewer.personId as number, now: this.core.host.now() });
+    let out;
+    if (edit !== null) {
+      // The same order as a new message: length, then the person's limit, then the scan for secrets. An edit also refuses what is empty once cleaned, or it would leave a message with no text that is not a tombstone.
+      const checked = await this.core.screen(edit.text, `person:${nameKey(viewer.name)}`);
+      if ('ok' in checked) return checked;
+      const cleaned = this.core.cleaned(checked.raw);
+      if (typeof cleaned !== 'string') return cleaned;
+      out = await this.peers.editMessage(id, { ...by(), text: cleaned });
+    } else out = await this.peers.deleteMessage(id, by());
     if (!out.ok) return this.refused(out, scope);
-    await this.changed('message_deleted', viewer, scope.c, id);
+    this.changed(edit !== null ? 'message_edited' : 'message_deleted', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
 
@@ -644,62 +635,56 @@ export class DirectChat {
    * words here: the author did it, and the channel side logs the change of the message it belongs to.
    */
   async changeAcross(viewer: ChatViewer, copyId: string, op: { kind: 'edit'; text: string } | { kind: 'delete' }): Promise<{ ok: true } | Fail> {
-    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    if (viewer.personId === null) return noOwnMessages();
     const row = await this.peers.message(copyId);
     if (!row) return fail(404, 'There is no such message.');
     const now = this.core.host.now();
     const out = op.kind === 'edit' ? await this.peers.editMessage(copyId, { author: viewer.personId, text: op.text, now }) : await this.peers.deleteMessage(copyId, { author: viewer.personId, now });
     if (!out.ok) {
       if (out.reason === 'too-long') return fail(out.status, out.error);
-      if (out.reason === 'locked') return fail(409, lockedWords([(await this.peers.message(copyId)) ?? row]), 'locked');
-      if (out.reason === 'deleted') return fail(409, 'This message has already been deleted.', 'deleted');
-      return fail(out.reason === 'not-found' ? 404 : 403, out.reason === 'not-found' ? 'There is no such message.' : 'Only the person who wrote a message can change it.');
+      return changeRefusal(out.reason, { ...DIRECT_WORDS, notFound: 'There is no such message.' }, async () => lockedWords([(await this.peers.message(copyId)) ?? row]));
     }
     // The store changed the message only for its author, so the person is the viewer.
-    await this.tell(viewer.name, row.owner, row.ownerId);
+    this.tell(viewer.name, row.owner);
     return { ok: true };
   }
 
   // ---- A person writes to another person's agent (#1034) ------------------------------------------------------------
 
-  /** The count the owner's stream signal carries: messages from other people that wait for the owner's approval. A count only. */
+  /** Messages from other people that wait for the owner's approval: the count the overview shows its owner. */
   async approvalsFor(ownerId: number | null): Promise<number> {
     return (await this.peerStore.rights.openRequests(ownerId)).filter((r) => r.kind === 'message' && isPersonKey(r.fromKey)).length;
   }
 
-  /** Tells the person's consoles, and the owner's with the count of what waits for them. Never any text. */
-  private async tell(person: string, owner: string, ownerId: number | null): Promise<void> {
-    this.core.signal({ scope: 'dm', owner: nameKey(person) });
-    if (nameKey(owner) !== nameKey(person)) this.core.signal({ scope: 'dm', owner: nameKey(owner), approvals: await this.approvalsFor(ownerId) });
+  /** The end of a conversation that is a person: the one who wrote, or the owner in their own conversation with an agent; undefined between two agents. */
+  private personEnd(c: Pick<ConversationSummary, 'a' | 'b'>) {
+    return [c.a, c.b].find((p) => isPersonId(p.sessionId));
+  }
+
+  /** The person who wrote in a conversation across owners, when they are not its owner; undefined otherwise. */
+  private writer(c: Pick<ConversationSummary, 'a' | 'b' | 'ownerId'>) {
+    const p = this.personEnd(c);
+    return p && (c.ownerId === null || p.sessionId !== personId(c.ownerId)) ? p : undefined;
+  }
+
+  /** Tells the person's consoles, and the owner's when it is another person. Never any text. */
+  private tell(person: string, owner: string): void {
+    this.core.signal('dm', nameKey(owner) === nameKey(person) ? 1 : 2);
   }
 
   /** The text of a person's message to another person's agent: stored and held for the agent's owner, or sent at once over a link the owner opened. */
   private async acrossRow(viewer: ChatViewer, sessionId: string, text: string, rate: boolean, redact = false): Promise<{ ok: true; row: MessageRow } | Fail> {
     if (viewer.personId === null) return fail(403, "Only a signed-in person can write to another person's agent.");
-    const early = await this.early(viewer, text, rate);
-    if (early) return early;
+    const checked = await this.core.screen(text, rate ? `person:${nameKey(viewer.name)}` : null);
+    if ('ok' in checked) return checked;
     const refused = await this.acrossTarget(sessionId);
     if (refused) return refused;
     // The text comes in raw from a direct message (checked above first) and already redacted from a channel post.
     const row = await this.peers.sendAcross({ person: viewer.name, personId: viewer.personId, toSession: sessionId, text: redact ? this.core.redact(text) : text, authorId: viewer.personId });
     if ('ok' in row) return fail(row.status, row.error);
     this.core.onEvent({ kind: 'across', owner: nameKey(row.owner), person: nameKey(viewer.name), by: viewer.actor, messageId: row.id, sessionId, approval: row.state === 'approval' });
-    await this.tell(viewer.name, row.owner, row.ownerId);
+    this.tell(viewer.name, row.owner);
     return { ok: true, row };
-  }
-
-  /**
-   * What is checked of a person's text before anything reads it (#1051): its length against Chat's limit, then, for a message written in a conversation, the
-   * person's per-minute limit. The scan for secrets runs after both, so a text that is refused costs nothing to refuse.
-   */
-  private async early(viewer: ChatViewer, text: string, rate: boolean): Promise<Fail | null> {
-    const limits = await this.core.limits();
-    if (text.length > limits.maxChars) return fail(422, `The message is ${text.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
-    if (rate) {
-      const wait = this.core.rate(`person:${nameKey(viewer.name)}`, limits.perMinute);
-      if (wait !== null) return fail(429, `That is more than ${limits.perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`);
-    }
-    return null;
   }
 
   /**
@@ -728,7 +713,7 @@ export class DirectChat {
   }
 
   private async sendAcrossDm(viewer: ChatViewer, agentId: string, body: Record<string, unknown>) {
-    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    if (typeof body.text !== 'string' || !body.text.trim()) return emptyMessage();
     if (Array.isArray(body.to) && body.to.some((x) => x !== agentId)) return fail(400, 'to must name an agent of this conversation.');
     const out = await this.acrossRow(viewer, agentId, body.text, true, true);
     if ('status' in out) return out;
@@ -744,9 +729,9 @@ export class DirectChat {
     if (!op) return fail(400, 'op must be pause, resume, remove or allow.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
-    if (!c) return fail(404, 'There is no such conversation.');
+    if (!c) return noConversation();
     const role = this.role(viewer, c);
-    if (!role) return fail(404, 'There is no such conversation.');
+    if (!role) return noConversation();
     const cross = await this.crossOf(c, viewer);
     // An Admin can stop any conversation (pause it, and resume what they paused or anyone did) but never remove its link: that is the people's.
     if (role === 'admin' && op !== 'pause' && op !== 'resume') return fail(403, 'An Admin can pause and resume a link, not remove it. Its people do that.');
@@ -757,7 +742,7 @@ export class DirectChat {
     if (op === 'allow' && role === 'sender') return fail(403, `Only ${cross.owner} can open the link again.`);
     // Allow opens a link that was removed. A paused link is resumed by whoever paused it (#1051), so an allow never lifts a pause.
     if (op === 'allow' && cross.link === 'paused') return fail(409, 'This link is paused. Resume it (the one who paused it, or an Administrator, can) instead of opening it again.');
-    const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId))!;
+    const personEnd = this.personEnd(c)!;
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId))!;
     // Only whoever paused a link can resume it, and an Admin (#1034). A pause whose pauser is not known may be resumed by either owner.
     if (op === 'resume' && !cross.canResume && cross.link === 'paused') {
@@ -770,7 +755,7 @@ export class DirectChat {
     if (role === 'admin' && (op === 'pause' || op === 'resume') && (op === 'pause') !== (cross.link === 'paused')) await this.stoppedLink(viewer, c, op);
     const out = await this.peerStore.setPersonLink(personEnd.sessionId, agentEnd.reporterKey, op, { name: viewer.actor, admin: role === 'admin' }, op === 'pause' ? role : undefined);
     if (!out.ok) return fail(out.status, out.error);
-    await this.tell(personEnd.name, c.owner, c.ownerId);
+    this.tell(personEnd.name, c.owner);
     return { ok: true, link: (await this.crossOf(c, viewer))?.link ?? 'none' };
   }
 
@@ -780,7 +765,7 @@ export class DirectChat {
     await this.stoppedLink(viewer, c, op === 'pause' ? 'pause' : 'resume');
     const out = await this.peerStore.rights.pauseLink(null, c.a.reporterKey, c.b.reporterKey, op === 'pause', { name: viewer.actor, admin: true });
     if (!out.ok) return fail(out.status, out.error);
-    this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
+    this.core.signal('dm');
     return { ok: true, link: op === 'pause' ? 'paused' : 'open' };
   }
 
@@ -818,7 +803,7 @@ export class DirectChat {
     else if (t.kind === 'delivered') update(['waiting', 'approval'], 'working', null);
     else if (t.kind === 'dropped') update(['approval', 'waiting'], 'dropped', reasonOf({ state: 'dropped', why: t.why, owner: m.owner, toName: m.toName })?.replace(/\.$/, '') ?? null);
     else return;
-    void this.tell(m.fromName, m.owner, m.ownerId).catch((err: unknown) => this.core.host.warn('a direct message in Chat could not signal', err));
+    this.tell(m.fromName, m.owner);
   }
 
   /** What the agent did with a text: taken is Delivered, refused is Dropped. An agent that ended drops its queued messages itself. */
@@ -827,7 +812,7 @@ export class DirectChat {
     if (!result) return;
     void this.peers
       .result(sessionId, id, result)
-      .then(() => this.core.signal({ scope: 'dm', owner: null }))
+      .then(() => this.core.signal('dm'))
       .catch((err: unknown) => this.core.host.warn('a direct message in Chat could not be updated', err));
   }
 
@@ -836,19 +821,16 @@ export class DirectChat {
     if (viewer.personId === null) return fail(403, 'Only the people in a conversation can delete it.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
-    if (!c) return fail(404, 'There is no such conversation.');
+    if (!c) return noConversation();
     const role = this.role(viewer, c);
-    if (!role) return fail(404, 'There is no such conversation.');
+    if (!role) return noConversation();
     if (role !== 'owner' && role !== 'sender') return fail(403, 'Only the people in a conversation can delete it.');
-    if (c.ownerId === null) return fail(404, 'There is no such conversation.');
+    if (c.ownerId === null) return noConversation();
     const removed = await this.peers.deleteConversation(c.ownerId, a, b);
-    await this.core.store.readState.forget(dmThread(a, b));
-    await this.reads.forget(dmThread(a, b));
+    await this.reads.drop(dmThread(a, b));
     this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });
-    this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
-    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    if (person && role === 'sender') this.core.signal({ scope: 'dm', owner: nameKey(viewer.name) });
-    else if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal({ scope: 'dm', owner: nameKey(person.name) });
+    // The person who wrote is told too: the sender is told of their own delete, and the owner of what another person deleted.
+    this.core.signal('dm', this.personEnd(c) && (role === 'sender' || this.writer(c)) ? 2 : 1);
     return { ok: true, removed };
   }
 
@@ -869,13 +851,13 @@ export class DirectChat {
       if (!anyLive && c.hiddenAt === null) changed = (await this.peers.hideConversation(ownerId, c.a.sessionId, c.b.sessionId)) > 0 || changed;
       else if (anyLive && c.hiddenAt !== null) changed = (await this.peers.showConversation(ownerId, c.a.sessionId, c.b.sessionId)) > 0 || changed;
     }
-    if (changed) this.core.signal({ scope: 'dm', owner: nameKey(owner) });
+    if (changed) this.core.signal('dm');
   }
 
   async sessionChanged(sessionId: string, owner: string): Promise<void> {
     const ownerId = await this.idOf(owner);
     if (ownerId !== null) await this.reconcileOwner(owner, ownerId, sessionId);
-    this.core.signal({ scope: 'dm', owner: nameKey(owner) });
+    this.core.signal('dm');
   }
 
   /**
@@ -895,34 +877,26 @@ export class DirectChat {
       const undelivered = (await this.peers.conversation(c.a.sessionId, c.b.sessionId)).filter((m) => m.author === 'person' && m.state === 'dropped').length;
       const removed = await this.peers.deleteConversation(c.ownerId, c.a.sessionId, c.b.sessionId);
       if (removed === 0) continue;
-      await this.core.store.readState.forget(thread);
-      await this.reads.forget(thread);
+      await this.reads.drop(thread);
       if (!isPersonId(other.sessionId) && !told.has(other.sessionId) && this.core.host.isLive(other.sessionId)) {
         told.add(other.sessionId);
-        await this.peers.notice(other.sessionId, `${ENDED_NOTICE_MARK} ${gone.name} ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone.name}.`);
+        await this.peers.notice(other.sessionId, endedNotice(gone.name));
       }
       await this.remember(c, gone, other, thread, undelivered);
       this.core.onEvent({ kind: 'dm_concluded', owner: nameKey(c.owner), a: c.a.sessionId, b: c.b.sessionId, count: removed });
-      this.core.signal({ scope: 'dm', owner: nameKey(c.owner) });
-      const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-      if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal({ scope: 'dm', owner: nameKey(person.name) });
+      this.core.signal('dm', this.writer(c) ? 2 : 1);
     }
   }
 
   /** Records a conclusion for the people in it: the conversation's owner, a person in the pair, and the owner of the agent that remains. */
   private async remember(c: OwnerConversation | ConversationSummary, gone: { name: string }, other: { sessionId: string; name: string }, thread: string, undelivered: number): Promise<void> {
-    const people = new Set<number>();
-    if (c.ownerId !== null) people.add(c.ownerId);
-    for (const p of [c.a, c.b]) {
-      const id = isPersonId(p.sessionId) ? Number(p.sessionId.slice('person:'.length)) : Number.NaN;
-      if (Number.isInteger(id)) people.add(id);
-    }
+    const people = new Set(this.peopleIdsOf(c));
     if (!isPersonId(other.sessionId)) {
       const owner = (await this.core.host.sessionOf(other.sessionId))?.ownerId ?? null;
       if (owner !== null) people.add(owner);
     }
     this.core.concluded.add(people, { thread, agent: gone.name, with: [other.name], ...(undelivered > 0 ? { undelivered } : {}) });
-    this.core.signal({ scope: 'dm', owner: null });
+    this.core.signal('dm');
   }
 
   /** A session reported: its hidden conversations come back. `reconcileOwner` signals the consoles only when one did. */
