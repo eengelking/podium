@@ -89,10 +89,16 @@ export function useFleet(opts: UseFleetOptions = {}): FleetState {
       on<{ sessionId: string; reason: RemovedReason }>("removed", (d) => dispatch({ type: "removed", sessionId: d.sessionId, reason: d.reason, at: Date.now() }));
       on<WallSettingsView>("wall", (wall) => dispatch({ type: "wall", wall }));
       on<unknown>("chat", () => {
-        chat ??= setTimeout(() => {
-          chat = null;
+        // A hidden tab's timers are held back for a second or more, so a hidden page counts the event at once, as it always did.
+        if (document.visibilityState === "hidden") {
+          dropChat();
           dispatch({ type: "chat" });
-        }, CHAT_FRAME_MS);
+        } else {
+          chat ??= setTimeout(() => {
+            chat = null;
+            dispatch({ type: "chat" });
+          }, CHAT_FRAME_MS);
+        }
       });
       on<unknown>("reads", () => dispatch({ type: "reads" }));
       on<unknown>("replay", () => dispatch({ type: "replay" }));

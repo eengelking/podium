@@ -456,17 +456,23 @@ describe("useFleet", () => {
       expect(result.current.chatRev).toBe(before + 2);
     });
 
-    it("still count when the page is hidden, and the other signals do not wait for the frame", async () => {
+    it("are counted at once when the page is hidden, where a timer would be held back, and the other signals do not wait for the frame", async () => {
       const { result, emit, wait } = await live();
+      const before = { chat: result.current.chatRev, reads: result.current.readsRev };
       const hidden = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
       try {
-        const before = { chat: result.current.chatRev, reads: result.current.readsRev };
         emit("chat", { scope: "dm", owner: null, rev: 1 });
         emit("reads", { rev: 1 });
-        expect(result.current.readsRev).toBe(before.reads + 1);
-        expect(result.current.chatRev).toBe(before.chat);
-        wait(CHAT_FRAME_MS);
         expect(result.current.chatRev).toBe(before.chat + 1);
+        expect(result.current.readsRev).toBe(before.reads + 1);
+        // One that was held while the page was still shown is not counted a second time when the page hides before its frame ends.
+        hidden.mockReturnValue("visible");
+        emit("chat", { scope: "dm", owner: null, rev: 2 });
+        hidden.mockReturnValue("hidden");
+        emit("chat", { scope: "public", owner: null, rev: 3 });
+        expect(result.current.chatRev).toBe(before.chat + 2);
+        wait(1000);
+        expect(result.current.chatRev).toBe(before.chat + 2);
       } finally {
         hidden.mockRestore();
       }

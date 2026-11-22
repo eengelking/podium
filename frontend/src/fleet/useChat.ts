@@ -285,12 +285,15 @@ function usePaged<T extends { id: string }, X>(key: string | null, readPage: (be
     const before = now.current.older;
     if (key === null || !before || now.current.loadingEarlier) return;
     put({ loadingEarlier: true });
+    const opened = shown.current;
     try {
       const r = await readPage(before);
+      // Another thread opened while this page was out: it is not this one's page, and the new view is already clear.
+      if (shown.current !== opened) return;
       const cur = now.current;
       put({ earlier: [...r.messages, ...cur.earlier], pages: cur.pages + 1, older: r.older, error: null, loadingEarlier: false });
     } catch (err) {
-      put({ error: readError(err), loadingEarlier: false });
+      if (shown.current === opened) put({ error: readError(err), loadingEarlier: false });
     }
   }, [key, readPage, put]);
 

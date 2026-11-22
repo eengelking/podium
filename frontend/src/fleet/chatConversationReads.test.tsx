@@ -213,6 +213,34 @@ describe("what the open conversation keeps between reads", () => {
     expect(hook.result.current.total).toBe(0);
   });
 
+  it("does not put the earlier page of the old conversation under another one when it lands after the switch", async () => {
+    const s = paged();
+    const landing = new Landing();
+    const hook = renderHook(({ id }) => useConversation(s.api, id, 0, landing), { initialProps: { id: ID } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    let land: () => void = () => undefined;
+    const held = new Promise<void>((r) => (land = r));
+    const real = s.conversationMessages.getMockImplementation()!;
+    s.conversationMessages.mockImplementationOnce(async (...a: Parameters<typeof real>) => {
+      const out = await real(...a);
+      await held;
+      return out;
+    });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    s.conversationMessages.mockImplementationOnce(() => new Promise(() => undefined));
+    hook.rerender({ id: "cnv_2" });
+    await act(async () => {
+      land();
+      await pending;
+    });
+    expect(hook.result.current.messages).toEqual([]);
+    expect(hook.result.current.older).toBeNull();
+    expect(hook.result.current.loadingEarlier).toBe(false);
+  });
+
   it("says why a read failed, keeps what was shown, and reads again on the next signal", async () => {
     const s = paged();
     const { result, rerender } = await loaded(s, 0);
