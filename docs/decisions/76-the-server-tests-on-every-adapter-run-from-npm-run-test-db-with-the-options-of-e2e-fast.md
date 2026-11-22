@@ -62,5 +62,5 @@ parallel on every CPU, and each file makes and drops its own database on a share
 <!-- nav:start -->
 ---
 
-Previous: [75. A Direct Message ends when an agent in it finishes, and the agents that remain are told (#1283)](75-a-direct-message-ends-when-an-agent-in-it-finishes-and-the-agents-that-remain-are-told.md) · Up: [Decisions](README.md)
+Previous: [75. A Direct Message ends when an agent in it finishes, and the agents that remain are told (#1283)](75-a-direct-message-ends-when-an-agent-in-it-finishes-and-the-agents-that-remain-are-told.md) · Up: [Decisions](README.md) · Next: [77. Data binds to a person's id or an agent's id, never to a name (#1284, #1289)](77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md)
 <!-- nav:end -->
