@@ -2,7 +2,6 @@
 // no `$` here. The words each tool answers, the frame a peer message is submitted under, and the lines and toasts a
 // request shows in the terminal. Nothing here touches responding's answers or approvals (respond.ts): a peer message
 // only ever becomes a framed prompt, and that separation is tested.
-import { sessionPath } from './respond.ts';
 import { ENDED_NOTICE_MARK, PEER_LEVELS, type Delivery, type PeerDelivery, type PeerLevel, type PeerParty, type PeerRequest } from './protocol.ts';
 
 /** The line between Podium's frame and the message, as the mockup draws it. */
@@ -10,9 +9,6 @@ export const RULE = '───';
 /** How much of a waiting message's text, or an access request's reason, a toast shows. */
 const TOAST_TEXT_MAX = 300;
 const NAME_MAX = 80;
-
-/** A session's peer route: `<session>/peers<rest>`. */
-export const peerPath = (sessionId: string, rest: string): string => `${sessionPath(sessionId)}/peers${rest}`;
 
 /** What podium_send says when it has no "to" (both harnesses). */
 export const SEND_NO_TO = 'Not sent. Say who it is for: to is "#id" or "name@machine", as podium_peers lists it.';
@@ -607,64 +603,4 @@ export function requestAnsweredLine(answer: 'allow' | 'decline' | 'deliver', s: 
 export function openRequestsLine(open: readonly PeerRequest[]): string {
   if (!open.length) return '';
   return `Waiting for you: ${open.map((q) => `${shortId(q.id)} (${requestLine(q, shortId(q.id)).split('. Answer with')[0]})`).join('; ')}. Answer with /podium allow|decline|deliver <id>.`;
-}
-
-/** How many requests a session remembers for `/podium allow|decline|deliver`, after they leave the reply too, so a late answer hears how it closed. */
-const REQUESTS_KEPT = 50;
-
-/**
- * The requests a session knows of, the same for every harness (#414): each new one is shown once, the open ones are listed, and
- * `/podium allow|decline|deliver <id>` finds one by its id. How a request is shown (toast, transcript line) is the harness's.
- */
-export class RequestBook {
-  /** Requests seen, by id, oldest first. */
-  private readonly known = new Map<string, PeerRequest>();
-  private open: string[] = [];
-
-  /** Takes the requests the reply lists as open. Returns the ones not seen before, which are shown once. */
-  take(list: readonly PeerRequest[]): PeerRequest[] {
-    this.open = list.map((q) => q.id);
-    const fresh: PeerRequest[] = [];
-    for (const q of list) {
-      if (!this.known.has(q.id)) fresh.push(q);
-      this.known.delete(q.id);
-      this.known.set(q.id, q);
-    }
-    for (const id of this.known.keys()) {
-      if (this.known.size <= REQUESTS_KEPT) break;
-      this.known.delete(id);
-    }
-    return fresh;
-  }
-
-  /** The requests the last reply listed as open, which `/podium` lists. */
-  opened(): PeerRequest[] {
-    return this.open.flatMap((id) => this.known.get(id) ?? []);
-  }
-
-  /**
-   * `/podium allow|decline|deliver <id>`, answered through the server's route; the answer names the id. `where` is where the person finds the id.
-   * `io` is null when messaging is not on in this session; `post` is null when the call could not be made.
-   */
-  async answer(
-    answer: 'allow' | 'decline' | 'deliver',
-    arg: string,
-    where: string,
-    io: { sessionId: string; post: (path: string, body: unknown) => Promise<{ status: number; text: string } | null> } | null,
-  ): Promise<string> {
-    if (!arg) return `Name the request: /podium ${answer} <id>. The id is in the request's ${where}.`;
-    if (!io) return 'Orchestrator messaging is not on in this session, so nothing can be answered here. Answer in Podium > My reporters.';
-    const found = findRequest([...this.known.values()], arg);
-    if (found && 'ambiguous' in found) return `More than one request starts with ${arg}: ${found.ambiguous.map((q) => q.id).join(', ')}. Use more of the id.`;
-    const q = found?.request ?? null;
-    const id = q?.id ?? (isRequestId(arg) ? arg.trim() : null);
-    if (!id) return `No request ${arg} has reached this session. Requests show here as they arrive, and in Podium > My reporters.`;
-    const s = q ? shortId(q.id) : arg;
-    const res = await io.post(peerPath(io.sessionId, `/requests/${encodeURIComponent(id)}`), { answer });
-    if (!res) return `Request ${s} was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.`;
-    if (res.status !== 200) return `Request ${s} was not answered: ${errorOf(res.text) ?? `Podium answered ${res.status}`}.`;
-    this.open = this.open.filter((x) => x !== id);
-    // Allowing never lowers a right, so the level applied can be higher than the request's: name the one Podium applied.
-    return requestAnsweredLine(answer, s, q, appliedLevel(res.text), answerPaused(res.text));
-  }
 }

@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'claude-code/testing';
 import type { PeerRequest } from './protocol.ts';
-import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_REFUSAL, CONVO_ADDRESS_REFUSAL, RequestBook, SEND_NO_TO } from './peers.ts';
-import { PEER_TOOLS, peerToolDefinitions, runPeerTool, UNANSWERED, UNREACHABLE, type PeerCallOutcome, type PeerToolIo, type PeerToolName } from './peerTools.ts';
+import { CHANNEL_ADDRESS_REFUSAL, CHAT_READ_REFUSAL, CONVO_ADDRESS_REFUSAL, SEND_NO_TO } from './peers.ts';
+import { PEER_TOOLS, peerToolDefinitions, RequestBook, runPeerTool, UNANSWERED, UNREACHABLE, type PeerCallOutcome, type PeerToolIo, type PeerToolName } from './peerTools.ts';
 
 // The messaging tools, once for every harness (#1312): what the model is told about each, and what each does with a call.
 

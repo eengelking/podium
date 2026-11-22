@@ -4,9 +4,10 @@
 // is one entry in `PEER_TOOLS`; a new harness is an adapter over `runPeerTool`. The words each answer is made of are `peers.ts`.
 import { redactText } from './diffRedact.ts';
 import {
-  accessAnswer, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, chatReadTarget, convoSendAnswer, convoSendTarget, errorOf, listAnswer, peerPath, refusalAnswer, sendAnswer,
-  SEND_NO_TO, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
+  accessAnswer, answerPaused, appliedLevel, channelListAnswer, channelSendAnswer, channelSendTarget, chatReadAnswer, chatReadTarget, convoSendAnswer, convoSendTarget, errorOf, findRequest, isRequestId, listAnswer, refusalAnswer,
+  requestAnsweredLine, sendAnswer, shortId, SEND_NO_TO, SUBAGENT_ACCESS, SUBAGENT_CHAT_READ, SUBAGENT_PEERS, SUBAGENT_SEND,
 } from './peers.ts';
+import type { PeerRequest } from './protocol.ts';
 import { sessionPath } from './respond.ts';
 
 /** What a call to Podium came to: its answer, or that it was never started (`unreachable`) or started and did not come back in time (`unanswered`). */
@@ -22,7 +23,7 @@ export interface PeerToolIo {
 }
 
 /** A tool's input, as the model gives it: anything may be missing or of the wrong type. */
-export interface PeerToolInput {
+interface PeerToolInput {
   to?: unknown;
   text?: unknown;
   right?: unknown;
@@ -41,6 +42,15 @@ export interface PeerTool {
   subagent: string;
   run: (input: PeerToolInput, io: PeerToolIo) => Promise<string>;
 }
+
+/** A session's peer route: `<session>/peers<rest>`. */
+export const peerPath = (sessionId: string, rest: string): string => `${sessionPath(sessionId)}/peers${rest}`;
+
+/** What each tool's answer starts with when it did nothing. */
+const NOT_LISTED = 'Not listed.';
+const NOT_SENT = 'Not sent.';
+const NOT_ASKED = 'Not asked.';
+const NOT_READ = 'Not read.';
 
 export const UNREACHABLE = 'Podium cannot be reached from this machine right now, so nothing left it. Try again in a minute; /podium shows the connection.';
 export const UNANSWERED = 'Podium did not answer in time. It may still have taken it: podium_peers and Podium > Traffic show what arrived.';
@@ -66,9 +76,9 @@ export const PEER_TOOLS = {
     description:
       "Lists your person's other orchestrators that you can reach through Podium: each one's name, machine and id (given by Podium, never reused), its OS, project and status, and whether you can send to it. Says which of your person's machines are left out and why.",
     inputSchema: { type: 'object', properties: {} },
-    refused: 'Not listed.',
+    refused: NOT_LISTED,
     subagent: SUBAGENT_PEERS,
-    run: async (_input, io) => answered('Not listed.', await io.call('GET', peerPath(io.sessionId, '')), (body) => listAnswer(body, io.owner)),
+    run: async (_input, io) => answered(NOT_LISTED, await io.call('GET', peerPath(io.sessionId, '')), (body) => listAnswer(body, io.owner)),
   },
   podium_send: {
     description:
@@ -85,7 +95,7 @@ export const PEER_TOOLS = {
       },
       required: ['to', 'text'],
     },
-    refused: 'Not sent.',
+    refused: NOT_SENT,
     subagent: SUBAGENT_SEND,
     run: async (input, io) => {
       const to = str(input.to);
@@ -94,7 +104,7 @@ export const PEER_TOOLS = {
       if (!raw.trim()) return 'Not sent. The message is empty. Write the text to send.';
       // Secrets go before the text leaves the machine, with the same redactor as a file's diff (SPEC 6.4).
       const red = redactText(raw);
-      const post = async (path: string, ok: (body: Record<string, unknown>) => string): Promise<string> => answered('Not sent.', await io.call('POST', path, { text: red.text }), ok);
+      const post = async (path: string, ok: (body: Record<string, unknown>) => string): Promise<string> => answered(NOT_SENT, await io.call('POST', path, { text: red.text }), ok);
       // An answer to a channel that called this agent in goes to the channel, not to the person (#1065); Podium decides whether it was called in.
       const target = channelSendTarget(to);
       if (target && 'refusal' in target) return target.refusal;
@@ -104,7 +114,7 @@ export const PEER_TOOLS = {
       if (convoTarget && 'refusal' in convoTarget) return convoTarget.refusal;
       if (convoTarget) return post(`${sessionPath(io.sessionId)}/chat/conversations/${convoTarget.convo}/messages`, () => convoSendAnswer({ owner: io.owner, redactions: red.redactions }));
       const out = await io.call('POST', peerPath(io.sessionId, '/messages'), { to, text: red.text });
-      return answered('Not sent.', out, (body) => sendAnswer(body, { owner: io.owner, here: io.machine, to, redactions: red.redactions }));
+      return answered(NOT_SENT, out, (body) => sendAnswer(body, { owner: io.owner, here: io.machine, to, redactions: red.redactions }));
     },
   },
   podium_request_access: {
@@ -119,7 +129,7 @@ export const PEER_TOOLS = {
       },
       required: ['to', 'right', 'reason'],
     },
-    refused: 'Not asked.',
+    refused: NOT_ASKED,
     subagent: SUBAGENT_ACCESS,
     run: async (input, io) => {
       const to = str(input.to);
@@ -128,7 +138,7 @@ export const PEER_TOOLS = {
       const right = input.right;
       const reason = typeof input.reason === 'string' ? redactText(input.reason).text : '';
       const out = await io.call('POST', peerPath(io.sessionId, '/access'), { to, right, reason });
-      return answered('Not asked.', out, (body) => accessAnswer(body, { owner: io.owner, right, to }));
+      return answered(NOT_ASKED, out, (body) => accessAnswer(body, { owner: io.owner, right, to }));
     },
   },
   podium_chat_read: {
@@ -144,14 +154,14 @@ export const PEER_TOOLS = {
         before: { type: 'string', description: 'The "before" value a previous read gave, to read the messages before those' },
       },
     },
-    refused: 'Not read.',
+    refused: NOT_READ,
     subagent: SUBAGENT_CHAT_READ,
     run: async (input, io) => {
       const target = chatReadTarget(input);
       if ('refusal' in target) return target.refusal;
-      if ('list' in target) return answered('Not read.', await io.call('GET', `${sessionPath(io.sessionId)}/chat/channels`), (body) => channelListAnswer(body, { owner: io.owner }));
+      if ('list' in target) return answered(NOT_READ, await io.call('GET', `${sessionPath(io.sessionId)}/chat/channels`), (body) => channelListAnswer(body, { owner: io.owner }));
       const out = await io.call('GET', `${sessionPath(io.sessionId)}/chat/channels/${target.channel}/messages${target.query}`);
-      return answered('Not read.', out, (body) => chatReadAnswer(body, { channel: target.channel, owner: io.owner }));
+      return answered(NOT_READ, out, (body) => chatReadAnswer(body, { channel: target.channel, owner: io.owner }));
     },
   },
 } as const satisfies Record<string, PeerTool>;
@@ -171,4 +181,64 @@ export async function runPeerTool(name: PeerToolName, input: unknown, host: { su
   if (host.subagent) return tool.subagent;
   if (!host.io) return host.off(tool.refused);
   return tool.run((input && typeof input === 'object' ? input : {}) as PeerToolInput, host.io);
+}
+
+/** How many requests a session remembers for `/podium allow|decline|deliver`, after they leave the reply too, so a late answer hears how it closed. */
+const REQUESTS_KEPT = 50;
+
+/**
+ * The requests a session knows of, the same for every harness (#414): each new one is shown once, the open ones are listed, and
+ * `/podium allow|decline|deliver <id>` finds one by its id. How a request is shown (toast, transcript line) is the harness's.
+ */
+export class RequestBook {
+  /** Requests seen, by id, oldest first. */
+  private readonly known = new Map<string, PeerRequest>();
+  private open: string[] = [];
+
+  /** Takes the requests the reply lists as open. Returns the ones not seen before, which are shown once. */
+  take(list: readonly PeerRequest[]): PeerRequest[] {
+    this.open = list.map((q) => q.id);
+    const fresh: PeerRequest[] = [];
+    for (const q of list) {
+      if (!this.known.has(q.id)) fresh.push(q);
+      this.known.delete(q.id);
+      this.known.set(q.id, q);
+    }
+    for (const id of this.known.keys()) {
+      if (this.known.size <= REQUESTS_KEPT) break;
+      this.known.delete(id);
+    }
+    return fresh;
+  }
+
+  /** The requests the last reply listed as open, which `/podium` lists. */
+  opened(): PeerRequest[] {
+    return this.open.flatMap((id) => this.known.get(id) ?? []);
+  }
+
+  /**
+   * `/podium allow|decline|deliver <id>`, answered through the server's route; the answer names the id. `where` is where the person finds the id.
+   * `io` is null when messaging is not on in this session; `post` is null when the call could not be made.
+   */
+  async answer(
+    answer: 'allow' | 'decline' | 'deliver',
+    arg: string,
+    where: string,
+    io: { sessionId: string; post: (path: string, body: unknown) => Promise<{ status: number; text: string } | null> } | null,
+  ): Promise<string> {
+    if (!arg) return `Name the request: /podium ${answer} <id>. The id is in the request's ${where}.`;
+    if (!io) return 'Orchestrator messaging is not on in this session, so nothing can be answered here. Answer in Podium > My reporters.';
+    const found = findRequest([...this.known.values()], arg);
+    if (found && 'ambiguous' in found) return `More than one request starts with ${arg}: ${found.ambiguous.map((q) => q.id).join(', ')}. Use more of the id.`;
+    const q = found?.request ?? null;
+    const id = q?.id ?? (isRequestId(arg) ? arg.trim() : null);
+    if (!id) return `No request ${arg} has reached this session. Requests show here as they arrive, and in Podium > My reporters.`;
+    const s = q ? shortId(q.id) : arg;
+    const res = await io.post(peerPath(io.sessionId, `/requests/${encodeURIComponent(id)}`), { answer });
+    if (!res) return `Request ${s} was not answered: Podium cannot be reached. Try again, or answer in Podium > My reporters.`;
+    if (res.status !== 200) return `Request ${s} was not answered: ${errorOf(res.text) ?? `Podium answered ${res.status}`}.`;
+    this.open = this.open.filter((x) => x !== id);
+    // Allowing never lowers a right, so the level applied can be higher than the request's: name the one Podium applied.
+    return requestAnsweredLine(answer, s, q, appliedLevel(res.text), answerPaused(res.text));
+  }
 }
