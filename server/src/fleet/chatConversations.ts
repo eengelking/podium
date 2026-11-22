@@ -340,10 +340,12 @@ export class ConversationChat {
   private followed(id: string, messageId: string, m: { kind: 'person' | 'agent'; ref: string }, o: DeliveryOutcome): void {
     const state = o.kind === 'took' ? 'delivered' : o.kind === 'queued' ? null : 'dropped';
     if (!state) return;
-    void this.store
-      .setDelivery(id, messageId, m, state, this.core.host.now())
-      .then(() => this.core.signal('dm'))
-      .catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err));
+    this.core.also(
+      this.store
+        .setDelivery(id, messageId, m, state, this.core.host.now())
+        .then(() => this.core.signal('dm'))
+        .catch((err: unknown) => this.core.host.warn('a delivery in a conversation could not be updated', err)),
+    );
   }
 
   /** A member writes. The text is redacted and limited first. It is stored, every other person in it is counted one unread, and each agent in it is handed the text. */
@@ -469,7 +471,7 @@ export class ConversationChat {
     } else out = await this.store.deleteMessage(id, messageId, { author: viewer.personId, now });
     if (!out.ok) return changeRefusal(out.reason, CONVERSATION_WORDS, () => HANDED_WORDS);
     this.core.onEvent({ kind: op === 'edit' ? 'conversation_message_edited' : 'conversation_message_deleted', by: viewer.actor, conversation: id, messageId });
-    this.core.signal('dm', c.members.filter((m) => m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)).length);
+    this.core.signal('dm');
     return { ok: true, message: this.view(viewer, out.message) };
   }
 
@@ -488,7 +490,7 @@ export class ConversationChat {
     }
     if (!next) return noConversation();
     this.core.onEvent({ kind: 'conversation_members_added', by: viewer.actor, conversation: id, count: got.members.length });
-    this.core.signal('dm', next.members.filter((m) => m.leftAt === null && m.kind === 'person').length);
+    this.core.signal('dm');
     return { ok: true, conversation: this.info(viewer, next, undefined, await this.endedIn([next])) };
   }
 
