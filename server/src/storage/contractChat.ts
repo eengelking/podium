@@ -3,7 +3,7 @@
 // a channel's text is never kept with, copied into or returned with a direct message's (`peer_messages`), and the reverse.
 import { expect, it } from 'vitest';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
-import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState } from './types.js';
+import type { ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChatStoreApi, MentionState, ThreadReadState } from './types.js';
 import { setUp } from './contractPeers.js';
 import { counted } from './statementCount.js';
 import { personKeyOf } from '../fleet/peerTypes.js';
@@ -26,13 +26,16 @@ const G = { ownerId: 11 };
 const input = (text: string, over: Partial<ChannelPostInput> = {}): ChannelPostInput => ({ authorKind: 'person', authorRef: 'ed', authorName: 'Ed', text, ...over });
 const texts = (p: ChannelPage): string[] => p.messages.map((m) => m.text);
 
+/** One person counted for one post in a thread, the answer the person's new state (what a single `bumpMany` entry gives). */
+const bump = async (rs: ChatStoreApi['readState'], personId: number, thread: string, mention: boolean) => (await rs.bumpMany(thread, [{ personId, mention }]))[0] as ThreadReadState;
+
 export function chatCases(o: Openers): void {
   chatChangeCases(o);
   onEachAdapter(o, 'gives a person who takes a deleted person\'s name none of their group channel, read counts, flags, owed Admin records or opened channels (#1284)', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const first = (await s.people.createPerson('Ed', null, T0 - 1)).person;
     await chat.group.post({ ownerId: first.id }, input('EDS-GROUP', { authorId: first.id }));
-    await chat.readState.bump(first.id, `group:${first.id}`, true);
+    await bump(chat.readState, first.id, `group:${first.id}`, true);
     await chat.settings.setFlags(`group:${first.id}`, { paused: true });
     await chat.settings.setFlags(`public:person:${first.id}`, { disconnected: true });
     await chat.adminReads.mark(`group:${first.id}`, 'Root', null, 'cleared', [first.id]);
@@ -49,7 +52,7 @@ export function chatCases(o: Openers): void {
     const again = (await s.people.createPerson('Ed', null, T0 + 1)).person;
     expect(again.id).not.toBe(first.id);
     await chat.group.post({ ownerId: first.id }, input('LEFT-BEHIND', { authorId: first.id }));
-    await chat.readState.bump(first.id, 'public', false);
+    await bump(chat.readState, first.id, 'public', false);
     expect(await chat.group.page({ ownerId: again.id }, { limit: 10 })).toEqual({ messages: [], older: null });
     expect(await chat.readState.list(again.id)).toEqual([]);
     expect(await chat.adminReads.unseenFor(again.id)).toEqual([]);
@@ -208,8 +211,8 @@ export function chatCases(o: Openers): void {
     const rs = s.chat({ now: () => clock.now }).readState;
     const bumps = (from: number, n: number): { personId: number; mention: boolean }[] => Array.from({ length: n }, (_, i) => ({ personId: from + i, mention: i % 4 === 0 }));
     // Some people already have a row in the thread (and one has a mention), the rest do not.
-    await rs.bump(300, 'public', true);
-    await rs.bump(301, 'public', false);
+    await bump(rs, 300, 'public', true);
+    await bump(rs, 301, 'public', false);
     clock.now += 5;
     const small = await counted(() => rs.bumpMany('public', bumps(300, 3)));
     const large = await counted(() => rs.bumpMany('public', bumps(400, 60)));
@@ -309,12 +312,12 @@ export function chatCases(o: Openers): void {
       const clock = { now: T0 };
       const rs = s.chat({ now: () => clock.now }).readState;
       await rec('get (never seen)', rs.get(pid('ed'), 'public'));
-      await rec('bump', rs.bump(pid('ed'), 'public', false));
+      await rec('bump', bump(rs, pid('ed'), 'public', false));
       clock.now += 1;
-      await rec('bump (again)', rs.bump(pid('ED'), 'public', false));
-      await rec('bump (a mention)', rs.bump(pid('ed'), 'public', true));
-      await rec('bump (another thread)', rs.bump(pid('ed'), 'group:g1', true));
-      await rec('bump (another person)', rs.bump(pid('eve'), 'public', false));
+      await rec('bump (again)', bump(rs, pid('ED'), 'public', false));
+      await rec('bump (a mention)', bump(rs, pid('ed'), 'public', true));
+      await rec('bump (another thread)', bump(rs, pid('ed'), 'group:g1', true));
+      await rec('bump (another person)', bump(rs, pid('eve'), 'public', false));
       await rec('list', rs.list(pid('ed')));
       clock.now += 1;
       await rec('mark read', rs.markRead(pid('ed'), 'public', '1800000000005.7'));
@@ -743,8 +746,8 @@ export function chatCases(o: Openers): void {
       const edGroup = { ownerId: ed.id };
       await chat.group.post(edGroup, input('ED GROUP'));
       await chat.group.post({ ownerId: eveP.id }, input('EVE GROUP', { authorRef: 'eve', authorName: 'Eve' }));
-      await chat.readState.bump(ed.id, 'group:ed', true);
-      await chat.readState.bump(eveP.id, 'group:eve', false);
+      await bump(chat.readState, ed.id, 'group:ed', true);
+      await bump(chat.readState, eveP.id, 'group:eve', false);
       await rec('before: person link', peers.rights.personLink(edKey, eve));
       await rec('delete the person', s.people.deleteMany([ed.id]).then((r) => r.length));
       await rec('group (Ed)', chat.group.page(edGroup, { limit: 10 }).then(texts));
@@ -778,7 +781,7 @@ export function chatCases(o: Openers): void {
     const chat = s.chat({ now: () => clock.now });
     await chat.group.post(G, input('GROUP-ONLY-TEXT'));
     await chat.public.post('general', input('PUBLIC-ONLY-TEXT'));
-    await chat.readState.bump(pid('ed'), 'public', true);
+    await bump(chat.readState, pid('ed'), 'public', true);
     const channelReads = JSON.stringify([
       await chat.group.page(G, { limit: 100 }), await chat.group.count(G), await chat.public.page('general', { limit: 100 }), await chat.public.count('general'),
       await chat.readState.list(pid('ed')),

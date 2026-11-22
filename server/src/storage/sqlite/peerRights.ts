@@ -270,7 +270,7 @@ export class PeerRights implements PeerRightsApi {
   effectiveMany(links: readonly (readonly [string, string])[]): EffectiveRight[] {
     const rights = new Map<string, RightRow>();
     // order-insensitive: the rows are put into a map by the two keys of each right.
-    for (const part of chunksOf([...new Set(links.map(([from]) => from))])) for (const r of this.db.prepare(`SELECT * FROM peer_rights WHERE from_key IN (${part.map(() => '?').join(', ')})`).all(...part) as unknown as DbRight[]) rights.set(`${r.from_key}\0${r.to_key}`, toRight(r));
+    for (const part of chunksOf([...new Map(links.map((l) => [`${l[0]}\0${l[1]}`, l])).values()])) for (const r of this.db.prepare(`SELECT * FROM peer_rights WHERE ${part.map(() => '(from_key = ? AND to_key = ?)').join(' OR ')}`).all(...part.flat()) as unknown as DbRight[]) rights.set(`${r.from_key}\0${r.to_key}`, toRight(r));
     const reps = new Map(this.reporters.getMany(links.flatMap(([from, to]) => (isPersonKey(from) ? [] : [from, to]))).map((r) => [r.key, r]));
     const trust = this.defaultsMany(trustOwners(links, (key) => reps.get(key)));
     const rows: EffectiveRows = { right: (from, to) => rights.get(`${from}\0${to}`), reporter: (key) => reps.get(key), trusts: (id) => trust.get(id)?.trust ?? false };

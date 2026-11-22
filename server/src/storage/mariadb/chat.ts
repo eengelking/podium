@@ -248,10 +248,6 @@ class MariaReadState {
     return (await this.db.all<DbReadState>('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? ORDER BY thread', [personId])).map(toState);
   }
 
-  bump(personId: number, thread: string, mention: boolean): Promise<ThreadReadState> {
-    return this.bumpMany(thread, [{ personId, mention }]).then((rows) => rows[0] as ThreadReadState);
-  }
-
   /** One insert (and one read) for each batch of people: the number of statements does not grow with the people (#1309). */
   async bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]> {
     const out = new Map<number, ThreadReadState>();
@@ -446,8 +442,7 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
   const readState: ChatReadStateApi = {
     get: (person, thread) => state.get(person, thread),
     list: (person) => state.list(person),
-    bump: (person, thread, mention) => db.tx(() => state.bump(person, thread, mention)),
-    bumpMany: (thread, bumps) => db.tx(() => state.bumpMany(thread, bumps)),
+    bumpMany: (thread, bumps) => (bumps.length === 0 ? Promise.resolve([]) : db.tx(() => state.bumpMany(thread, bumps))),
     markRead: (person, thread, upTo) => db.tx(() => state.markRead(person, thread, upTo)),
     forget: (thread) => state.forget(thread),
     threads: (prefix) => state.threads(prefix),

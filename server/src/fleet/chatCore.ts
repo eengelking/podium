@@ -148,6 +148,7 @@ export class ChatCore {
 
   /** `count` for several people at once, in one store call (#1309): each is told their own counts. */
   async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: 'public' | 'group' | 'dm'): Promise<void> {
+    if (people.length === 0) return;
     const rows = new Map((await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })))).map((r) => [r.personId, r]));
     for (const { who } of people) {
       const row = rows.get(who.id);

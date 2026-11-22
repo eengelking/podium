@@ -41,7 +41,7 @@ import {
 import { nameKey } from '../rows.js';
 import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
-import { headOf, linksOf, pairsOf, toSummary } from '../peerSummary.js';
+import { headOf, linksOf, pairsOf, toSummary, type SummaryHead } from '../peerSummary.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
 import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, type TripRow } from '../peerText.js';
@@ -597,17 +597,14 @@ export class MariaPeerMessages {
       g.push(m);
       groups.set(pair, g);
     }
-    const kept = [...groups.values()].filter((g) => {
-      if (filter.since !== undefined && (g.at(-1) as MessageRow).sentAt < filter.since) return false;
-      const { a, b } = headOf(g);
-      return !filter.liveOnly || this.liveDir.has(a.sessionId) || this.liveDir.has(b.sessionId);
-    });
-    return (await this.summaries(kept)).sort((x, y) => y.lastAt - x.lastAt);
+    const kept = [...groups.values()]
+      .map((g) => ({ g, head: headOf(g) }))
+      .filter(({ g, head: { a, b } }) => (filter.since === undefined || (g.at(-1) as MessageRow).sentAt >= filter.since) && (!filter.liveOnly || this.liveDir.has(a.sessionId) || this.liveDir.has(b.sessionId)));
+    return (await this.summaries(kept.map(({ g }) => g), kept.map(({ head }) => head))).sort((x, y) => y.lastAt - x.lastAt);
   }
 
   /** The summaries of these conversations (each one's messages in order): the rights of every link and the limits of every owner are read once for all of them, so the statements do not grow with the conversations (#1309). */
-  private async summaries(groups: MessageRow[][]): Promise<ConversationSummary[]> {
-    const heads = groups.map(headOf);
+  private async summaries(groups: MessageRow[][], heads: SummaryHead[] = groups.map(headOf)): Promise<ConversationSummary[]> {
     const rights = await this.rights.effectiveMany(heads.flatMap(linksOf));
     const caps = await this.rights.limitsMany(heads.map((h) => h.named.ownerId));
     return groups.map((g, i) => toSummary(g, heads[i]!, rights[2 * i]!, rights[2 * i + 1]!, caps[i]!.roundTrips));

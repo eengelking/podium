@@ -586,7 +586,7 @@ export class ChannelChat {
     const audience: PersonRef[] = channel === 'group' ? (owner ? [owner] : []) : await this.core.persons();
     const mentioned = new Set(planned.flatMap((p) => (p.bump !== null ? [p.bump] : [])));
     const counted = audience.filter((who) => who.id !== authorId);
-    const rows = await this.store.readState.bumpMany(thread, counted.map((who) => ({ personId: who.id, mention: mentioned.has(who.id) })));
+    const rows = counted.length === 0 ? [] : await this.store.readState.bumpMany(thread, counted.map((who) => ({ personId: who.id, mention: mentioned.has(who.id) })));
     const byId = new Map(rows.map((r) => [r.personId, r]));
     for (const who of counted) {
       const row = byId.get(who.id);

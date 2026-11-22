@@ -252,10 +252,6 @@ class ReadState {
     return (this.db.prepare('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? ORDER BY thread').all(personId) as unknown as DbReadState[]).map(toState);
   }
 
-  bump(personId: number, thread: string, mention: boolean): ThreadReadState {
-    return this.bumpMany(thread, [{ personId, mention }])[0] as ThreadReadState;
-  }
-
   /** One insert (and one read) for each batch of people: the number of statements does not grow with the people (#1309). */
   bumpMany(thread: string, bumps: readonly ReadBump[]): ThreadReadState[] {
     const out = new Map<number, ThreadReadState>();
@@ -452,7 +448,6 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
   const readState: ChatReadStateApi = {
     get: (person, thread) => step(() => state.get(person, thread)),
     list: (person) => step(() => state.list(person)),
-    bump: (person, thread, mention) => step(() => state.bump(person, thread, mention)),
     bumpMany: (thread, bumps) => step(() => state.bumpMany(thread, bumps)),
     markRead: (person, thread, upTo) => step(() => state.markRead(person, thread, upTo)),
     forget: (thread) => step(() => state.forget(thread)),
