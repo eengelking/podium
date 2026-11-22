@@ -7,6 +7,12 @@ import type { ActivityView, Kpis, RemovedReason, SessionView, StateBody, WallSet
 
 const SILENCE_MS = 6000;
 const RECONNECT_MS = 2000;
+/**
+ * How long `chat` events are gathered into one. The server sends one for each part of Chat an action changed (a message across owners is a `dm` and a
+ * `public` one), in the same moment, and each makes the page read the overview, the open thread and more. The page ignores the scope and reads for all
+ * of them, so it reads once for the burst, a frame after the first event at most (#1296).
+ */
+export const CHAT_FRAME_MS = 16;
 
 export interface FleetSource {
   addEventListener(type: string, listener: (ev: MessageEvent) => void): void;
@@ -41,6 +47,11 @@ export function useFleet(opts: UseFleetOptions = {}): FleetState {
     let stopped = false;
     let last = Date.now();
     let reconnect: ReturnType<typeof setTimeout> | null = null;
+    let chat: ReturnType<typeof setTimeout> | null = null;
+    const dropChat = () => {
+      if (chat) clearTimeout(chat);
+      chat = null;
+    };
 
     const parse = <T,>(ev: MessageEvent): T | null => {
       try {
@@ -68,12 +79,21 @@ export function useFleet(opts: UseFleetOptions = {}): FleetState {
           last = Date.now();
           if (data !== null) fn(data);
         });
-      on<StateBody>("snapshot", (body) => dispatch({ type: "snapshot", body }));
+      // A snapshot counts as a chat event itself, so one that follows a held chat event is the only count.
+      on<StateBody>("snapshot", (body) => {
+        dropChat();
+        dispatch({ type: "snapshot", body });
+      });
       on<SessionView>("session", (view) => dispatch({ type: "session", view }));
       on<ActivityView>("activity", (event) => dispatch({ type: "activity", event }));
       on<{ sessionId: string; reason: RemovedReason }>("removed", (d) => dispatch({ type: "removed", sessionId: d.sessionId, reason: d.reason, at: Date.now() }));
       on<WallSettingsView>("wall", (wall) => dispatch({ type: "wall", wall }));
-      on<unknown>("chat", () => dispatch({ type: "chat" }));
+      on<unknown>("chat", () => {
+        chat ??= setTimeout(() => {
+          chat = null;
+          dispatch({ type: "chat" });
+        }, CHAT_FRAME_MS);
+      });
       on<unknown>("reads", () => dispatch({ type: "reads" }));
       on<unknown>("replay", () => dispatch({ type: "replay" }));
       on<{ serverTime: number; kpis: Kpis }>("tick", (d) => dispatch({ type: "tick", serverTime: d.serverTime, kpis: d.kpis }));
@@ -107,6 +127,7 @@ export function useFleet(opts: UseFleetOptions = {}): FleetState {
     return () => {
       stopped = true;
       clearInterval(watchdog);
+      dropChat();
       if (reconnect) clearTimeout(reconnect);
       source?.close();
     };
