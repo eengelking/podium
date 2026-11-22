@@ -3190,9 +3190,13 @@ describe('a Direct Message ends when one of its agents ends (#1283)', () => {
     const none = (await s.edB.get(`${CH}/concluded`)).body.concluded as Record<string, unknown>[];
     expect(none).toHaveLength(1);
     expect(none[0]).not.toHaveProperty('undelivered');
-    // Two messages the person wrote to an agent, which ends before it takes either.
+    // Three messages the person wrote to an agent: it takes the first and ends before it takes the other two, so only those two went undelivered.
     const t = await world();
-    for (const text of ['first, never taken', 'second, never taken']) expect((await t.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text })).status).toBe(202);
+    for (const text of ['first, taken', 'second, never taken', 'third, never taken']) expect((await t.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text })).status).toBe(202);
+    const handed = await deliveriesFor(t, 'tester');
+    expect(handed.map((d) => d.text)).toEqual(['first, taken', 'second, never taken', 'third, never taken']);
+    expect((await request(t.app).post(`/api/fleet/sessions/sess-tester/deliveries/${handed[0]!.id}/result`).set('X-Podium-Token', t.ed.token).send({ result: 'took' })).status).toBe(200);
+    await settle();
     await finish(t, 'tester');
     const two = (await t.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; undelivered?: number }[];
     expect(two).toHaveLength(1);
