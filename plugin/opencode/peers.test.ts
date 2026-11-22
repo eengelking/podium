@@ -633,6 +633,16 @@ describe('the messaging tools (#969)', () => {
     expect(x.server.calls).toEqual([]);
   });
 
+  it("answers Podium's own reason after the tool's prefix for an access request two reporters share a name for, and for an address Podium finds too long (#1312)", async () => {
+    const x = rig();
+    await reported(x);
+    x.server.answer = () => ({ status: 409, text: JSON.stringify({ ok: false, error: 'Two of your reporters are called pi. Use the name of one.' }) });
+    expect(await tool(x, 'podium_request_access', { to: 'pi', right: 'send', reason: 'x' })).toBe('Not asked. Two of your reporters are called pi. Use the name of one.');
+    x.server.answer = () => ({ status: 400, text: JSON.stringify({ ok: false, error: 'to is too long' }) });
+    expect(await tool(x, 'podium_send', { to: 'a'.repeat(201), text: 'x' })).toBe('Not sent. To is too long.');
+    expect(x.server.calls.at(-1)).toMatchObject({ method: 'POST', path: '/api/fleet/sessions/ses_root/peers/messages', body: { to: 'a'.repeat(201), text: 'x' } });
+  });
+
   it('answers in the tool\'s words when Podium refuses, cannot be reached, is slow, or sends something unreadable', async () => {
     const x = rig({ PODIUM_PEERS: 'true' }, { peerCallMs: 20 });
     await reported(x);

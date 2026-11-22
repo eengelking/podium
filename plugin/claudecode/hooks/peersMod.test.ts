@@ -493,6 +493,16 @@ describe('peers: the tools', () => {
     expect(await callTool($, w, 'podium_request_access', { to: ' ', right: 'see', reason: 'x' })).toMatch(/^Not asked\. Say which machine/)
     expect(peerCallsTo(w, '/access')).toHaveLength(1)
   })
+
+  test("Podium's own reason follows the tool's prefix for an access request two reporters share a name for, and for an address Podium finds too long (#1312)", { options: ON }, async ($, on) => {
+    const w = world(on)
+    w.server.routes['POST /peers/access'] = { status: 409, body: { ok: false, error: 'Two of your reporters are called pi. Use the name of one.' } }
+    w.server.routes['POST /peers/messages'] = { status: 400, body: { ok: false, error: 'to is too long' } }
+    await started($, w)
+    expect(await callTool($, w, 'podium_request_access', { to: 'pi', right: 'send', reason: 'x' })).toBe('Not asked. Two of your reporters are called pi. Use the name of one.')
+    expect(await callTool($, w, 'podium_send', { to: 'a'.repeat(201), text: 'x' })).toBe('Not sent. To is too long.')
+    expect(peerCallsTo(w, '/messages')[0]!.body).toEqual({ to: 'a'.repeat(201), text: 'x' })
+  })
 })
 
 describe('peers: receiving', () => {
