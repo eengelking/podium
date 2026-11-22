@@ -685,22 +685,34 @@ export class ChannelChat {
     }
   }
 
+  /** The author edits their own message: the new text goes through the checks of a new message, and it never delivers anything, so it may not add or remove an @mention. */
+  editMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+    return this.change(viewer, channel, owner, id, body);
+  }
+
+  /** The author deletes their own message: a tombstone stays, and a copy for another person's approval goes with it. */
+  deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+    return this.change(viewer, channel, owner, id, null);
+  }
+
   /**
-   * The author edits their own message: the new text goes through the checks of a new message (empty, too long, the per-minute limit, then redaction, in that order), and
-   * it never delivers anything, so it may not add or remove an @mention. The store decides who may and whether it is locked. A mention that waits for another person's
-   * approval has a copy of the text for them: it is changed first (`changeCopies`), under that person's own length limit.
+   * An edit (`edit` is the request's body) or a delete (null) of the author's own message. The store decides who may and whether it is locked. A mention that waits for another
+   * person's approval has a copy of the text for them: it is changed first (`changeCopies`), under that person's own length limit, and put back if the row then refuses an edit.
    */
-  async editMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ChannelMessage } | Fail> {
+  private async change(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string, edit: Record<string, unknown> | null): Promise<{ ok: true; message: ChannelMessage } | Fail> {
     const gate = this.mayChange(viewer, channel, owner);
     if (gate) return gate;
-    const limits = await this.core.limits();
-    const checked = this.checkText(body.text, limits);
-    if ('ok' in checked) return checked;
-    const limited = this.core.tooFast(`person:${nameKey(viewer.name)}`, limits);
-    if (limited) return limited;
-    const text = this.core.redact(checked.raw);
-    // The text a post stores is what is left after cleaning, so a text of nothing but characters that draw nothing is as empty as a blank one.
-    if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    let text = '';
+    if (edit) {
+      const limits = await this.core.limits();
+      const checked = this.checkText(edit.text, limits);
+      if ('ok' in checked) return checked;
+      const limited = this.core.tooFast(`person:${nameKey(viewer.name)}`, limits);
+      if (limited) return limited;
+      text = this.core.redact(checked.raw);
+      // The text a post stores is what is left after cleaning, so a text of nothing but characters that draw nothing is as empty as a blank one.
+      if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+    }
     const h = this.handle(channel, owner);
     const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
     if (!found) return this.refusal('not-found', null);
@@ -709,40 +721,19 @@ export class ChannelChat {
     if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
       const reachable = this.copiesOf(found);
       if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
-      if (!sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
+      if (edit && !sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
       copies = reachable;
     }
-    const changed = await this.changeCopies(viewer, copies, { kind: 'edit', text, old: found.text });
+    const changed = await this.changeCopies(viewer, copies, edit ? { kind: 'edit', text, old: found.text } : { kind: 'delete' });
     if (!changed.ok) return changed;
-    const out = await h.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
+    const by = { author: viewer.personId as number, now: this.core.host.now() };
+    const out = edit ? await h.editMessage(id, { ...by, text }) : await h.deleteMessage(id, by);
     if (!out.ok) {
-      // Only a race gets here (the checks above passed a moment ago): a copy was changed and the row refused, so the copies are put back.
-      await this.restoreCopies(viewer, changed.done, found.text);
+      // Only a race gets here (the checks above passed a moment ago). An edited copy is put back; a deleted one cannot be, so it stays withdrawn and its mention reads `dropped`, which is true of it.
+      if (edit) await this.restoreCopies(viewer, changed.done, found.text);
       return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
     }
-    this.changed('message_edited', viewer, channel, owner, id);
-    return { ok: true, message: out.message };
-  }
-
-  /** The author deletes their own message: a tombstone stays, and a copy for another person's approval goes with it. The store decides who may and whether it is locked. */
-  async deleteMessage(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null, id: string): Promise<{ ok: true; message: ChannelMessage } | Fail> {
-    const gate = this.mayChange(viewer, channel, owner);
-    if (gate) return gate;
-    const h = this.handle(channel, owner);
-    const found = id.length <= MAX_ID ? await h.getMessage(id) : null;
-    if (!found) return this.refusal('not-found', null);
-    let copies: string[] = [];
-    if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
-      const reachable = this.copiesOf(found);
-      if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
-      copies = reachable;
-    }
-    const changed = await this.changeCopies(viewer, copies, { kind: 'delete' });
-    if (!changed.ok) return changed;
-    const out = await h.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
-    // Only a race gets here, and a deleted copy cannot be undone: it stays withdrawn and its mention reads `dropped`, which is true of it.
-    if (!out.ok) return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
-    this.changed('message_deleted', viewer, channel, owner, id);
+    this.changed(edit ? 'message_edited' : 'message_deleted', viewer, channel, owner, id);
     return { ok: true, message: out.message };
   }
 

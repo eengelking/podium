@@ -602,30 +602,34 @@ export class DirectChat {
     return directMessages((await this.rowsOf(scope.c, scope.a, scope.b, row.id)) ?? [row], viewer)[0]!;
   }
 
-  /** The author edits their own message: the new text is checked and redacted as a new one is, and nothing is delivered. The store decides who may and whether it is locked. */
-  async editMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: DirectMessageView } | Fail> {
-    const scope = await this.changeScope(viewer, rawA, rawB, id);
-    if ('status' in scope) return scope;
-    if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    // The same order as a new message: length, then the person's limit, then the scan for secrets.
-    const early = await this.early(viewer, body.text, true);
-    if (early) return early;
-    const text = this.core.redact(body.text);
-    // A send refuses what is empty once cleaned; so does an edit, or it would leave a message with no text that is not a tombstone.
-    if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    const out = await this.peers.editMessage(id, { author: viewer.personId as number, text, now: this.core.host.now() });
-    if (!out.ok) return this.refused(out, scope);
-    this.changed('message_edited', viewer, scope.c, id);
-    return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
+  /** The author edits their own message: the new text is checked and redacted as a new one is, and nothing is delivered. */
+  editMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+    return this.change(viewer, rawA, rawB, id, body);
   }
 
-  /** The author deletes their own message: a tombstone stays for both people, and a request that waited for its owner is closed. The store decides who may and whether it is locked. */
-  async deleteMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+  /** The author deletes their own message: a tombstone stays for both people, and a request that waited for its owner is closed. */
+  deleteMessage(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ ok: true; message: DirectMessageView } | Fail> {
+    return this.change(viewer, rawA, rawB, id, null);
+  }
+
+  /** An edit (`edit` is the request's body) or a delete (null) of the author's own message. The store decides who may and whether it is locked. */
+  private async change(viewer: ChatViewer, rawA: string, rawB: string, id: string, edit: Record<string, unknown> | null): Promise<{ ok: true; message: DirectMessageView } | Fail> {
     const scope = await this.changeScope(viewer, rawA, rawB, id);
     if ('status' in scope) return scope;
-    const out = await this.peers.deleteMessage(id, { author: viewer.personId as number, now: this.core.host.now() });
+    const by = () => ({ author: viewer.personId as number, now: this.core.host.now() });
+    let out;
+    if (edit) {
+      if (typeof edit.text !== 'string' || !edit.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+      // The same order as a new message: length, then the person's limit, then the scan for secrets.
+      const early = await this.early(viewer, edit.text, true);
+      if (early) return early;
+      const text = this.core.redact(edit.text);
+      // A send refuses what is empty once cleaned; so does an edit, or it would leave a message with no text that is not a tombstone.
+      if (!text.trim()) return fail(400, 'The message is empty. Write the text to send.');
+      out = await this.peers.editMessage(id, { ...by(), text });
+    } else out = await this.peers.deleteMessage(id, by());
     if (!out.ok) return this.refused(out, scope);
-    this.changed('message_deleted', viewer, scope.c, id);
+    this.changed(edit ? 'message_edited' : 'message_deleted', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
 
