@@ -379,13 +379,7 @@ export class ChannelChat {
   /** The checks that cost nothing: a text, and within Chat's length. The rate limit follows, then `this.core.redact`, which reads every character (#1051). */
   private checkText(raw: unknown, limits: ChatLimits): { raw: string } | Fail {
     if (typeof raw !== 'string' || !raw.trim()) return fail(400, 'The message is empty. Write the text to send.');
-    if (raw.length > limits.maxChars) return fail(422, `The message is ${raw.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
-    return { raw };
-  }
-
-  private busy(who: string, limits: ChatLimits): Fail | null {
-    const wait = this.core.rate(who, limits.perMinute);
-    return wait === null ? null : fail(429, `That is more than ${limits.perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`);
+    return this.core.tooLong(raw.length, limits) ?? { raw };
   }
 
   /** The agents and people a typed `@` can mean in this channel, for the address list and for resolving a mention. */
@@ -452,7 +446,7 @@ export class ChannelChat {
     const limits = await this.core.limits();
     const checked = this.checkText(body.text, limits);
     if ('ok' in checked) return checked;
-    const limited = this.busy(`person:${nameKey(viewer.name)}`, limits);
+    const limited = this.core.tooFast(`person:${nameKey(viewer.name)}`, limits);
     if (limited) return limited;
     // A reply to a message that is not in this channel is refused, as an agent's is, so a post never points at an id nothing holds (#1051).
     const replyTo = typeof body.replyTo === 'string' && body.replyTo ? body.replyTo : null;
@@ -606,7 +600,7 @@ export class ChannelChat {
     if ('ok' in checked) return checked;
     const h = this.handle(channel, owner);
     // The rate limit comes first, so an agent that was not called in cannot make the paged lookup below as often as it likes (#1065).
-    const limited = this.busy(`agent:${o.sessionId}`, limits);
+    const limited = this.core.tooFast(`agent:${o.sessionId}`, limits);
     if (limited) return limited;
     // An agent answers a channel that called it in the last hour, the window it reads (#1065). It does not start a conversation nobody asked it to join.
     try {
@@ -711,7 +705,7 @@ export class ChannelChat {
     const limits = await this.core.limits();
     const checked = this.checkText(body.text, limits);
     if ('ok' in checked) return checked;
-    const limited = this.busy(`person:${nameKey(viewer.name)}`, limits);
+    const limited = this.core.tooFast(`person:${nameKey(viewer.name)}`, limits);
     if (limited) return limited;
     const text = this.core.redact(checked.raw);
     // The text a post stores is what is left after cleaning, so a text of nothing but characters that draw nothing is as empty as a blank one.

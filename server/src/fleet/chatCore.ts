@@ -2,6 +2,7 @@
 // console that something changed (a count, never text), the audit callback, and delivering text to an agent through the console's message path.
 // Nothing here reads a direct message or a channel message.
 import { cleanNameText, cleanPeerText } from '../storage/peerText.js';
+import { overLimitWords } from '../storage/peerEdit.js';
 import { scrubStored } from '../logging/redact.js';
 import { CHAT_EVERYONE } from '../storage/features.js';
 import { nameKey } from '../storage/rows.js';
@@ -56,6 +57,22 @@ const DROP_WHY: Record<string, string> = {
   'session-deleted': 'the agent was deleted before it got the message',
   'responding-off': 'responding was turned off before the agent got the message',
 };
+
+/**
+ * What a person is told when their text is refused for its length or its rate, in the words of the audience that wrote it. A channel and a Direct Message say it the same way;
+ * a conversation (#1278) says it shorter. A refusal is the same status either way.
+ */
+const TEXT_WORDS = {
+  chat: {
+    long: overLimitWords,
+    fast: (perMinute: number, wait: number) => `That is more than ${perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`,
+  },
+  convo: {
+    long: (_length: number, max: number) => `A message is at most ${max} characters.`,
+    fast: (_perMinute: number, wait: number) => `You are sending too fast. Wait ${wait} seconds.`,
+  },
+} as const;
+export type TextWords = keyof typeof TEXT_WORDS;
 
 /** The longest issue, project or milestone a post may carry, in characters. */
 const MAX_LABEL = 200;
@@ -117,8 +134,19 @@ export class ChatCore {
     return clean || null;
   }
 
+  /** Refuses a text longer than Chat's limit, in the audience's own words (`TextWords`), or returns null. Nothing has read the text yet. */
+  tooLong(length: number, limits: ChatLimits, words: TextWords = 'chat'): Fail | null {
+    return length > limits.maxChars ? fail(422, TEXT_WORDS[words].long(length, limits.maxChars)) : null;
+  }
+
+  /** Counts one post by `who` and refuses it (429) in the audience's own words when it is over the per-minute limit, or returns null when it is within. */
+  tooFast(who: string, limits: ChatLimits, words: TextWords = 'chat'): Fail | null {
+    const wait = this.rate(who, limits.perMinute);
+    return wait === null ? null : fail(429, TEXT_WORDS[words].fast(limits.perMinute, wait));
+  }
+
   /** Counts one post by `who` and returns the seconds to wait when it is over `perMinute`, or null when it is within. */
-  rate(who: string, perMinute: number): number | null {
+  private rate(who: string, perMinute: number): number | null {
     const now = this.host.now();
     const mine = (this.recent.get(who) ?? []).filter((t) => now - t < MINUTE);
     if (mine.length >= perMinute) {

@@ -693,12 +693,7 @@ export class DirectChat {
    */
   private async early(viewer: ChatViewer, text: string, rate: boolean): Promise<Fail | null> {
     const limits = await this.core.limits();
-    if (text.length > limits.maxChars) return fail(422, `The message is ${text.length.toLocaleString('en-US')} characters, over the limit of ${limits.maxChars.toLocaleString('en-US')}. Send a shorter one.`);
-    if (rate) {
-      const wait = this.core.rate(`person:${nameKey(viewer.name)}`, limits.perMinute);
-      if (wait !== null) return fail(429, `That is more than ${limits.perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`);
-    }
-    return null;
+    return this.core.tooLong(text.length, limits) ?? (rate ? this.core.tooFast(`person:${nameKey(viewer.name)}`, limits) : null);
   }
 
   /**

@@ -9,7 +9,7 @@ import { ENDED_NOTICE_MARK } from './protocol.js';
 import type { Conversation, ConversationMember, ConversationMemberInput, ConversationMessage, ConversationTargetInput } from '../storage/types.js';
 import type { AdminReads, ReadSubject } from './chatAdminReads.js';
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
-import { type ChatCore, type DeliveryOutcome } from './chatCore.js';
+import { type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import type { LiveOrchestrator } from './peerTypes.js';
 import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
@@ -264,14 +264,12 @@ export class ConversationChat {
     };
   }
 
-  /** Cleans a person's text and checks its length against the Admin's limit. */
-  private async text(raw: unknown): Promise<{ ok: true; text: string } | Fail> {
+  /** Cleans a person's text and checks its length against the Admin's limit, in the conversation's words. */
+  private text(raw: unknown, limits: ChatLimits): { ok: true; text: string } | Fail {
     if (typeof raw !== 'string' || raw.length > TEXT_MAX_GUARD) return fail(400, 'text must be a string.');
-    const limits = await this.core.limits();
     const text = this.core.redact(raw).trim();
     if (!text) return fail(400, 'Write something to send.');
-    if (text.length > limits.maxChars) return fail(422, `A message is at most ${limits.maxChars} characters.`);
-    return { ok: true, text };
+    return this.core.tooLong(text.length, limits, 'convo') ?? { ok: true, text };
   }
 
   /**
@@ -282,7 +280,8 @@ export class ConversationChat {
     if (viewer.personId === null) return fail(403, 'Only a person can start a conversation. The admin secret has no person to write as.');
     const got = await this.resolve(viewer, body.members);
     if (!got.ok) return got;
-    const first = body.text === undefined || body.text === null ? null : await this.text(body.text);
+    const limits = body.text === undefined || body.text === null ? null : await this.core.limits();
+    const first = limits && this.text(body.text, limits);
     if (first && !first.ok) return first;
     const me: ConversationMemberInput = { kind: 'person', ref: String(viewer.personId), name: viewer.name };
     let opened;
@@ -294,7 +293,7 @@ export class ConversationChat {
     let message: ConversationMessageView | undefined;
     let skipped: string[] = [];
     if (first?.ok) {
-      const sent = await this.send(viewer, opened.conversation.id, { text: first.text });
+      const sent = await this.send(viewer, opened.conversation.id, { text: first.text }, limits);
       // The conversation exists now, so a refused first message is told with it and not as a failure of the whole: the person sends it again from the thread.
       if (!sent.ok) skipped = [`The first message was not sent: ${sent.error}`];
       else {
@@ -352,20 +351,20 @@ export class ConversationChat {
   }
 
   /** A member writes. The text is redacted and limited first. It is stored, every other person in it is counted one unread, and each agent in it is handed the text. */
-  async send(viewer: ChatViewer, id: string, body: Record<string, unknown>): Promise<{ ok: true; message: ConversationMessageView; skipped: string[] } | Fail> {
+  async send(viewer: ChatViewer, id: string, body: Record<string, unknown>, known: ChatLimits | null = null): Promise<{ ok: true; message: ConversationMessageView; skipped: string[] } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can write in it.');
     const c = await this.store.get(id);
     if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
-    const t = await this.text(body.text);
+    const limits = known ?? (await this.core.limits());
+    const t = this.text(body.text, limits);
     if (!t.ok) return t;
     // Who it is for (#1282): an @ names members of this conversation and no one else; with none, it is for every agent in it. A refusal stores and hands over nothing, and costs no rate.
     const present = c.members.filter((m) => m.leftAt === null);
     const named = resolveTargets(t.text, present.map((m) => this.asTarget(m)), { kind: 'person', ref: String(viewer.personId) });
     if (!named.ok) return fail(422, named.error);
     const targets: ConversationTargetInput[] = named.targets ?? present.filter((m) => m.kind === 'agent').map((m) => ({ kind: 'agent' as const, ref: m.ref, name: m.name, named: false }));
-    const limits = await this.core.limits();
-    const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, limits.perMinute);
-    if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+    const fast = this.core.tooFast(`convo:${nameKey(viewer.name)}`, limits, 'convo');
+    if (fast) return fast;
     const replyTo = typeof body.replyTo === 'string' && body.replyTo.length <= 80 ? body.replyTo : null;
     const stored = await this.store.post(id, { authorKind: 'person', authorRef: String(viewer.personId), authorName: viewer.name, authorId: viewer.personId, text: t.text, replyTo, targets }, this.core.host.now());
     if (!stored) return fail(404, 'There is no such conversation.');
@@ -407,11 +406,11 @@ export class ConversationChat {
   async agentSend(o: LiveOrchestrator, id: string, body: Record<string, unknown>): Promise<{ ok: true; id: string; createdAt: number } | Fail> {
     const c = await this.store.get(id);
     if (!c || !c.members.some((m) => m.leftAt === null && m.kind === 'agent' && m.ref === o.sessionId)) return fail(404, 'There is no such conversation.');
-    const t = await this.text(body.text);
-    if (!t.ok) return t;
     const limits = await this.core.limits();
-    const wait = this.core.rate(`convo-agent:${o.sessionId}`, limits.perMinute);
-    if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+    const t = this.text(body.text, limits);
+    if (!t.ok) return t;
+    const fast = this.core.tooFast(`convo-agent:${o.sessionId}`, limits, 'convo');
+    if (fast) return fast;
     if (!(await this.askedWithinWindow(id, o.sessionId))) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
     const stored = await this.store.post(id, { authorKind: 'agent', authorRef: o.sessionId, authorName: o.name, text: t.text }, this.core.host.now());
     if (!stored) return fail(404, 'There is no such conversation.');
@@ -456,7 +455,8 @@ export class ConversationChat {
     const now = this.core.host.now();
     let out;
     if (op === 'edit') {
-      const t = await this.text(body.text);
+      const limits = await this.core.limits();
+      const t = this.text(body.text, limits);
       if (!t.ok) return t;
       // Who a message is for is fixed when it is sent (#1282): an edit that names someone else, or no one, would leave the line under it describing the old text.
       const was = await this.store.getMessage(id, messageId);
@@ -467,8 +467,8 @@ export class ConversationChat {
         const after = now.ok ? (now.targets ?? []).map(key).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : null;
         if (before.length && JSON.stringify(before) !== JSON.stringify(after)) return fail(422, 'An edit cannot change who a message is for. Delete it and write it again to address someone else.');
       }
-      const wait = this.core.rate(`convo:${nameKey(viewer.name)}`, (await this.core.limits()).perMinute);
-      if (wait !== null) return fail(429, `You are sending too fast. Wait ${wait} seconds.`);
+      const fast = this.core.tooFast(`convo:${nameKey(viewer.name)}`, limits, 'convo');
+      if (fast) return fast;
       out = await this.store.editMessage(id, messageId, { author: viewer.personId, text: t.text, now });
     } else out = await this.store.deleteMessage(id, messageId, { author: viewer.personId, now });
     if (!out.ok) {

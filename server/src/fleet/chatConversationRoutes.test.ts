@@ -1,6 +1,6 @@
 // Conversations of people and agents (#1278, DECISIONS 74): a person writes to a person who has no orchestrator running, who finds it in Chat; the same members open one
 // conversation; an Admin and a stranger cannot read a conversation of people; an Admin reads one with an agent in it, recorded, and a person may add their own agent.
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
@@ -103,6 +103,20 @@ describe('a conversation of people', () => {
     const marked = await samB.post(`${CH}/read`).set(H).send({ thread: `convo:${id}`, upTo: null });
     expect(marked.body).toMatchObject({ ok: true, unread: 0 });
     expect(JSON.stringify((await samB.get(CH)).body.conversations)).not.toContain('hello Sam');
+  });
+
+  it('reads the Admin\'s limits once for a send, and for a send that opens the conversation with its first message', async () => {
+    const w = await world();
+    const settings = vi.spyOn(w.fleet.chat.core.store.settings, 'get');
+    const opened = await OPEN(w.edB, [person('Alex')]);
+    expect(opened.status).toBe(201);
+    const id = opened.body.conversation.id as string;
+    settings.mockClear();
+    expect((await w.edB.post(`${CH}/conversations/${id}/messages`).set(H).send({ text: 'one read of the limits' })).status).toBe(201);
+    expect(settings).toHaveBeenCalledTimes(1);
+    settings.mockClear();
+    expect((await OPEN(w.edB, [person('Alex')], 'and a first message')).status).toBeLessThan(300);
+    expect(settings.mock.calls.length).toBe(1);
   });
 
   it('answers the same conversation for the same members, in any order, and lists a person even when they have never signed in', async () => {
