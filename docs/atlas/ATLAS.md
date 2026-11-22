@@ -427,7 +427,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `sortSessions` | The wall's sort order. In `frontend/src/fleet/logic.ts`. |
 | Console | `filterSessions` | The wall's filters. In `frontend/src/fleet/logic.ts`. |
 | Console | `planProgress` | Steps done out of steps total. In `frontend/src/fleet/logic.ts`. |
-| Console | `useFleet` | Loads /state, then follows /stream. In `frontend/src/fleet/useFleet.ts`. |
+| Console | `useFleet` | Loads /state, then follows /stream, and counts the chat events of one frame as one. In `frontend/src/fleet/useFleet.ts`. |
 | Console | `fleetReducer` | Applies each stream message to the state. In `frontend/src/fleet/store.ts`. |
 | Console | `OrchestratorDetail` | Plan, files, agents and activity for one orchestrator. In `frontend/src/fleet/components/OrchestratorDetail.tsx`. |
 | Console | `readEvery` | How often the activity feed polls. In `frontend/src/fleet/useActivityFeed.ts`. |
@@ -457,6 +457,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `Editor` | Edits one of your own messages in place. In `frontend/src/fleet/components/ChatThread.tsx`. |
 | Console | `DeleteMessageDialog` | The confirmation before a message is deleted. In `frontend/src/fleet/components/ChatThread.tsx`. |
 | Console | `useThread` | The open thread; reads the newest and the earlier pages again on the signal, keeps the message objects that did not change so a memoized row is not drawn again, and puts an edited or deleted message in place. In `frontend/src/fleet/useChat.ts`. |
+| Console | `useConversation` | The open conversation of people and agents, read through the same paging as useThread, so it lands with the overview, keeps the unchanged message objects, and reads the earlier pages again on the signal. In `frontend/src/fleet/useChat.ts`. |
 | Console | `useRovingList` | One tab stop for the message list, moved with the arrow keys. In `frontend/src/fleet/useRovingList.ts`. |
 | Console | `useChatOverview` | Reads the overview again when the chat event moves, and keeps the records of deleted conversations (gone) even from a read a newer one replaced; it lands with the open thread's read through a Landing, so Chat is drawn once for the two. In `frontend/src/fleet/useChat.ts`. |
 | Console | `useReadingPing` | An Admin's open ask, Activity, whole text or live feed posts a reading every 15 seconds. In `frontend/src/fleet/sessionReads.tsx`. |

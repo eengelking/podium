@@ -707,7 +707,9 @@ function ChatBody(props: ChatPageProps) {
             overview={o}
             sessions={sessions}
             rev={rev}
-            now={serverNow}
+            now={props.now}
+            serverNow={serverNow}
+            landing={landing}
             readAs={ro ? readAs : null}
             members={members}
             onMembers={setMembers}

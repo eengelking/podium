@@ -1,8 +1,9 @@
 // A conversation of people and agents (#1278, DECISIONS 74, mockup/podium-chat-person-dm.html): the thread of a Direct Message that is between people, with no agent
 // in it unless a person added one. It is read only by its members; an Admin reads one only when an agent is in it, and then everyone in it is told. Message text is
 // only ever drawn as text. The page reads it again whenever the console's content-free `chat` signal moves.
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { RespondError } from "../respondApi";
+import type { Landing } from "../landing";
 import { failReason } from "../useMyPeers";
 import { conversationAddresses, conversationDelivery, conversationFor, conversationName, conversationSummary, dayLabel, liveReaders, plain, sameDay, stamp, type Address, type ChatApi, type ChatOverview, type ConversationInfo, type ConversationMessage } from "../chatData";
 import { useConversation } from "../useChat";
@@ -32,13 +33,97 @@ function conversationMembers(c: ConversationInfo, sessions: Record<string, Sessi
   }));
 }
 
+const fail = (e: unknown, what: string, stays: string): string => (e instanceof RespondError && e.status < 500 ? e.message : `Could not ${what}: ${plain(failReason(e))}. ${stays} Try again.`);
+
+/** What every row does, as one object that keeps its identity and acts on the page's latest props, so a row that is not drawn again is never stale (#1296). */
+interface RowActs {
+  onEdit: (id: string) => void;
+  onDelete: (id: string) => void;
+  onSave: (id: string, text: string) => void;
+  onCancel: () => void;
+}
+
+/** One message. Its props are the message object and plain values, never an object new on each render, so `memo` skips it unless it or what it shows changed (#1296). */
+const Row = memo(function Row({ m, cont, meName, now, ro, editing, acts }: { m: ConversationMessage; cont: boolean; meName: string; now: number; ro: boolean; editing: { error: string | null; busy: boolean } | null; acts: RowActs }) {
+  const mine = m.author.you;
+  const gone = m.deletedAt !== null;
+  return (
+    <li className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${editing ? " editing" : ""}`} data-testid="chat-message">
+      {cont ? (
+        <span className="ch-gut" aria-hidden="true" title={new Date(m.createdAt).toLocaleString()}>{hm(m.createdAt)}</span>
+      ) : (
+        <span className="ch-gut"><ChatAvatar kind={mine ? "you" : m.author.kind} name={mine ? meName : m.author.name} size={40} /></span>
+      )}
+      <div className="ch-col">
+        {!cont && (
+          <div className="ch-mh">
+            <span className={`who${mine ? " me" : ""}`}><bdi>{mine ? "You" : m.author.name}</bdi></span>
+            <span className="at" title={new Date(m.createdAt).toLocaleString()}>{stamp(m.createdAt, now)}</span>
+          </div>
+        )}
+        {gone ? (
+          <div className="ed-del"><ChTrash />{mine ? "You deleted this message." : `${m.author.name} deleted this message.`}</div>
+        ) : editing ? (
+          <Editor initial={m.text} error={editing.error} busy={editing.busy} onSave={(text) => acts.onSave(m.id, text)} onCancel={acts.onCancel} />
+        ) : (
+          <div className="ch-tx">
+            <Text text={m.text} />
+            {m.editedAt ? <span className="ed-edited" title={new Date(m.editedAt).toLocaleString()}>edited {hm(m.editedAt)}</span> : null}
+          </div>
+        )}
+        {!gone && !editing && (() => {
+          // Who it was for, and what became of it for each agent it was handed to (#1282). A message with no agent to hand it to keeps no such line.
+          const who = conversationFor(m);
+          const dl = conversationDelivery(m);
+          if (!who && !dl) return null;
+          return (
+            <>
+              {who && (
+                <div className="ch-for" data-testid="chat-for">
+                  {who.everyone ? <ChGroup /> : <ChAt />}
+                  <span>{who.text}</span>
+                </div>
+              )}
+              {dl && (
+                <div className="ch-st" data-testid="chat-delivery">
+                  <span className={`s ${dl.state}`}>
+                    {dl.state === "done" ? <StateIcon kind="done" /> : dl.state === "wait" ? <ChClock /> : <ChNo />}
+                    <span>{dl.text}</span>
+                  </span>
+                </div>
+              )}
+            </>
+          );
+        })()}
+        {mine && !gone && !editing && !ro && (
+          <div className="ch-own">
+            {m.canChange ? (
+              <>
+                <button type="button" className="btn sm" onClick={() => acts.onEdit(m.id)}>Edit message</button>
+                <button type="button" className="btn sm" onClick={() => acts.onDelete(m.id)}>Delete message</button>
+              </>
+            ) : m.changeWhy ? (
+              <span className="hint">{m.changeWhy}</span>
+            ) : null}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+});
+
 export interface ConversationProps {
   api: ChatApi;
   id: string;
   overview: ChatOverview;
   sessions: Record<string, SessionView>;
   rev: number;
+  /** The Chat page's clock: the date, which is all a message prints of the time, so a read does not draw the rows again. */
   now: number;
+  /** The server's clock at the last read, for hiding an Admin's reading that has ended. */
+  serverNow: number;
+  /** The Landing the page's reads share, so the overview and this conversation are drawn once for one signal (#1311). */
+  landing: Landing;
   /** An Admin is reading this person's conversations: nothing can be sent. */
   readAs: string | null;
   members: boolean;
@@ -54,7 +139,7 @@ export interface ConversationProps {
 }
 
 export function ChatConversation(p: ConversationProps) {
-  const t = useConversation(p.api, p.id, p.rev);
+  const t = useConversation(p.api, p.id, p.rev, p.landing);
   const o = p.overview;
   const listed = (o.conversations ?? []).find((c) => c.id === p.id) ?? null;
   const info = t.info ?? listed;
@@ -67,6 +152,38 @@ export function ChatConversation(p: ConversationProps) {
   const [leaving, setLeaving] = useState(false);
   const body = useRef<HTMLDivElement>(null);
   const near = useRef(true);
+
+  const save = async (id: string, text: string) => {
+    const was = t.messages.find((m) => m.id === id)?.text ?? "";
+    if (text.trim() === was.trim()) return setEditing(null);
+    setEditing({ id, error: null, busy: true });
+    try {
+      const r = await p.api.editConversationMessage(p.id, id, text.trim());
+      t.patch(r.message);
+      setEditing(null);
+    } catch (e) {
+      setEditing({ id, error: fail(e, "save", "Your message is unchanged."), busy: false });
+    }
+  };
+  const live = useRef(save);
+  useLayoutEffect(() => {
+    live.current = save;
+  });
+  const acts = useMemo<RowActs>(
+    () => ({
+      onEdit: (id) => {
+        setDeleting(null);
+        setEditing({ id, error: null, busy: false });
+      },
+      onDelete: (id) => {
+        setEditing(null);
+        setDeleting({ id, error: null, busy: false });
+      },
+      onSave: (id, text) => void live.current(id, text),
+      onCancel: () => setEditing(null),
+    }),
+    [],
+  );
 
   // The conversation is gone for this viewer (left, deleted, or never theirs): back to the list.
   useEffect(() => {
@@ -110,8 +227,7 @@ export function ChatConversation(p: ConversationProps) {
 
   const title = conversationName(info);
   const members = conversationMembers(info, p.sessions);
-  const readers = ro ? [] : liveReaders(listed?.adminReading ?? [], p.now);
-  const fail = (e: unknown, what: string, stays: string): string => (e instanceof RespondError && e.status < 500 ? e.message : `Could not ${what}: ${plain(failReason(e))}. ${stays} Try again.`);
+  const readers = ro ? [] : liveReaders(listed?.adminReading ?? [], p.serverNow);
 
   const send = async () => {
     const text = draft.trim();
@@ -123,25 +239,12 @@ export function ChatConversation(p: ConversationProps) {
       setDraft("");
       if (r.skipped.length) setErr(`Sent, but ${r.skipped.join(" ")}`);
       p.onSaid("Message sent.");
-      await t.reload();
-      await p.onChanged();
+      // Both land together, so the sent message and the new counts are drawn once.
+      await Promise.all([t.reload(), p.onChanged()]);
     } catch (e) {
       setErr(fail(e, "send", "Nothing was sent."));
     }
     setSending(false);
-  };
-
-  const save = async (id: string, text: string) => {
-    const was = t.messages.find((m) => m.id === id)?.text ?? "";
-    if (text.trim() === was.trim()) return setEditing(null);
-    setEditing({ id, error: null, busy: true });
-    try {
-      const r = await p.api.editConversationMessage(p.id, id, text.trim());
-      t.patch(r.message);
-      setEditing(null);
-    } catch (e) {
-      setEditing({ id, error: fail(e, "save", "Your message is unchanged."), busy: false });
-    }
   };
 
   const doDelete = async () => {
@@ -176,72 +279,7 @@ export function ChatConversation(p: ConversationProps) {
   for (const m of t.messages) {
     if (!prev || !sameDay(prev.createdAt, m.createdAt)) rows.push(<li key={`day-${m.createdAt}`} className="ch-day"><span>{dayLabel(m.createdAt, p.now)}</span></li>);
     const cont = !!prev && prev.author.name === m.author.name && prev.author.kind === m.author.kind && m.createdAt - prev.createdAt < 5 * 60_000 && sameDay(prev.createdAt, m.createdAt);
-    const mine = m.author.you;
-    const gone = m.deletedAt !== null;
-    const isEditing = editing?.id === m.id;
-    rows.push(
-      <li key={m.id} className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${isEditing ? " editing" : ""}`} data-testid="chat-message">
-        {cont ? (
-          <span className="ch-gut" aria-hidden="true" title={new Date(m.createdAt).toLocaleString()}>{hm(m.createdAt)}</span>
-        ) : (
-          <span className="ch-gut"><ChatAvatar kind={mine ? "you" : m.author.kind} name={mine ? o.me.name : m.author.name} size={40} /></span>
-        )}
-        <div className="ch-col">
-          {!cont && (
-            <div className="ch-mh">
-              <span className={`who${mine ? " me" : ""}`}><bdi>{mine ? "You" : m.author.name}</bdi></span>
-              <span className="at" title={new Date(m.createdAt).toLocaleString()}>{stamp(m.createdAt, p.now)}</span>
-            </div>
-          )}
-          {gone ? (
-            <div className="ed-del"><ChTrash />{mine ? "You deleted this message." : `${m.author.name} deleted this message.`}</div>
-          ) : isEditing ? (
-            <Editor initial={m.text} error={editing!.error} busy={editing!.busy} onSave={(text) => void save(m.id, text)} onCancel={() => setEditing(null)} />
-          ) : (
-            <div className="ch-tx">
-              <Text text={m.text} />
-              {m.editedAt ? <span className="ed-edited" title={new Date(m.editedAt).toLocaleString()}>edited {hm(m.editedAt)}</span> : null}
-            </div>
-          )}
-          {!gone && !isEditing && (() => {
-            // Who it was for, and what became of it for each agent it was handed to (#1282). A message with no agent to hand it to keeps no such line.
-            const who = conversationFor(m);
-            const dl = conversationDelivery(m);
-            if (!who && !dl) return null;
-            return (
-              <>
-                {who && (
-                  <div className="ch-for" data-testid="chat-for">
-                    {who.everyone ? <ChGroup /> : <ChAt />}
-                    <span>{who.text}</span>
-                  </div>
-                )}
-                {dl && (
-                  <div className="ch-st" data-testid="chat-delivery">
-                    <span className={`s ${dl.state}`}>
-                      {dl.state === "done" ? <StateIcon kind="done" /> : dl.state === "wait" ? <ChClock /> : <ChNo />}
-                      <span>{dl.text}</span>
-                    </span>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-          {mine && !gone && !isEditing && !ro && (
-            <div className="ch-own">
-              {m.canChange ? (
-                <>
-                  <button type="button" className="btn sm" onClick={() => { setDeleting(null); setEditing({ id: m.id, error: null, busy: false }); }}>Edit message</button>
-                  <button type="button" className="btn sm" onClick={() => { setEditing(null); setDeleting({ id: m.id, error: null, busy: false }); }}>Delete message</button>
-                </>
-              ) : m.changeWhy ? (
-                <span className="hint">{m.changeWhy}</span>
-              ) : null}
-            </div>
-          )}
-        </div>
-      </li>,
-    );
+    rows.push(<Row key={m.id} m={m} cont={cont} meName={o.me.name} now={p.now} ro={ro} editing={editing?.id === m.id ? editing : null} acts={acts} />);
     prev = m;
   }
 

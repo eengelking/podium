@@ -298,16 +298,17 @@ function fakeChat(w: Fake = world()) {
       w.convoMessages[info.id] = text ? [{ id: "k1", author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] }] : [];
       return { ok: true as const, created: true, conversation: info, skipped: [] as string[] };
     }),
-    conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: w.convoMessages[id] ?? [], older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
+    conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: structuredClone(w.convoMessages[id] ?? []), older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
     sendConversation: vi.fn(async (id: string, text: string) => {
       const m: ConversationMessage = { id: `k${(w.convoMessages[id] ?? []).length + 1}`, author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] };
       w.convoMessages[id] = [...(w.convoMessages[id] ?? []), m];
       return { ok: true as const, message: m, skipped: [] as string[] };
     }),
-    editConversationMessage: vi.fn(async () => {
+    // Refused until a test says otherwise.
+    editConversationMessage: vi.fn(async (_id: string, _messageId: string, _text: string): Promise<{ ok: true; message: ConversationMessage }> => {
       throw new Error("not used by this suite");
     }),
-    deleteConversationMessage: vi.fn(async () => {
+    deleteConversationMessage: vi.fn(async (_id: string, _messageId: string): Promise<{ ok: true; message: ConversationMessage }> => {
       throw new Error("not used by this suite");
     }),
     addConversationMembers: vi.fn(async (id: string, members: ConversationMemberInput[]) => {
@@ -4324,6 +4325,120 @@ describe("conversations of people and agents (#1278)", () => {
     await flush();
     expect(chat.api.sendConversation).toHaveBeenCalledWith("cnv_1", "thanks");
     expect(within(screen.getByTestId("chat-conversation")).getByText("thanks")).toBeInTheDocument();
+  });
+
+  // #1296: an open conversation reads on the console's signal like a thread does, and parses only what changed.
+  it("reads the open conversation and the overview again on a chat signal, once each, and shows what they returned", async () => {
+    const chat = withConvo();
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const read = { overview: chat.api.overview.mock.calls.length, convo: chat.api.conversationMessages.mock.calls.length };
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k3", "A message that came with the signal.", false)];
+    p.signal();
+    await flush();
+    expect({ overview: chat.api.overview.mock.calls.length - read.overview, convo: chat.api.conversationMessages.mock.calls.length - read.convo }).toEqual({ overview: 1, convo: 1 });
+    expect(within(screen.getByTestId("chat-conversation")).getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("parses only the message that arrived in an open conversation, and the one that was edited, not the ones already on screen", async () => {
+    const chat = withConvo(convo(), [cmessage("k1", "first", false), cmessage("k2", "second", true), cmessage("k3", "third", false)]);
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k4", "Only this one is new.", false)];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = chat.w.convoMessages.cnv_1!.map((m) => (m.id === "k2" ? { ...m, text: "second, edited on another console", editedAt: T0 } : m));
+    p.signal();
+    await flush();
+    expect(screen.getByText("second, edited on another console")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  describe("editing and deleting your own message (#1296: the rows are memoized, so the actions must still reach the page's latest props)", () => {
+    const opened = async () => {
+      const chat = withConvo();
+      const p = page({ chat });
+      await flush();
+      fireEvent.click(rowBtn("v:cnv_1"));
+      await flush();
+      return { chat, p, c: within(screen.getByTestId("chat-conversation")) };
+    };
+
+    it("saves an edit, keeps the box and what was typed while a signal reads the conversation again, and shows the saved text", async () => {
+      const { chat, p, c } = await opened();
+      chat.api.editConversationMessage.mockImplementation(async (id: string, mid: string, text: string) => {
+        const m = { ...chat.w.convoMessages[id]!.find((x) => x.id === mid)!, text, editedAt: T0 };
+        chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
+        return { ok: true as const, message: m };
+      });
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "yes, after lunch" } });
+      p.signal();
+      await flush();
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toHaveValue("yes, after lunch");
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(chat.api.editConversationMessage).toHaveBeenCalledWith("cnv_1", "k2", "yes, after lunch");
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(c.getByText("yes, after lunch")).toBeInTheDocument();
+      expect(c.getByText(/^edited /)).toBeInTheDocument();
+    });
+
+    it("closes the box on Cancel and on a save of the same text, without asking the server", async () => {
+      const { chat, c } = await opened();
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.click(c.getByRole("button", { name: "Cancel" }));
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(chat.api.editConversationMessage).not.toHaveBeenCalled();
+    });
+
+    it("shows the server's words when a save is refused, and a plain line when it did not answer, and keeps the box", async () => {
+      const { chat, c } = await opened();
+      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "changed" } });
+      chat.api.editConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "Podium has already sent this message to Tester, so it can no longer be changed." }));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.getByRole("alert")).toHaveTextContent("Podium has already sent this message to Tester, so it can no longer be changed.");
+      chat.api.editConversationMessage.mockRejectedValueOnce(new Error("offline"));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.getByRole("alert")).toHaveTextContent("Could not save: the server did not answer. Your message is unchanged. Try again.");
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toHaveValue("changed");
+    });
+
+    it("deletes after the question, leaves the note a delete leaves, and says so when the server refuses", async () => {
+      const { chat } = await opened();
+      chat.api.deleteConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "It is locked." }));
+      fireEvent.click(within(screen.getByTestId("chat-conversation")).getByRole("button", { name: "Delete message" }));
+      const dialog = within(screen.getByRole("alertdialog"));
+      fireEvent.click(dialog.getByRole("button", { name: "Delete message" }));
+      await flush();
+      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent("It is locked.");
+      chat.api.deleteConversationMessage.mockImplementationOnce(async (id: string, mid: string) => {
+        const m = { ...chat.w.convoMessages[id]!.find((x) => x.id === mid)!, text: "", deletedAt: T0, canChange: false };
+        chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
+        return { ok: true as const, message: m };
+      });
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete message" }));
+      await flush();
+      expect(chat.api.deleteConversationMessage).toHaveBeenLastCalledWith("cnv_1", "k2");
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(within(screen.getByTestId("chat-conversation")).getByText("You deleted this message.")).toBeInTheDocument();
+    });
   });
 
   const agent = (name: string, machine = "ed-mbp") => ({ kind: "agent" as const, name, you: false, addedBy: "Ed", address: `${name}@${machine}`, sessionId: `s-${name}` });
