@@ -798,6 +798,35 @@ describe("live refresh of earlier pages", () => {
     expect(result.current.older).toBe("m2");
   });
 
+  it("does not put an earlier page of the old thread under another one when it lands after the switch (#1296)", async () => {
+    const s = paged();
+    vi.useRealTimers();
+    const landing = new Landing();
+    const hook = renderHook(({ sel }) => useThread(s.api, sel, 0, null, landing), { initialProps: { sel: SEL } });
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    let land: () => void = () => undefined;
+    const held = new Promise<void>((r) => (land = r));
+    const real = s.channelMessages.getMockImplementation()!;
+    s.channelMessages.mockImplementationOnce(async (...a: Parameters<typeof real>) => {
+      const out = await real(...a);
+      await held;
+      return out;
+    });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = hook.result.current.loadEarlier();
+    });
+    s.channelMessages.mockImplementationOnce(() => new Promise(() => undefined));
+    hook.rerender({ sel: { kind: "channel", id: "other" } });
+    await act(async () => {
+      land();
+      await pending;
+    });
+    expect(hook.result.current.messages).toEqual([]);
+    expect(hook.result.current.older).toBeNull();
+    expect(hook.result.current.loadingEarlier).toBe(false);
+  });
+
   it("still sees a clear: fewer messages than are shown drops the earlier pages", async () => {
     const s = paged();
     const { result, rerender } = await loaded(s, 1);

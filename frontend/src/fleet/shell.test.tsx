@@ -432,6 +432,16 @@ describe("useFleet", () => {
       expect(result.current.chatRev).toBe(before + 1);
     });
 
+    it("are counted a frame after the first one, which later ones in the frame do not move", async () => {
+      const { result, emit, wait } = await live();
+      const before = result.current.chatRev;
+      emit("chat", { scope: "dm", owner: null, rev: 1 });
+      wait(10);
+      emit("chat", { scope: "public", owner: null, rev: 2 });
+      wait(CHAT_FRAME_MS - 10);
+      expect(result.current.chatRev).toBe(before + 1);
+    });
+
     it("count once for each frame they come in", async () => {
       const { result, emit, wait } = await live();
       const before = result.current.chatRev;
