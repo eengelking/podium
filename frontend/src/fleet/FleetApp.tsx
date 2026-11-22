@@ -24,7 +24,7 @@ import { Board } from "./components/Board";
 import { CONCLUDED_PREFIX, NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/NoticeStack";
 import { useConcluded } from "./useConcluded";
 import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
-import { useNow } from "./useNow";
+import { useDayNow, useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
 import { isUrgentChange, useUpdateEvery } from "./updateInterval";
 import { useResizable } from "./useResizable";
@@ -232,7 +232,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const peersOn = state.features["peer-messaging"] === true;
   const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters, state.chatRev);
   // Direct Messages concluded because an agent in them ended (#1283): a notice each on the wall, read again whenever the console's chat signal moves.
-  const concluded = useConcluded(chatApiProp ?? chatApi, peersOn && me !== null, state.chatRev);
+  // The Chat page shows the same list (the line in an open thread), so it is read here once for both (#1311); a person signed in on the Chat page is
+  // read for even when "me" is not a person (an Admin with no person of their own), as the page did itself.
+  const concluded = useConcluded(chatApiProp ?? chatApi, peersOn && (me !== null || (chat && signedIn?.signedIn === true)), state.chatRev);
+  // Chat prints a time only as a time of day or the name of a day, so its clock moves with the date and not with the 2 second tick (#1311).
+  const chatNow = useDayNow(now);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
   const peopleFilter: PeopleFilter = groupBy === "me" && me && active ? meFilter(me) : pf;
@@ -572,7 +576,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
             {chat ? (
-              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={now} openWith={chatWith(window.location.hash)} />
+              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={chatNow} concluded={concluded} openWith={chatWith(window.location.hash)} />
             ) : myUsage ? (
               <MyUsagePage me={signedIn ?? null} on={state.phase === "loading" ? null : state.features["my-usage"] === true} client={usageClientProp} />
             ) : myReporters ? (
