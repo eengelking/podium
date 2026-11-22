@@ -469,7 +469,7 @@ export class ConversationChat {
     } else out = await this.store.deleteMessage(id, messageId, { author: viewer.personId, now });
     if (!out.ok) return changeRefusal(out.reason, CONVERSATION_WORDS, () => HANDED_WORDS);
     this.core.onEvent({ kind: op === 'edit' ? 'conversation_message_edited' : 'conversation_message_deleted', by: viewer.actor, conversation: id, messageId });
-    for (const m of c.members) if (m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)) this.core.signal('dm');
+    this.core.signal('dm', c.members.filter((m) => m.leftAt === null && m.kind === 'person' && m.ref !== String(viewer.personId)).length);
     return { ok: true, message: this.view(viewer, out.message) };
   }
 
@@ -488,7 +488,7 @@ export class ConversationChat {
     }
     if (!next) return noConversation();
     this.core.onEvent({ kind: 'conversation_members_added', by: viewer.actor, conversation: id, count: got.members.length });
-    for (const m of next.members) if (m.leftAt === null && m.kind === 'person') this.core.signal('dm');
+    this.core.signal('dm', next.members.filter((m) => m.leftAt === null && m.kind === 'person').length);
     return { ok: true, conversation: this.info(viewer, next, undefined, await this.endedIn([next])) };
   }
 

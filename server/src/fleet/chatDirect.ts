@@ -248,7 +248,7 @@ export class DirectChat {
 
   /** Who is in a conversation across owners, and where the link between them stands. Null for any other conversation. */
   private async crossOf(c: ConversationSummary, viewer: ChatViewer): Promise<CrossInfo | null> {
-    const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    const personEnd = this.personEnd(c);
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId));
     if (!personEnd || !agentEnd || (c.ownerId !== null && personEnd.sessionId === personId(c.ownerId))) return null;
     const row = await this.peerStore.rights.personLink(personEnd.sessionId, agentEnd.reporterKey);
@@ -418,7 +418,7 @@ export class DirectChat {
 
   /** Who is told when an Admin reads this conversation: its owner, and the person who wrote when it is across owners, in every live reporter session of each. */
   private async subject(c: ConversationSummary): Promise<ReadSubject> {
-    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
+    const person = this.personEnd(c);
     return readSubject('dm', dmThread(c.a.sessionId, c.b.sessionId), `is reading your Podium conversation between ${c.a.name} and ${c.b.name}`, { names: [c.owner, ...(person ? [person.name] : [])], ids: this.peopleIdsOf(c) });
   }
 
@@ -592,9 +592,7 @@ export class DirectChat {
   /** Tells the consoles of both people that a message changed, and the owner's count of what waits for them (a delete closes a request), and the Admin log: ids and where, never the text. */
   private changed(kind: 'message_edited' | 'message_deleted', viewer: ChatViewer, c: ConversationSummary, id: string): void {
     this.core.onEvent({ kind, scope: 'dm', channel: null, owner: nameKey(c.owner), by: viewer.actor, messageId: id });
-    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.tell(person.name, c.owner);
-    else this.core.signal('dm');
+    this.tell(this.writer(c)?.name ?? c.owner, c.owner);
   }
 
   /** The message as a read returns it, now that it changed: every row it is made of, so a message to two agents answers with both. */
@@ -659,6 +657,17 @@ export class DirectChat {
   /** Messages from other people that wait for the owner's approval: the count the overview shows its owner. */
   async approvalsFor(ownerId: number | null): Promise<number> {
     return (await this.peerStore.rights.openRequests(ownerId)).filter((r) => r.kind === 'message' && isPersonKey(r.fromKey)).length;
+  }
+
+  /** The end of a conversation that is a person: the one who wrote, or the owner in their own conversation with an agent; undefined between two agents. */
+  private personEnd(c: Pick<ConversationSummary, 'a' | 'b'>) {
+    return [c.a, c.b].find((p) => isPersonId(p.sessionId));
+  }
+
+  /** The person who wrote in a conversation across owners, when they are not its owner; undefined otherwise. */
+  private writer(c: Pick<ConversationSummary, 'a' | 'b' | 'ownerId'>) {
+    const p = this.personEnd(c);
+    return p && (c.ownerId === null || p.sessionId !== personId(c.ownerId)) ? p : undefined;
   }
 
   /** Tells the person's consoles, and the owner's when it is another person. Never any text. */
@@ -745,7 +754,7 @@ export class DirectChat {
     if (op === 'allow' && role === 'sender') return fail(403, `Only ${cross.owner} can open the link again.`);
     // Allow opens a link that was removed. A paused link is resumed by whoever paused it (#1051), so an allow never lifts a pause.
     if (op === 'allow' && cross.link === 'paused') return fail(409, 'This link is paused. Resume it (the one who paused it, or an Administrator, can) instead of opening it again.');
-    const personEnd = [c.a, c.b].find((p) => isPersonId(p.sessionId))!;
+    const personEnd = this.personEnd(c)!;
     const agentEnd = [c.a, c.b].find((p) => !isPersonId(p.sessionId))!;
     // Only whoever paused a link can resume it, and an Admin (#1034). A pause whose pauser is not known may be resumed by either owner.
     if (op === 'resume' && !cross.canResume && cross.link === 'paused') {
@@ -832,10 +841,8 @@ export class DirectChat {
     const removed = await this.peers.deleteConversation(c.ownerId, a, b);
     await this.reads.drop(dmThread(a, b));
     this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });
-    this.core.signal('dm');
-    const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-    if (person && role === 'sender') this.core.signal('dm');
-    else if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal('dm');
+    // The person who wrote is told too: the sender is told of their own delete, and the owner of what another person deleted.
+    this.core.signal('dm', this.personEnd(c) && (role === 'sender' || this.writer(c)) ? 2 : 1);
     return { ok: true, removed };
   }
 
@@ -889,9 +896,7 @@ export class DirectChat {
       }
       await this.remember(c, gone, other, thread, undelivered);
       this.core.onEvent({ kind: 'dm_concluded', owner: nameKey(c.owner), a: c.a.sessionId, b: c.b.sessionId, count: removed });
-      this.core.signal('dm');
-      const person = [c.a, c.b].find((p) => isPersonId(p.sessionId));
-      if (person && (c.ownerId === null || person.sessionId !== personId(c.ownerId))) this.core.signal('dm');
+      this.core.signal('dm', this.writer(c) ? 2 : 1);
     }
   }
 

@@ -1568,10 +1568,12 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     seen.ownAgentDm = await step(() => w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'please run the suite' }), 202);
     seen.crossPersonDm = await step(() => w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' }), 202);
     seen.markRead = await step(() => w.alexB.post(`${CH}/read`).set(H).send({ thread: 'public' }), 200);
+    seen.deleteOwn = await step(() => w.edB.delete(`${CH}/dm/me/sess-tester`).set(H), 200);
+    seen.deleteAcross = await step(() => w.edB.delete(`${CH}/dm/me/sess-alex`).set(H), 200);
     const all = events();
     expect(all.map((e) => e.rev)).toEqual(all.map((_, i) => all[0]!.rev + i));
     for (const e of all) expect(Object.keys(e).sort()).toEqual(['rev', 'scope']);
-    expect(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.map((e) => e.scope)]))).toEqual({ channelPost: ['public'], groupPost: ['group'], ownAgentDm: ['dm'], crossPersonDm: ['dm', 'dm', 'dm'], markRead: ['public'] });
+    expect(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.map((e) => e.scope)]))).toEqual({ channelPost: ['public'], groupPost: ['group'], ownAgentDm: ['dm'], crossPersonDm: ['dm', 'dm', 'dm'], markRead: ['public'], deleteOwn: ['dm'], deleteAcross: ['dm', 'dm'] });
   });
 
   it('answers a bad page size of a channel, a Direct Message and a conversation the same way, and reads a good one (#1310)', async () => {
