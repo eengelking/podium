@@ -79,6 +79,9 @@ export async function sameOnAll(o: Openers, scenario: Scenario): Promise<Map<str
   return new Map(first.trace);
 }
 
+/** A copy of `texts` in one fixed order, for a case that holds a set of keys or ids and not the order they come back in (an explicit compare, so the order does not depend on a default). */
+export const sortedText = (texts: readonly string[]): string[] => [...texts].sort((x, y) => x.localeCompare(y));
+
 /** Registers `body` as one test per adapter, titled with the adapter's name, for a case about an adapter's own behavior in one storage. */
 export function onEachAdapter(o: Openers, title: string, body: (s: Storage, adapter: string) => Promise<void>, timeout?: number): void {
   for (const a of o.adapters) {

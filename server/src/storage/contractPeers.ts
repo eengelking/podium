@@ -2,7 +2,7 @@
 // access, and the messages, answers, retention and views built on them. Each runs one scenario over every adapter
 // (`sameOnAll`). Ids of messages and requests are generated, so they are scrubbed from what is compared and used as they come.
 import { it, expect } from 'vitest';
-import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import { onEachAdapter, sameOnAll, sortedText, type Openers } from './contractSame.js';
 import type { Report } from '../fleet/protocol.js';
 import { personKeyOf, type Actor, type MessageRow, type PeerChange } from '../fleet/peerTypes.js';
 import type { ReporterSeen } from './rows.js';
@@ -209,9 +209,9 @@ export function peerCases(o: Openers): void {
     const SEND_KEYS = ['approvalWhy', 'id', 'ok', 'paused', 'requestId', 'roundTrips', 'state', 'to'];
     for (const label of ['send', 'send (needs approval)']) {
       const reply = t.get(label) as Record<string, unknown>;
-      expect(Object.keys(reply).sort(), `${label}: the keys of the reply`).toEqual(SEND_KEYS);
-      expect(Object.keys(reply.roundTrips as object).sort(), `${label}: roundTrips`).toEqual(['cap', 'used']);
-      expect(Object.keys(reply.to as object).sort(), `${label}: to`).toEqual(['machine', 'name']);
+      expect(sortedText(Object.keys(reply)), `${label}: the keys of the reply`).toEqual(SEND_KEYS);
+      expect(sortedText(Object.keys(reply.roundTrips as object)), `${label}: roundTrips`).toEqual(['cap', 'used']);
+      expect(sortedText(Object.keys(reply.to as object)), `${label}: to`).toEqual(['machine', 'name']);
       expect(reply).toMatchObject({ ok: true, id: expect.any(String), state: expect.any(String), paused: expect.any(Boolean), to: { name: expect.any(String), machine: expect.any(String) }, roundTrips: { used: expect.any(Number), cap: expect.any(Number) } });
     }
     expect(t.get('send')).toMatchObject({ approvalWhy: null, requestId: null });
@@ -1427,7 +1427,7 @@ export function peerCases(o: Openers): void {
     for (const [from, to] of [[a, b], [b, a]] as const) await peers.rights.setRight(ED_ID, from, to, 'send', ED);
     await peers.rights.setRight(ED_ID, a, c, 'ask', ED);
     await peers.setDefaults(ED_ID, { limits: { roundTrips: 3 } }, ED);
-    expect((await peers.reporters.getMany([a, c, 'nope'])).map((r) => r.key).sort()).toEqual([a, c].sort());
+    expect(sortedText((await peers.reporters.getMany([a, c, 'nope'])).map((r) => r.key))).toEqual(sortedText([a, c]));
     // One conversation waits for approval, and one more is a person's own with an agent.
     expect((await m.send('sa', 'gamma@box-c', 'may I?')) as { ok: boolean }).toMatchObject({ ok: true });
     expect(await m.sendFromPerson({ ownerId: ED_ID, person: 'Ed', toSession: 'sb', text: 'from ed' })).toMatchObject({ author: 'person' });
@@ -1454,7 +1454,7 @@ export function peerCases(o: Openers): void {
       await run('conversationOf', () => m.conversationOf('x0', 'y0'));
       await run('conversationPairs', () => m.conversationPairs());
       // The conversations of a person are the ones they own (a person's own with an agent is theirs too), and each is the summary `conversationOf` gives.
-      expect(mine.map((x) => x.a.sessionId + '|' + x.b.sessionId).sort()).toEqual(owned.map((x) => x.a.sessionId + '|' + x.b.sessionId).sort());
+      expect(sortedText(mine.map((x) => x.a.sessionId + '|' + x.b.sessionId))).toEqual(sortedText(owned.map((x) => x.a.sessionId + '|' + x.b.sessionId)));
       for (const x of mine) {
         const { hiddenAt, ...summary } = x;
         expect(hiddenAt).toBeNull();

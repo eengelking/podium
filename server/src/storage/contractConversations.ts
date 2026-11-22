@@ -2,7 +2,7 @@
 // every adapter (`sameOnAll`), so every value is the same on all of them, and states the values it expects. The rule they hold: a conversation's text is never kept with,
 // copied into or returned with a channel's or a `peer_messages` row.
 import { expect, it } from 'vitest';
-import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import { onEachAdapter, sameOnAll, sortedText, type Openers } from './contractSame.js';
 import { counted } from './statementCount.js';
 import type { Conversation, ConversationChange, ConversationMemberInput, ConversationMessage, ConversationPage } from './types.js';
 
@@ -400,7 +400,7 @@ export function conversationCases(o: Openers): void {
     ids.splice(4, 1);
     const large = await check();
     // The agent sees only its own, with the same members as `get` gives.
-    expect((await c.listFor({ kind: 'agent', ref: 'sess-tester' })).map((x) => x.id).sort()).toEqual([...withAgent].sort());
+    expect(sortedText((await c.listFor({ kind: 'agent', ref: 'sess-tester' })).map((x) => x.id))).toEqual(sortedText(withAgent));
     expect(small).toBeLessThanOrEqual(3);
     expect(large).toBe(small);
   });
