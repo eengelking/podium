@@ -198,12 +198,12 @@ export class PeerRights implements PeerRightsApi {
         return refuse(400, `unknown setting: ${k}`);
       }
     }
-    // A row is the person's by `owner_id` (#1284). `owner_lower` was the folded name and is still the primary key, so it holds the id as text: no name, so a newcomer's row never meets another's.
+    // A row is the person's by `owner_id`, its key (#1284, #1296): no name, so a newcomer's row never meets another's.
     this.stmt(
-      `INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(owner_lower) DO UPDATE SET owner_id = excluded.owner_id, trust = excluded.trust, on_request = excluded.on_request,
+      `INSERT INTO peer_owner_settings (owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(owner_id) DO UPDATE SET trust = excluded.trust, on_request = excluded.on_request,
          new_send = excluded.new_send, limits_json = excluded.limits_json`,
-    ).run(String(ownerId), ownerId, Number(next.trust), next.onRequest, next.newSend, JSON.stringify(next.limits));
+    ).run(ownerId, Number(next.trust), next.onRequest, next.newSend, JSON.stringify(next.limits));
     this.trail({ kind: 'defaults', owner: actor.name, actor });
     return { ok: true, defaults: next };
   }

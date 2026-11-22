@@ -779,6 +779,17 @@ CREATE INDEX peer_requests_counter ON peer_requests(seq);
 CREATE INDEX peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
 `,
   },
+  {
+    version: 36,
+    // An owner's defaults are found by the person's id alone, which is the key now (#1296). A row with no `owner_id` is dropped, and so are the rows of an `owner_id` that has more than one. See SQLite migration 61.
+    sql: `
+DELETE FROM peer_owner_settings WHERE owner_id IS NULL OR owner_id IN (SELECT owner_id FROM peer_owner_settings GROUP BY owner_id HAVING COUNT(*) > 1);
+DROP INDEX IF EXISTS peer_owner_settings_owner_id;
+ALTER TABLE peer_owner_settings DROP COLUMN IF EXISTS owner_lower;
+ALTER TABLE peer_owner_settings ALTER COLUMN owner_id SET NOT NULL;
+ALTER TABLE peer_owner_settings ADD PRIMARY KEY (owner_id);
+`,
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

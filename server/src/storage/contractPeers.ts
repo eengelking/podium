@@ -130,6 +130,13 @@ export function peerCases(o: Openers): void {
       await rec('defaults', r.defaults(ED_ID));
       await rec('limits (stricter)', r.limits(ED_ID, SERVER_LIMITS));
       await rec('limits (another owner)', r.limits(EVE_ID, SERVER_LIMITS));
+      // An owner's defaults are one row, found by the person's id (#1296): writing again changes it, and another person's row is apart.
+      await rec('set defaults again', peers.setDefaults(ED_ID, { trust: true, limits: { roundTrips: 4 } }, ED));
+      await rec('defaults (set again)', r.defaults(ED_ID));
+      await rec('set defaults (another owner)', peers.setDefaults(EVE_ID, { newSend: 'send' }, ED));
+      await rec('defaults (another owner)', r.defaults(EVE_ID));
+      await rec('defaults (the first owner, after)', r.defaults(ED_ID));
+      await rec('limits (set again)', r.limits(ED_ID, SERVER_LIMITS));
       // three requests in the same millisecond, then one later: oldest first, the tie decided by one rule
       await rec('request 1', r.requestAccess({ ownerId: ED_ID, fromKey: a, toKey: b, right: 'see', reason: 'one', by: 'alpha', fromSession: 'sa' }));
       await rec('request 2', r.requestAccess({ ownerId: ED_ID, fromKey: a, toKey: c, right: 'send', reason: 'two', by: 'alpha', fromSession: 'sa' }));
@@ -143,6 +150,10 @@ export function peerCases(o: Openers): void {
       await rec('open (other owner)', r.openRequests(EVE_ID));
     });
     expect(((t.get('open') as { reason?: string }[]) ?? []).length).toBeGreaterThan(0);
+    expect(t.get('defaults (set again)')).toMatchObject({ trust: true, limits: { roundTrips: 4 } });
+    expect(t.get('defaults (another owner)')).toMatchObject({ trust: false, newSend: 'send', limits: {} });
+    expect(t.get('defaults (the first owner, after)')).toEqual(t.get('defaults (set again)'));
+    expect(t.get('limits (set again)')).toEqual({ ...SERVER_LIMITS, roundTrips: 4 });
   });
 
   it('lists open requests made in the same millisecond in the order they were made, whatever their pair, kind, reason or id', async () => {

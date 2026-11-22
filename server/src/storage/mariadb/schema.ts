@@ -805,6 +805,15 @@ CREATE INDEX IF NOT EXISTS peer_requests_counter ON peer_requests(seq);
 CREATE INDEX IF NOT EXISTS peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
 `),
   },
+  {
+    version: 36,
+    // An owner's defaults are found by the person's id alone, which is the key now (#1296). A row with no `owner_id` is dropped, and so are the rows of an `owner_id` that has more than one. See SQLite migration 61. The key, the index
+    // and the column change in one statement, so a step that stopped half way runs again: the delete reads only `owner_id` and can run twice, and the change finds the key, the index and the column as it left them.
+    statements: steps(`
+DELETE FROM peer_owner_settings WHERE owner_id IS NULL OR owner_id IN (SELECT owner_id FROM (SELECT owner_id FROM peer_owner_settings GROUP BY owner_id HAVING COUNT(*) > 1) dup);
+ALTER TABLE peer_owner_settings MODIFY owner_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (owner_id), DROP INDEX IF EXISTS peer_owner_settings_owner_id, DROP COLUMN IF EXISTS owner_lower;
+`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
