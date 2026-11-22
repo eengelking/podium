@@ -48,11 +48,7 @@ export interface ReadSubject {
 /** Whose recorded session an Admin is replaying: the person told, and what the callout says. */
 export type ReplaySubject = Omit<ReadSubject, 'scope'> & { scope: 'replay' };
 
-/**
- * The one builder of a read's subject, for every path an Admin reads a person's content by (a group, a Direct Message, a conversation, a list, a session's ask or Activity, a replay):
- * the people told, by id (`ids`, who is told and owed the record), and the names the Admin log and the signals carry (`names`, folded and each once). A path that has no name
- * for them passes none. Nothing here decides who is told by name.
- */
+/** The one builder of a read's subject, for every path an Admin reads a person's content by: who is told, by id (`ids`), and the names the Admin log carries (`names`, folded, each once). */
 export function readSubject<S extends ReadSubject['scope'] | 'replay'>(scope: S, thread: string, phrase: string, who: { names?: readonly string[]; ids: readonly number[] }): Omit<ReadSubject, 'scope'> & { scope: S } {
   return { scope, thread, owners: [...new Set((who.names ?? []).map(nameKey))], people: [...new Set(who.ids)], phrase };
 }

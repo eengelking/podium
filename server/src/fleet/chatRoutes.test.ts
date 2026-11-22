@@ -1574,6 +1574,22 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.map((e) => e.scope)]))).toEqual({ channelPost: ['public'], groupPost: ['group'], ownAgentDm: ['dm'], crossPersonDm: ['dm', 'dm', 'dm'], markRead: ['public'] });
   });
 
+  it('answers a bad page size of a channel, a Direct Message and a conversation the same way, and reads a good one (#1310)', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const conv = await w.edB.post(`${CH}/conversations`).set(H).send({ members: [{ kind: 'person', name: 'Alex' }], text: 'hi' });
+    expect(conv.status).toBe(201);
+    const paths = [`${CH}/channels/general/messages`, `${CH}/dm/sess-dev/sess-tester/messages`, `${CH}/conversations/${conv.body.conversation.id}/messages`];
+    for (const path of paths) {
+      for (const bad of ['0', '101', 'abc', '-1', '12345']) {
+        const res = await w.edB.get(`${path}?limit=${bad}`);
+        expect([res.status, res.body]).toEqual([400, { ok: false, error: 'limit must be a whole number from 1 to 100' }]);
+      }
+      expect((await w.edB.get(`${path}?limit=1`)).status).toBe(200);
+      expect((await w.edB.get(path)).status).toBe(200);
+    }
+  });
+
   it('reads no open requests for a count the stream no longer carries when a cross-person Direct Message is sent', async () => {
     const w = await world();
     const spy = vi.spyOn(w.fleet.peers.rights, 'openRequests');

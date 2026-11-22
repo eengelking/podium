@@ -2,7 +2,7 @@
 // These routes read and write a conversation (`peer_messages`) only: they never touch a channel.
 import { type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
-import { limitOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
+import { pageOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
 
 export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
   const direct = () => d.fleet.chat.direct;
@@ -35,10 +35,9 @@ export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
   browser.get('/chat/dm/:a/:b/messages', asyncHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
-    const limit = limitOf(req.query.limit);
-    if (limit === null) return void res.status(400).json({ ok: false, error: 'limit must be a whole number from 1 to 100' });
-    const before = typeof req.query.before === 'string' ? req.query.before : null;
-    const out = await direct().thread(v, req.params.a!, req.params.b!, { before, limit });
+    const page = pageOf(req, res);
+    if (!page) return;
+    const out = await direct().thread(v, req.params.a!, req.params.b!, page);
     if ('status' in out) return void d.refuse(req, res, out);
     res.json(out);
   }));

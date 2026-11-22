@@ -16,12 +16,13 @@ export interface ChatBrowserDeps {
 const PAGE_DEFAULT = 50;
 const PAGE_MAX = 100;
 
-/** A page size from a query: 1 to 100, 50 when absent. Null for anything else. */
-export function limitOf(raw: unknown): number | null {
-  if (raw === undefined || raw === '') return PAGE_DEFAULT;
-  if (typeof raw !== 'string' || !/^\d{1,4}$/.test(raw)) return null;
-  const n = Number(raw);
-  return n >= 1 && n <= PAGE_MAX ? n : null;
+/** The page a request asks for: `limit` is 1 to 100 (50 when absent) and `before` a cursor. A bad limit is answered 400 here and null returned. */
+export function pageOf(req: Request, res: Response): { before: string | null; limit: number } | null {
+  const raw = req.query.limit;
+  const n = raw === undefined || raw === '' ? PAGE_DEFAULT : typeof raw === 'string' && /^\d{1,4}$/.test(raw) ? Number(raw) : 0;
+  if (n >= 1 && n <= PAGE_MAX) return { before: typeof req.query.before === 'string' ? req.query.before : null, limit: n };
+  res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
+  return null;
 }
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
@@ -83,11 +84,10 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   browser.get('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
     const t = await target(req, res, req.query.owner);
     if (!t) return;
-    const limit = limitOf(req.query.limit);
-    if (limit === null) return void res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
-    const before = typeof req.query.before === 'string' ? req.query.before : null;
+    const page = pageOf(req, res);
+    if (!page) return;
     // The request is checked first (the cursor is, by reading the page), so a refused read records nothing and tells no one.
-    const got = await channels().page(t.v, t.channel, t.owner, { before, limit });
+    const got = await channels().page(t.v, t.channel, t.owner, page);
     if ('status' in got) return void d.refuse(req, res, got);
     // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded; if recording fails the read fails. General is public and never is.
     const adminReads = await channels().readRecord(t.v, t.channel, t.owner);

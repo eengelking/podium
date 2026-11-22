@@ -58,10 +58,7 @@ const DROP_WHY: Record<string, string> = {
   'responding-off': 'responding was turned off before the agent got the message',
 };
 
-/**
- * What a person is told when their text is refused for its length or its rate, in the words of the audience that wrote it. A channel and a Direct Message say it the same way;
- * a conversation (#1278) says it shorter. A refusal is the same status either way.
- */
+/** What a text refused for its length or its rate is answered with: a channel and a Direct Message say it one way, a conversation (#1278) shorter. */
 const TEXT_WORDS = {
   chat: {
     long: overLimitWords,
@@ -72,12 +69,12 @@ const TEXT_WORDS = {
     fast: (_perMinute: number, wait: number) => `You are sending too fast. Wait ${wait} seconds.`,
   },
 } as const;
-export type TextWords = keyof typeof TEXT_WORDS;
+type TextWords = keyof typeof TEXT_WORDS;
 
 /** Why a store refuses to change a message: the same four for every audience (#1269). */
 export type ChangeRefusal = 'not-found' | 'not-yours' | 'locked' | 'deleted';
 
-/** What a person is told when a change is refused, in the words of the audience the message is in. A message an agent has been handed (`locked`) is said by the caller, since it names the agents. */
+/** The words of a refused change in one audience. A message an agent has been handed is said by the caller, since it may name the agents. */
 export interface ChangeWords {
   notFound: string;
   notYours: string;
@@ -97,20 +94,14 @@ export function sentWords(names: string[]): string {
   return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
 }
 
-/**
- * Whether the viewer may change a message now, and when not, why: `mine` is the author's own live message (by id, never by name), `locked` that an agent has been handed it
- * (the one lock rule of every audience, the store's), `lockedWords` what it says, and `waiting` another reason in words (a mention that waits for approval). Not the author's: neither.
- */
+/** Whether the viewer may change a message, and when not, why: `mine` is the author's own live message (by id), `locked` that an agent has it, `waiting` another reason in words. */
 export function changeState(mine: boolean, locked: boolean, lockedWords: () => string, waiting: string | null = null): { canChange: boolean; changeWhy: string | null } {
   if (!mine) return { canChange: false, changeWhy: null };
   const why = locked ? lockedWords() : waiting;
   return { canChange: why === null, changeWhy: why };
 }
 
-/**
- * What an agent still in a Direct Message is told, once, when the agent it was written with ended (#1283), in Podium's own voice: the conversation was concluded, or (`stays`,
- * a conversation of two or more people) goes on without the one that ended.
- */
+/** What an agent still in a conversation is told when another agent ended (#1283): it was concluded, or (`stays`, two or more people) it goes on without it. */
 export function endedNotice(gone: string, stays = false): string {
   const rest = stays ? 'It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.' : `This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone}.`;
   return `${ENDED_NOTICE_MARK} ${gone} ended. ${rest}`;
