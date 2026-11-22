@@ -24,7 +24,8 @@ const GENERATED = /^((prq|dlv)_[0-9a-f]{24}|(grp|pub|cnv|cmg)_[0-9a-f]{8}_[0-9a-
 /**
  * The one list of differences between databases that are not defects (#1008): a field a database reports about its own storage is a
  * number in every database and a different one in each, so only its type is compared. A new entry needs a reason here, and is never
- * a way to make one adapter pass.
+ * a way to make one adapter pass. This set is for reported values. How an adapter lays a table out is not a value, and is declared in that
+ * adapter's list of physical differences and checked against its database (`PhysicalDifference`, DECISIONS 80), never put here.
  */
 const PHYSICAL = new Set(['fileBytes', 'freed']);
 

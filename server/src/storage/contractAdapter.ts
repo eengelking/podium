@@ -24,6 +24,24 @@ export interface KnownDefect {
 }
 
 /**
+ * A way one adapter lays a table out on disk that another does not, which no store call can see (DECISIONS 80). It is declared in the adapter's own folder, with the table, the option,
+ * the reason, the gain as measured and the contract case that proves the data is the same, and `adapters.test.ts` reads each adapter's layouts from its database and fails for one that is
+ * declared and not there or there and not declared. It never covers a table, column, index, key, constraint, default, collation, order, value or error, or durability or isolation.
+ */
+export interface PhysicalDifference {
+  id: string;
+  table: string;
+  /** What is set, in the adapter's own words. */
+  option: string;
+  why: string;
+  issue: string;
+  /** What it saves, as measured. */
+  gain: string;
+  /** The contract case that holds the data the same: a file in `server/src/storage/` and the title of the case in it. */
+  case: { file: string; title: string };
+}
+
+/**
  * A throwaway database of one adapter with the `samples` table to measure (#755), for `scripts/podium-perf-samples-index.ts`. The SQL that seeds the table, drops
  * and creates the index and reads its size is the adapter's own, so nothing outside the adapter folders writes SQL or imports a driver.
  */
@@ -56,6 +74,10 @@ export interface ContractAdapter {
   schema(): Promise<SchemaNames>;
   /** A throwaway database with the `samples` table to measure (#755). Optional: only the measurement script asks for it. */
   samplesPerf?(): Promise<SamplesPerf>;
+  /** The tables of a freshly opened database whose layout is not the database's default, read from the database itself (DECISIONS 80). */
+  layouts(): Promise<string[]>;
+  /** The physical differences this adapter declares. Empty when there are none. Each is read back by `layouts`. */
+  physical: PhysicalDifference[];
   /** Defects of this adapter that another issue owns. Empty when there are none. */
   known: KnownDefect[];
   /** Removes anything a failed test left behind. Called once after the adapter's suites. */
