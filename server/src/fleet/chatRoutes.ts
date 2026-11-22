@@ -106,7 +106,7 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
 /** The browser side: every Chat route needs orchestrator messaging on and a signed-in viewer. */
 export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserHelpers): void {
   const { fleet, logger } = d;
-  const asyncHandler = fleet.chat.handler;
+  const chatHandler = fleet.chat.handler;
   fleet.chat.people = d.people;
   wireChatLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);
@@ -129,7 +129,7 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
 
   const deps: ChatBrowserDeps = { fleet, viewer, refuse };
 
-  browser.get('/chat', asyncHandler(async (req, res) => {
+  browser.get('/chat', chatHandler(async (req, res) => {
     const v = await viewer(req, res);
     if (!v) return;
     // `?owner=<name>`: an Admin browses that person's Chat (names and counts, never text).
@@ -141,7 +141,7 @@ export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     res.json(out);
   }));
 
-  browser.post('/chat/read', asyncHandler(async (req, res) => {
+  browser.post('/chat/read', chatHandler(async (req, res) => {
     const v = await viewer(req, res);
     if (!v) return;
     const b = (req.body ?? {}) as Record<string, unknown>;

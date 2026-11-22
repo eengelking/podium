@@ -126,8 +126,8 @@ export class ChatService {
   }
 
   /**
-   * A route of Chat's, as `asyncHandler` makes it, and one action of Chat's (#1296): the consoles are sent one event for each scope the route changed, once it is done,
-   * and when it throws too.
+   * What Chat's routes use in place of `asyncHandler`: the same error handling plus one action of Chat's (#1296), so the consoles are sent one event for each scope
+   * the route changed, once it is done, and when it throws too. The route files bind it as `chatHandler`.
    */
   readonly handler = (fn: Parameters<typeof asyncHandler>[0]): ReturnType<typeof asyncHandler> => asyncHandler((req, res, next) => this.core.batch(() => fn(req, res, next)));
 

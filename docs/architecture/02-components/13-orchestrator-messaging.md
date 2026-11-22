@@ -114,10 +114,11 @@ An action sends one `chat` for each scope it changed, not one for each signal (#
 `signal` is told in a set of scopes found by an `AsyncLocalStorage` (the same way `storage/lock.ts` finds the connection a call holds), so two
 actions that overlap each keep their own; when the action is done, whether it returned or threw, it sends each scope once, in the order each was first signalled, and `rev`
 rises by one for each. Every signal comes after the write it follows, so an event never reaches a console before what it announces is stored,
-and the console, which only compares `rev` and then reads again, reads everything the action did. Work an action starts and does not wait for (a delivery's
-outcome, the count of a message between people, the channel side hearing `hearAcross`) is handed to `core.also`, which the batch waits for before it sends. A signal
+and the console, which only compares `rev` and then reads again, reads everything the action did. `core.also` holds the store writes an action starts and does not wait for: the one write that records a delivery's
+fate, the count of a message between people, and the channel side's `hearAcross` update. The batch waits for those writes before it sends, and never for the delivery itself:
+a later change of a delivery's fate is another action and sends its own event. A signal
 outside any batch, or one that comes after its batch is done, is sent at once, so none is lost (a batch inside one that is still open joins it; inside one that is done it is an action of its own). The batches are `ChatService.handler`, which wraps every Chat route
-as `asyncHandler` does (the five route files take it in its place), `sessionLeft`, `sessionSeen`, `maintain` and `peerTrail`, and the fleet's sweep (`ChatService.batch`, so the sessions one sweep ends are one action).
+with the same error handling as `asyncHandler` plus the batch (the five route files bind it as `chatHandler`, so `asyncHandler` keeps one meaning), `sessionLeft`, `sessionSeen`, `maintain` and `peerTrail`, and the fleet's sweep (`ChatService.batch`, so the sessions one sweep ends are one action).
 `routeGate.ts` holds the logged refusal every route file shares (`refuser`) and the gate a reporter's token passes for its person's
 session (`agentGate`), and `chatAdminReads.ts` has the one builder of an Admin read's subject (`readSubject`) that the group, the Direct
 Message, the conversation, the list, a session's read and a replay all use, so a new path that shows an Admin a person's content

@@ -257,7 +257,10 @@ export class ChatCore {
     }
   }
 
-  /** Work an action starts and does not wait for: the action's batch waits for it before it sends its events. It must catch its own errors. */
+  /**
+   * A store write an action starts and does not wait for (the one that records a delivery's fate, a count, an update `hearAcross` hands over): the action's batch waits for
+   * it before it sends its events, never for the delivery itself. It must catch its own errors.
+   */
   also(work: Promise<void>): void {
     const open = this.batches.getStore();
     if (open && !open.closed) open.started.push(work);
