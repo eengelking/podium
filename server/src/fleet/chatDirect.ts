@@ -8,7 +8,7 @@ import { isPersonKey, type ConversationSummary, type PeerChange, type LinkPauser
 import { PEER_DROP_WORDS } from './protocol.js';
 import { ChatCore, changeRefusal, changeState, endedNotice, sentWords, type ChangeWords, type DeliveryOutcome } from './chatCore.js';
 import { readSubject, type AdminReads, type ReadSubject, type Told } from './chatAdminReads.js';
-import { dmThread, fail, isPersonId, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
+import { dmThread, fail, isPersonId, noConversation, noOwnMessages, personId, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 export interface PartyView {
   sessionId: string;
@@ -388,7 +388,7 @@ export class DirectChat {
     const c = await this.find(a, b);
     if (!c) {
       const fresh = this.newWith(viewer, a, b);
-      if (!fresh) return fail(404, 'There is no such conversation.');
+      if (!fresh) return noConversation();
       const o = this.liveOf(fresh.sessionId)!;
       const me = { sessionId: personId(viewer.personId!), name: viewer.name, machine: '', reporterKey: '' };
       const agent = { sessionId: o.sessionId, name: o.name, machine: o.machine, reporterKey: o.reporterKey };
@@ -398,9 +398,9 @@ export class DirectChat {
     }
     const role = this.role(viewer, c);
     // Someone who is not in it hears what they hear of a conversation that is not there, so the answer does not say which ones exist (#1051).
-    if (!role) return fail(404, 'There is no such conversation.');
+    if (!role) return noConversation();
     // A conversation whose owner is no longer anyone (a person since deleted) belongs to nobody, so no one reads it (#1284).
-    if (c.ownerId === null) return fail(404, 'There is no such conversation.');
+    if (c.ownerId === null) return noConversation();
     let page;
     try {
       page = await this.peers.page(c.ownerId, a, b, opts);
@@ -477,7 +477,7 @@ export class DirectChat {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a conversation that is not their own.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
-    if (!c) return fail(404, 'There is no such conversation.');
+    if (!c) return noConversation();
     if (this.role(viewer, c) !== 'admin') return fail(403, 'That conversation is yours, so reading it is not recorded.');
     await this.reads.note(viewer, await this.subject(c), true);
     return { ok: true };
@@ -494,7 +494,7 @@ export class DirectChat {
     // Another person's agent (#1034): the person asks its owner. The agent's owner writes to it from their own conversation with it.
     if (c && role === 'owner' && [c.a.sessionId, c.b.sessionId].some((id) => isPersonId(id) && id !== me)) return fail(409, 'This conversation is with another person. Write to your agent from your own conversation with it.');
     if (c && role === 'sender') return this.sendAcrossDm(viewer, [a, b].find((id) => !isPersonId(id))!, body);
-    if (c && !role) return fail(404, 'There is no such conversation.');
+    if (c && !role) return noConversation();
     if (c && role !== 'owner') return fail(403, 'Only the people in a conversation can add to it, and an Admin can read it.');
     const fresh = c ? null : this.newWith(viewer, a, b);
     if (!c && !fresh) {
@@ -504,7 +504,7 @@ export class DirectChat {
       const known = other !== null && !isPersonId(other) && !this.liveOf(other) ? await this.core.host.sessionOf(other) : null;
       // Only the person's own agent is named: another person's stored session is not theirs to learn exists, or what it is called.
       if (known !== null && viewer.personId !== null && known.ownerId === viewer.personId) return fail(409, `${known.name} has ended, so Podium did not queue the message. It would never be taken.`);
-      return fail(404, 'There is no such conversation.');
+      return noConversation();
     }
     if (fresh && !fresh.own) return this.sendAcrossDm(viewer, fresh.sessionId, body);
     if (typeof body.text !== 'string' || !body.text.trim()) return fail(400, 'The message is empty. Write the text to send.');
@@ -528,7 +528,7 @@ export class DirectChat {
     const stored: MessageRow[] = [];
     for (const sid of live) {
       const o = this.liveOf(sid)!;
-      if (o.ownerId === null || o.ownerId !== viewer.personId) return fail(404, 'There is no such conversation.');
+      if (o.ownerId === null || o.ownerId !== viewer.personId) return noConversation();
       const other = agents.find((x) => x !== sid);
       // The person's own conversation with this one agent: it may answer in the thread. A word added to a conversation between two agents has no such thread to answer in.
       const sent = this.core.deliver(sid, viewer.name, o.name, text, 'chat', !other, null, viewer.personId);
@@ -559,11 +559,11 @@ export class DirectChat {
 
   /** The conversation and the stored message a change is about, when the viewer is a person in that conversation and the message is one of its own; otherwise the refusal. */
   private async changeScope(viewer: ChatViewer, rawA: string, rawB: string, id: string): Promise<{ c: ConversationSummary; a: string; b: string; row: MessageRow } | Fail> {
-    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    if (viewer.personId === null) return noOwnMessages();
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
     const role = c ? this.role(viewer, c) : null;
-    if (!c || !role) return fail(404, 'There is no such conversation.');
+    if (!c || !role) return noConversation();
     // An Admin reads a conversation and stops it; a message is changed by its author, from their own part of it.
     if (role === 'admin') return fail(403, 'An Admin can read a conversation but cannot change its messages.');
     const row = id.length <= 64 ? await this.peers.message(id) : null;
@@ -640,7 +640,7 @@ export class DirectChat {
    * words here: the author did it, and the channel side logs the change of the message it belongs to.
    */
   async changeAcross(viewer: ChatViewer, copyId: string, op: { kind: 'edit'; text: string } | { kind: 'delete' }): Promise<{ ok: true } | Fail> {
-    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    if (viewer.personId === null) return noOwnMessages();
     const row = await this.peers.message(copyId);
     if (!row) return fail(404, 'There is no such message.');
     const now = this.core.host.now();
@@ -732,9 +732,9 @@ export class DirectChat {
     if (!op) return fail(400, 'op must be pause, resume, remove or allow.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
-    if (!c) return fail(404, 'There is no such conversation.');
+    if (!c) return noConversation();
     const role = this.role(viewer, c);
-    if (!role) return fail(404, 'There is no such conversation.');
+    if (!role) return noConversation();
     const cross = await this.crossOf(c, viewer);
     // An Admin can stop any conversation (pause it, and resume what they paused or anyone did) but never remove its link: that is the people's.
     if (role === 'admin' && op !== 'pause' && op !== 'resume') return fail(403, 'An Admin can pause and resume a link, not remove it. Its people do that.');
@@ -824,11 +824,11 @@ export class DirectChat {
     if (viewer.personId === null) return fail(403, 'Only the people in a conversation can delete it.');
     const [a, b] = this.ids(viewer, rawA, rawB);
     const c = await this.find(a, b);
-    if (!c) return fail(404, 'There is no such conversation.');
+    if (!c) return noConversation();
     const role = this.role(viewer, c);
-    if (!role) return fail(404, 'There is no such conversation.');
+    if (!role) return noConversation();
     if (role !== 'owner' && role !== 'sender') return fail(403, 'Only the people in a conversation can delete it.');
-    if (c.ownerId === null) return fail(404, 'There is no such conversation.');
+    if (c.ownerId === null) return noConversation();
     const removed = await this.peers.deleteConversation(c.ownerId, a, b);
     await this.reads.drop(dmThread(a, b));
     this.core.onEvent({ kind: 'dm_deleted', owner: nameKey(c.owner), by: viewer.actor, a, b, count: removed });

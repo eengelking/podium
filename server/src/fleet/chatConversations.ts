@@ -10,7 +10,7 @@ import { readSubject, type AdminReads, type ReadSubject } from './chatAdminReads
 import { resolveTargets, type TargetMember } from './chatConversationTargets.js';
 import { changeRefusal, changeState, endedNotice, type ChangeWords, type ChatCore, type ChatLimits, type DeliveryOutcome } from './chatCore.js';
 import type { LiveOrchestrator } from './peerTypes.js';
-import { fail, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
+import { fail, noConversation, type AdminReading, type ChatViewer, type Fail } from './chatTypes.js';
 
 /** The thread a conversation's counts and Admin records are kept under. */
 const conversationThread = (id: string): string => `convo:${id}`;
@@ -306,7 +306,7 @@ export class ConversationChat {
   async thread(viewer: ChatViewer, id: string, opts: { before?: string | null; limit: number }) {
     const c = await this.store.get(id);
     const role = c ? this.roleOf(viewer, c) : null;
-    if (!c || !role) return fail(404, 'There is no such conversation.');
+    if (!c || !role) return noConversation();
     let page;
     try {
       page = await this.store.page(id, { before: opts.before ?? null, limit: Math.min(MAX_LIMIT, opts.limit) });
@@ -325,7 +325,7 @@ export class ConversationChat {
   async reading(viewer: ChatViewer, id: string): Promise<{ ok: true } | Fail> {
     if (!viewer.admin) return fail(403, 'Only an Admin reads a conversation that is not their own.');
     const c = await this.store.get(id);
-    if (!c || this.roleOf(viewer, c) !== 'admin') return fail(404, 'There is no such conversation.');
+    if (!c || this.roleOf(viewer, c) !== 'admin') return noConversation();
     await this.reads.note(viewer, this.subject(c), true);
     return { ok: true };
   }
@@ -350,7 +350,7 @@ export class ConversationChat {
   async send(viewer: ChatViewer, id: string, body: Record<string, unknown>, known: ChatLimits | null = null): Promise<{ ok: true; message: ConversationMessageView; skipped: string[] } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can write in it.');
     const c = await this.store.get(id);
-    if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
+    if (!c || !this.memberOf(viewer, c)) return noConversation();
     const limits = known ?? (await this.core.limits());
     const t = this.text(body.text, limits);
     if (!t.ok) return t;
@@ -363,7 +363,7 @@ export class ConversationChat {
     if (fast) return fast;
     const replyTo = typeof body.replyTo === 'string' && body.replyTo.length <= 80 ? body.replyTo : null;
     const stored = await this.store.post(id, { authorKind: 'person', authorRef: String(viewer.personId), authorName: viewer.name, authorId: viewer.personId, text: t.text, replyTo, targets }, this.core.host.now());
-    if (!stored) return fail(404, 'There is no such conversation.');
+    if (!stored) return noConversation();
     // Every other person in it is told there is something new: a count, never text. A person it names also has a mention.
     const namedPeople = new Set(targets.filter((x) => x.kind === 'person' && x.named).map((x) => x.ref));
     for (const m of present) if (m.kind === 'person' && m.ref !== String(viewer.personId)) await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', namedPeople.has(m.ref));
@@ -401,7 +401,7 @@ export class ConversationChat {
    */
   async agentSend(o: LiveOrchestrator, id: string, body: Record<string, unknown>): Promise<{ ok: true; id: string; createdAt: number } | Fail> {
     const c = await this.store.get(id);
-    if (!c || !c.members.some((m) => m.leftAt === null && m.kind === 'agent' && m.ref === o.sessionId)) return fail(404, 'There is no such conversation.');
+    if (!c || !c.members.some((m) => m.leftAt === null && m.kind === 'agent' && m.ref === o.sessionId)) return noConversation();
     const limits = await this.core.limits();
     const t = this.text(body.text, limits);
     if (!t.ok) return t;
@@ -409,7 +409,7 @@ export class ConversationChat {
     if (fast) return fast;
     if (!(await this.askedWithinWindow(id, o.sessionId))) return fail(403, 'Nobody has written to you in this conversation in the last hour, so Podium did not post your answer.');
     const stored = await this.store.post(id, { authorKind: 'agent', authorRef: o.sessionId, authorName: o.name, text: t.text }, this.core.host.now());
-    if (!stored) return fail(404, 'There is no such conversation.');
+    if (!stored) return noConversation();
     for (const m of c.members) if (m.leftAt === null && m.kind === 'person') await this.core.count({ id: Number(m.ref), name: m.name }, conversationThread(id), 'dm', false);
     this.core.onEvent({ kind: 'conversation_sent', by: o.name, conversation: id, messageId: stored.id });
     return { ok: true, id: stored.id, createdAt: stored.createdAt };
@@ -446,7 +446,7 @@ export class ConversationChat {
     if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change.');
     const c = await this.store.get(id);
     const role = c ? this.roleOf(viewer, c) : null;
-    if (!c || !role) return fail(404, 'There is no such conversation.');
+    if (!c || !role) return noConversation();
     if (role === 'admin') return fail(403, 'An Admin can read a conversation that has an agent in it, but cannot change its messages.');
     const now = this.core.host.now();
     let out;
@@ -477,7 +477,7 @@ export class ConversationChat {
   async addMembers(viewer: ChatViewer, id: string, body: Record<string, unknown>): Promise<{ ok: true; conversation: ConversationInfo } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can add to it.');
     const c = await this.store.get(id);
-    if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
+    if (!c || !this.memberOf(viewer, c)) return noConversation();
     const got = await this.resolve(viewer, body.members);
     if (!got.ok) return got;
     let next;
@@ -486,7 +486,7 @@ export class ConversationChat {
     } catch (err) {
       return fail(400, (err as Error).message);
     }
-    if (!next) return fail(404, 'There is no such conversation.');
+    if (!next) return noConversation();
     this.core.onEvent({ kind: 'conversation_members_added', by: viewer.actor, conversation: id, count: got.members.length });
     for (const m of next.members) if (m.leftAt === null && m.kind === 'person') this.core.signal('dm');
     return { ok: true, conversation: this.info(viewer, next, undefined, await this.endedIn([next])) };
@@ -496,9 +496,9 @@ export class ConversationChat {
   async leave(viewer: ChatViewer, id: string): Promise<{ ok: true; deleted: boolean } | Fail> {
     if (viewer.personId === null) return fail(403, 'Only a person in a conversation can leave it.');
     const c = await this.store.get(id);
-    if (!c || !this.memberOf(viewer, c)) return fail(404, 'There is no such conversation.');
+    if (!c || !this.memberOf(viewer, c)) return noConversation();
     const out = await this.store.leave(id, { kind: 'person', ref: String(viewer.personId) }, this.core.host.now());
-    if (!out) return fail(404, 'There is no such conversation.');
+    if (!out) return noConversation();
     if (out.deleted) await this.reads.forget(conversationThread(id));
     this.core.onEvent({ kind: 'conversation_left', by: viewer.actor, conversation: id, deleted: out.deleted });
     this.core.signal('dm');

@@ -9,7 +9,7 @@ import { ChatCore, changeRefusal, changeState, sentWords, type AcrossUpdate, typ
 import { groupSubject, type AdminReads, type Told } from './chatAdminReads.js';
 import { CHANNEL_NAME, lockedByDelivery } from '../storage/chatRows.js';
 import {
-  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, scopeOf, type ChannelId, type ChatViewer, type Fail, type PersonRef,
+  GENERAL, GROUP, channelGlobalScope, channelName, channelPersonScope, channelThread, fail, groupScope, groupThread, isPublicChannel, noOwnMessages, scopeOf, type ChannelId, type ChatViewer, type Fail, type PersonRef,
 } from './chatTypes.js';
 
 /** How far back a held mention is looked for when a channel resumes: 10 pages of 100, far more than a person pauses over. */
@@ -739,7 +739,7 @@ export class ChannelChat {
 
   /** The checks before a message is looked up: a signed-in person (the admin secret has no messages), and only in their own group. */
   private mayChange(viewer: ChatViewer, channel: ChannelId, owner: PersonRef | null): Fail | null {
-    if (viewer.personId === null) return fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.');
+    if (viewer.personId === null) return noOwnMessages();
     if (channel === GROUP && (owner === null || owner.id !== viewer.personId)) return fail(403, 'Only the person who wrote a message can change it.');
     return null;
   }

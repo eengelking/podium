@@ -4,7 +4,7 @@ import { type Request, type Response, type Router } from 'express';
 import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
-import { fail, GROUP, GENERAL, isPublicChannel, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
+import { fail, GROUP, GENERAL, isPublicChannel, noOwnMessages, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 /** What Chat's browser routes share: the gate (messaging on, and a signed-in viewer) and how a refusal is answered. */
 export interface ChatBrowserDeps {
@@ -124,7 +124,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     const v = await d.viewer(req, res);
     if (!v) return null;
     if (v.personId === null) {
-      d.refuse(req, res, fail(403, 'The admin secret has no messages of its own to change. Sign in with your own name.'));
+      d.refuse(req, res, noOwnMessages());
       return null;
     }
     const channel = await channels().resolve(req.params.channel);
