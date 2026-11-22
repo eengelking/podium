@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { cleanBinds } from './bind.js';
-import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
+import { flagScopeWithId, listWithIds, OWED_FILLED_KEY, owedIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
 import { CHAT_IDS_DONE_KEY, keepOwnerSettings, OWNED_PEER_TABLES, OWNER_EVIDENCE_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndRewrite, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { type SessionRow, type SessionWaitRow, type AgentRow, type EventRow, type BlowoutRow, type SampleRow, SAME_USAGE, type CostRow, type CostOf, type SessionSpend, type RetentionPolicy, type StorageInfo, ADMIN_LOG_KEEP, nameKey } from '../rows.js';
 
@@ -231,6 +231,20 @@ function fillDailyOwnerIds(db: DatabaseSync): void {
     }
     if (table !== 'failures_daily' && table !== 'skills_daily') db.exec(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
   }
+}
+
+/**
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. The store used to do this
+ * the first time it was opened; it is a step now, so that `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ */
+function fillOwed(db: DatabaseSync): void {
+  if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
+  const add = db.prepare('INSERT INTO chat_admin_owed (person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING');
+  // order-insensitive: each owed row is written under its own key, whatever the order.
+  for (const r of db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[]) {
+    for (const p of owedIds(r)) add.run(p, r.thread, r.admin_key, r.started_at);
+  }
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(OWED_FILLED_KEY, '1');
 }
 
 /** The migrations, in order. Exported so a test can run a step's `after` hook a second time. */
@@ -1006,6 +1020,77 @@ INSERT INTO chat_read_state_new (person_id, thread, unread, mentions)
 DROP TABLE chat_read_state;
 ALTER TABLE chat_read_state_new RENAME TO chat_read_state;
 CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
+  },
+  {
+    version: 56,
+    // A delivery is found by its message (#1296). `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan of every
+    // delivery; the key is `(message_id, member_kind, member_ref)` now, and a conversation's deliveries are those of its messages. The table is made again and its rows copied, as migration 52
+    // does, and made `WITHOUT ROWID` as DECISIONS 78 allows: a row is kept in its key's own order and not twice, once in the table and once in the key's index (PHYSICAL in `contractAdapter.ts`
+    // declares it). That part is SQLite's alone, so PostgreSQL step 32 and MariaDB step 32 change the key and the column and nothing else.
+    sql: `
+CREATE TABLE conversation_deliveries_new (
+  message_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL, named INTEGER NOT NULL, state TEXT, state_at INTEGER,
+  PRIMARY KEY (message_id, member_kind, member_ref)
+) WITHOUT ROWID;
+INSERT INTO conversation_deliveries_new (message_id, member_kind, member_ref, member_name, named, state, state_at)
+  SELECT message_id, member_kind, member_ref, member_name, named, state, state_at FROM conversation_deliveries;
+DROP TABLE conversation_deliveries;
+ALTER TABLE conversation_deliveries_new RENAME TO conversation_deliveries;`,
+  },
+  {
+    version: 57,
+    // What an Admin record is owed to, found by the person's id (#1296). `person_key` (`#<id>`, the name key the table began with) said the id again and was part of the key, and `chat_admin_owed_person`
+    // indexed the id beside it; the key is `(person_id, thread, admin_key, started_at)` now and a person's rows are its prefix. A row that names no person (`person_id` NULL) is not copied: nothing can see it, and
+    // the step that gave the others their id (51) already removed them. The table is made again and its rows copied, as migration 52 does, and made `WITHOUT ROWID`, as migration 56 does the deliveries (DECISIONS 78):
+    // all of a row is its key. Then the lists of the records made before this table existed fill it, once (`fillOwed`), which needs the `seen` list the next step drops. The same step is PostgreSQL step 33 and MariaDB step 33.
+    sql: `
+CREATE TABLE chat_admin_owed_new (
+  person_id INTEGER NOT NULL, thread TEXT NOT NULL, admin_key TEXT NOT NULL, started_at INTEGER NOT NULL,
+  PRIMARY KEY (person_id, thread, admin_key, started_at)
+) WITHOUT ROWID;
+INSERT INTO chat_admin_owed_new (person_id, thread, admin_key, started_at)
+  SELECT person_id, thread, admin_key, started_at FROM chat_admin_owed WHERE person_id IS NOT NULL;
+DROP TABLE chat_admin_owed;
+ALTER TABLE chat_admin_owed_new RENAME TO chat_admin_owed;
+CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);`,
+    after: fillOwed,
+  },
+  {
+    version: 58,
+    // An Admin record no longer keeps the list of who has seen it (#1296): a record is seen when its row in `chat_admin_owed` is deleted, so `seen` has held `[]` for every record made since that table was made, and the
+    // fill in step 57 was the last to read it. `people`, the list the record was made with, stays: deleting a person decides from it whether a record other people had seen is kept. The same step is PostgreSQL step 34 and MariaDB step 34.
+    sql: 'ALTER TABLE chat_admin_reads DROP COLUMN seen;',
+  },
+  {
+    version: 59,
+    // A person's counts in a thread are laid out `WITHOUT ROWID` (DECISIONS 78), as the deliveries and the owed rows are in 56 and 57: the key is the person's id and the thread, and a row is little more than its key, so the table
+    // and the key's index held it twice. The table is made again and its rows copied; the key, the columns and the index on the thread are as migration 55 left them, and nothing outside SQLite changes.
+    sql: `
+CREATE TABLE chat_read_state_new (
+  person_id INTEGER NOT NULL, thread TEXT NOT NULL, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (person_id, thread)
+) WITHOUT ROWID;
+INSERT INTO chat_read_state_new (person_id, thread, unread, mentions) SELECT person_id, thread, unread, mentions FROM chat_read_state;
+DROP TABLE chat_read_state;
+ALTER TABLE chat_read_state_new RENAME TO chat_read_state;
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
+  },
+  {
+    version: 60,
+    // Two reads that scanned a table read an index now (#1296). Every insert into `peer_messages`, `group_messages`, `public_messages`, `conversation_messages` and `peer_requests` takes the next `seq` from
+    // `SELECT COALESCE(MAX(seq), 0) + 1` over its table, and no index began with `seq`, so each insert read a whole index: 5 to 8 ms at 300,000 rows on SQLite, and the time grew with the table. An index on `seq`
+    // answers MAX from its last entry. And `peer_messages` was read by `owner_id` (`conversations`, `ownerConversations`, `gone`) with no index on it, so each read scanned every message of every person. The index is
+    // `(owner_id, sent_at, seq)`, the order those reads sort in, because on MariaDB an index on `owner_id` alone loses to the `seq` index for the read of an ended agent (`gone`), which
+    // sorts and stops at the first row: about 1 s against 5 ms at 300,000 messages of 50 owners. On PostgreSQL the narrow index is as fast once the table has statistics and is 33 bytes a row smaller, but every
+    // adapter has the same index, so this is the one.
+    // The same step is PostgreSQL step 35 and MariaDB step 35.
+    sql: `
+CREATE INDEX peer_messages_counter ON peer_messages(seq);
+CREATE INDEX group_messages_counter ON group_messages(seq);
+CREATE INDEX public_messages_counter ON public_messages(seq);
+CREATE INDEX conversation_messages_counter ON conversation_messages(seq);
+CREATE INDEX peer_requests_counter ON peer_requests(seq);
+CREATE INDEX peer_messages_owner ON peer_messages(owner_id, sent_at, seq);`,
   },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;

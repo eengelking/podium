@@ -63,5 +63,5 @@ detached rows than before.
 <!-- nav:start -->
 ---
 
-Previous: [76. The server tests on every adapter run from `npm run test:db`, with the options of `e2e:fast` (#1294)](76-the-server-tests-on-every-adapter-run-from-npm-run-test-db-with-the-options-of-e2e-fast.md) · Up: [Decisions](README.md)
+Previous: [76. The server tests on every adapter run from `npm run test:db`, with the options of `e2e:fast` (#1294)](76-the-server-tests-on-every-adapter-run-from-npm-run-test-db-with-the-options-of-e2e-fast.md) · Up: [Decisions](README.md) · Next: [78. An adapter may differ in physical layout when the difference is declared, checked and changes no data a store call can see (#1296)](78-an-adapter-may-differ-in-physical-layout-when-the-difference-is-declared-and-checked.md)
 <!-- nav:end -->

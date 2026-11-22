@@ -721,6 +721,30 @@ export function chatCases(o: Openers): void {
     expect(t.get('threads (after)')).toEqual(['group:eve']);
   });
 
+  it('keeps a record a person has seen when another person it was owed to is deleted, and drops one only the deleted person was owed (#1296)', async () => {
+    const GAP = 30 * 60_000;
+    const t = await sameOnAll(o, async (s, rec) => {
+      const reads = s.chat({ now: () => T0 }).adminReads;
+      const ed = (await s.people.createPerson('Ed', null, T0)).person;
+      const eve = (await s.people.createPerson('Eve', null, T0)).person;
+      await reads.touch('dm:seen-by-eve', 'Root', null, GAP, [ed.id, eve.id]);
+      await reads.touch('dm:only-ed', 'Root', null, GAP, [ed.id]);
+      await reads.touch('dm:seen-by-ed', 'Root', null, GAP, [ed.id, eve.id]);
+      await rec('Eve sees one', reads.seen('dm:seen-by-eve', eve.id));
+      await rec('Ed sees one', reads.seen('dm:seen-by-ed', ed.id));
+      await rec('delete Ed', s.people.deleteMany([ed.id]).then((r) => r.length));
+      // The record Eve has seen stays, as a permanent record line for her; the one only Ed was owed goes; the one Ed saw stays owed to Eve.
+      await rec('threads', reads.threads(''));
+      await rec('Eve is owed', reads.unseenFor(eve.id).then((l) => l.map((r) => r.thread)));
+      await rec('the record Eve saw', reads.list('dm:seen-by-eve').then((l) => l.map((r) => `${r.admin}:${r.kind}`)));
+    });
+    expect(t.get('Eve sees one')).toBe(1);
+    expect(t.get('Ed sees one')).toBe(1);
+    expect(t.get('threads')).toEqual(['dm:seen-by-ed', 'dm:seen-by-eve']);
+    expect(t.get('Eve is owed')).toEqual(['dm:seen-by-ed']);
+    expect(t.get('the record Eve saw')).toEqual(['Root:read']);
+  });
+
   onEachAdapter(o, 'mints the server scope once and keeps it, and puts it in every channel message id', async (s) => {
     const chat = s.chat({ now: () => T0 });
     const scope = await chat.serverScope();

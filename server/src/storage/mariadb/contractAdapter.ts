@@ -34,8 +34,31 @@ export async function readSchema(url: string, database: string): Promise<SchemaN
   });
 }
 
+/** The tables whose layout is not an InnoDB table made with no options (DECISIONS 78): another engine, or one with a row format, a page compression or the like set. */
+export async function readLayouts(url: string, database: string): Promise<string[]> {
+  return withConnection(url, async (c) => {
+    const rows = await c.query<{ table_name: string }[]>(
+      "SELECT table_name AS table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE' AND (engine <> 'InnoDB' OR (create_options IS NOT NULL AND create_options <> '')) ORDER BY table_name",
+      [database],
+    );
+    return rows.map((r) => r.table_name);
+  });
+}
+
 export function mariadbContractAdapter(): ContractAdapter {
   const open: { td: TestDatabase; storage: Storage }[] = [];
+  /** A fresh database with every table made, the Activity ones too (they are built on demand), read by `read` and dropped. */
+  const onFresh = async <T>(read: (td: TestDatabase) => Promise<T>): Promise<T> => {
+    const td = await createTestDatabase();
+    const storage = await openMariaDbStorage(target(td), 0);
+    try {
+      storage.activity({ history: { now: () => 0, settings: () => ({ policy: 'default' }) as never, isLive: () => true, authOn: true, agentsOf: async () => [] }, recordings: { now: () => 0, settings: () => ({}) as never, flagOn: () => false, authOn: true, isLive: () => true, loopsOf: async () => [] } });
+      return await read(td);
+    } finally {
+      await storage.close();
+      await td.drop();
+    }
+  };
   const track = (td: TestDatabase, storage: Storage): Storage => {
     const entry = { td, storage };
     open.push(entry);
@@ -60,18 +83,10 @@ export function mariadbContractAdapter(): ContractAdapter {
       const { storage, td } = await openUpgradedMariaDb(rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras, chat, daily);
       return track(td, storage);
     },
-    schema: async () => {
-      const td = await createTestDatabase();
-      const storage = await openMariaDbStorage(target(td), 0);
-      try {
-        // The Activity store is built on demand, so ask for it before reading the catalog.
-        storage.activity({ history: { now: () => 0, settings: () => ({ policy: 'default' }) as never, isLive: () => true, authOn: true, agentsOf: async () => [] }, recordings: { now: () => 0, settings: () => ({}) as never, flagOn: () => false, authOn: true, isLive: () => true, loopsOf: async () => [] } });
-        return await readSchema(td.url, td.name);
-      } finally {
-        await storage.close();
-        await td.drop();
-      }
-    },
+    schema: () => onFresh((td) => readSchema(td.url, td.name)),
+    layouts: () => onFresh((td) => readLayouts(td.url, td.name)),
+    // None: InnoDB keeps a row once, in its primary key, so no table needs another layout (DECISIONS 78).
+    physical: [],
     samplesPerf: mariadbSamplesPerf,
     known: [
       // As on PostgreSQL (#1007), no typed validation layer is built. What MariaDB does with such a number (#823): a fraction sent to an

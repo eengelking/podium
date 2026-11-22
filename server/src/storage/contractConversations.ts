@@ -247,6 +247,68 @@ export function conversationCases(o: Openers): void {
     expect(t.get('post after remove')).toBeNull();
   });
 
+  it('agrees on every adapter for deliveries staying with their own conversation (#1296): a state is set through its own conversation only, and removing or purging one conversation leaves another\'s', async () => {
+    const HAIKU: ConversationMemberInput = { kind: 'agent', ref: 'sess-notes', name: 'infra-notes' };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: a } = await c.open({ members: [ED, MAYA, TESTER], createdBy: 1 }, T0);
+      const { conversation: b } = await c.open({ members: [ED, JO, HAIKU], createdBy: 1 }, T0 + 1);
+      const { conversation: only } = await c.open({ members: [MAYA, HAIKU], createdBy: 2 }, T0 + 2);
+      const one = await c.post(a.id, say(ED, 'in a', { targets: [{ kind: 'agent', ref: 'sess-tester', name: 'Tester', named: true }] }), T0 + 10) as ConversationMessage;
+      const two = await c.post(b.id, say(ED, 'in b', { targets: [{ kind: 'agent', ref: 'sess-notes', name: 'infra-notes', named: true }] }), T0 + 20) as ConversationMessage;
+      await c.post(only.id, say(MAYA, 'in only', { targets: [{ kind: 'agent', ref: 'sess-notes', name: 'infra-notes', named: true }] }), T0 + 30);
+      await rec('b message through a', c.setDelivery(a.id, two.id, { kind: 'agent', ref: 'sess-notes' }, 'delivered', T0 + 40));
+      await rec('a message through b', c.setDelivery(b.id, one.id, { kind: 'agent', ref: 'sess-tester' }, 'delivered', T0 + 40));
+      await rec('a after the wrong calls', c.page(a.id, { limit: 50 }));
+      await rec('b after the wrong calls', c.page(b.id, { limit: 50 }));
+      await rec('remove a', c.remove(a.id));
+      await rec('b after a is removed', c.page(b.id, { limit: 50 }));
+      await rec('maya is deleted: only goes', c.removePerson(2));
+      await rec('b after maya', c.page(b.id, { limit: 50 }));
+      await rec('purge before b', c.purge(T0 + 15));
+      await rec('b after an older purge', c.page(b.id, { limit: 50 }));
+      await rec('purge past b', c.purge(T0 + 25));
+      await rec('b after its purge', c.page(b.id, { limit: 50 }));
+    });
+    expect(t.get('b message through a')).toBeNull();
+    expect(t.get('a message through b')).toBeNull();
+    const queued = (text: string, ref: string, name: string) => [{ text, deliveries: [{ kind: 'agent', ref, name, named: true, state: 'queued', stateAt: text === 'in a' ? T0 + 10 : T0 + 20 }] }];
+    const view = (key: string) => (t.get(key) as ConversationPage).messages.map((m) => ({ text: m.text, deliveries: m.deliveries }));
+    expect(view('a after the wrong calls')).toEqual(queued('in a', 'sess-tester', 'Tester'));
+    for (const key of ['b after the wrong calls', 'b after a is removed', 'b after maya', 'b after an older purge']) expect(view(key), key).toEqual(queued('in b', 'sess-notes', 'infra-notes'));
+    expect(view('b after its purge')).toEqual([]);
+    expect(t.get('remove a')).toEqual({ removed: true, messages: 1 });
+    expect(t.get('maya is deleted: only goes')).toBe(1);
+    expect(t.get('purge before b')).toBe(0);
+    expect(t.get('purge past b')).toBe(1);
+  });
+
+  it('agrees on every adapter for the order of the deliveries of one message (#1296): by kind, then name, then reference, whatever order they were written or read in', async () => {
+    const ALPHA: ConversationMemberInput = { kind: 'agent', ref: 'sess-b', name: 'Alpha' };
+    const ZED: ConversationMemberInput = { kind: 'agent', ref: 'sess-a', name: 'Zed' };
+    const t = await sameOnAll(o, async (s, rec) => {
+      const c = s.chat({ now: () => T0 }).conversations;
+      const { conversation: dm } = await c.open({ members: [ED, MAYA, TESTER, ALPHA, ZED], createdBy: 1 }, T0);
+      const target = (m: ConversationMemberInput, named: boolean) => ({ kind: m.kind, ref: m.ref, name: m.name, named });
+      // Written in the order Zed, Maya, Tester, Alpha, which is neither the order of the references (sess-a, sess-b, sess-tester, then the person) nor of the names.
+      const sent = await c.post(dm.id, say(ED, 'to four', { targets: [target(ZED, true), target(MAYA, true), target(TESTER, false), target(ALPHA, false)] }), T0 + 10) as ConversationMessage;
+      await rec('written', sent);
+      await rec('Alpha delivered', c.setDelivery(dm.id, sent.id, { kind: 'agent', ref: 'sess-b' }, 'delivered', T0 + 20));
+      await rec('Zed dropped', c.setDelivery(dm.id, sent.id, { kind: 'agent', ref: 'sess-a' }, 'dropped', T0 + 30));
+      await rec('page', c.page(dm.id, { limit: 50 }));
+      await rec('get', c.getMessage(dm.id, sent.id));
+    });
+    const expected = [
+      { kind: 'agent', ref: 'sess-b', name: 'Alpha', named: false, state: 'delivered', stateAt: T0 + 20 },
+      { kind: 'agent', ref: 'sess-tester', name: 'Tester', named: false, state: 'queued', stateAt: T0 + 10 },
+      { kind: 'agent', ref: 'sess-a', name: 'Zed', named: true, state: 'dropped', stateAt: T0 + 30 },
+      { kind: 'person', ref: '2', name: 'Maya Kim', named: true, state: null, stateAt: null },
+    ];
+    expect((t.get('written') as ConversationMessage).deliveries).toEqual(expected.map((d) => ({ ...d, state: d.kind === 'agent' ? 'queued' : null, stateAt: d.kind === 'agent' ? T0 + 10 : null })));
+    expect((t.get('page') as ConversationPage).messages[0]!.deliveries).toEqual(expected);
+    expect((t.get('get') as ConversationMessage).deliveries).toEqual(expected);
+  });
+
   it('agrees on every adapter for removing: a conversation, and a person who is deleted', async () => {
     const t = await sameOnAll(o, async (s, rec) => {
       const c = s.chat({ now: () => T0 }).conversations;

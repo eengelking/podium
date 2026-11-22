@@ -5,7 +5,6 @@ import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/toke
 import { stripFormat } from '../peerText.js';
 import { personKeyOf } from '../../fleet/peerTypes.js';
 import { FLAG_PREFIX, isFlagOfPerson, withoutPerson } from '../chatRows.js';
-import { fillOwed } from './chat.js';
 import { removePersonOf } from './conversations.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 
@@ -206,16 +205,15 @@ export class PeopleStore {
     }
     // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
     // The records still owed to this person are found by the person (#1061); one they have already seen is not owed and stays by retention.
-    fillOwed(this.db);
     const owed = this.db
-      .prepare('SELECT r.thread, r.admin_key, r.started_at, r.people, r.seen FROM chat_admin_owed o JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at WHERE o.person_id = ? ORDER BY r.thread, r.started_at, r.admin_key')
-      .all(personId) as unknown as { thread: string; admin_key: string; started_at: number; people: string; seen: string }[];
+      .prepare('SELECT r.thread, r.admin_key, r.started_at, r.people FROM chat_admin_owed o JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at WHERE o.person_id = ? ORDER BY r.thread, r.started_at, r.admin_key')
+      .all(personId) as unknown as { thread: string; admin_key: string; started_at: number; people: string }[];
     this.db.prepare('DELETE FROM chat_admin_owed WHERE person_id = ?').run(personId);
     for (const r of owed) {
       const out = withoutPerson(r, personId);
       if (out === 'none') continue;
       if (out === 'drop') this.db.prepare('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').run(r.thread, r.admin_key, r.started_at);
-      else this.db.prepare('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(out.people, out.seen, r.thread, r.admin_key, r.started_at);
+      else this.db.prepare('UPDATE chat_admin_reads SET people = ? WHERE thread = ? AND admin_key = ? AND started_at = ?').run(out.people, r.thread, r.admin_key, r.started_at);
     }
   }
 

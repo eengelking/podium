@@ -22,9 +22,8 @@ export const newChannelId = (prefix: 'grp' | 'pub', scope: string): string => `$
 export const newServerScope = (): string => randomBytes(4).toString('hex');
 
 /**
- * What a person is called in a key column that was a name before #1284 (`chat_admin_owed.person_key`): `#<people.id>`.
- * The column keeps its place in the primary key, so a person is told apart by the id and never by a name, and a person who takes a deleted person's name starts with nothing.
- * It is no longer read as a name; the `person_id` beside it is what every query uses.
+ * What a person is called in a key column that was a name before #1284: `#<people.id>`, which an Admin's record key (`adminKeyOf`) and the older upgrade steps still write. The columns that held a person's name
+ * (`chat_read_state.person`, `chat_admin_owed.person_key`) are gone (#1296), and the id beside each one is the key.
  */
 export const personKey = (id: number): string => `#${id}`;
 
@@ -267,7 +266,7 @@ export function chatSettingsOver(kv: ChatKv): ChatSettingsApi {
   };
 }
 
-/** A list of person ids kept in a text column (`chat_admin_reads.people`, `.seen`, #1284). Anything that is not a whole number in a list is dropped, so a list the older server kept as names reads as empty until the upgrade has rewritten it. */
+/** A list of person ids kept in a text column (`chat_admin_reads.people`, and `.seen` until the upgrade fills `chat_admin_owed` and drops it, #1284). Anything that is not a whole number in a list is dropped, so a list the older server kept as names reads as empty until the upgrade has rewritten it. */
 export function idList(raw: string | null | undefined): number[] {
   try {
     const v: unknown = JSON.parse(raw ?? '[]');
@@ -281,19 +280,18 @@ export function idList(raw: string | null | undefined): number[] {
 export const idText = (ids: readonly number[]): string => JSON.stringify([...new Set(ids)]);
 
 /**
- * What deleting the person `id` does to an Admin record (#1051): `drop` when only they were owed it (it can never be seen), `keep` with the people and the
- * seen list without them when others are owed it too, and `none` for a record that does not name them (including one that names nobody, which goes by
- * retention alone).
+ * What deleting the person `id` does to an Admin record (#1051): `drop` when only they were owed it (it can never be seen), `keep` with the people without them
+ * when others are owed it too, and `none` for a record that does not name them (including one that names nobody, which goes by retention alone).
  */
-export function withoutPerson(r: { people: string; seen: string }, id: number): 'none' | 'drop' | { people: string; seen: string } {
+export function withoutPerson(r: { people: string }, id: number): 'none' | 'drop' | { people: string } {
   const people = idList(r.people);
   if (!people.includes(id)) return 'none';
   const rest = people.filter((p) => p !== id);
   if (!rest.length) return 'drop';
-  return { people: idText(rest), seen: idText(idList(r.seen).filter((p) => p !== id)) };
+  return { people: idText(rest) };
 }
 
-/** The people an Admin record is owed to and who have not seen it, from the two lists the record kept before `chat_admin_owed` (#1061). */
+/** The people an Admin record is owed to and who have not seen it, from the two lists the record kept before `chat_admin_owed` (#1061). Only the upgrade reads them. */
 export const owedIds = (r: { people: string; seen: string }): number[] => {
   const seen = new Set(idList(r.seen));
   return idList(r.people).filter((p) => !seen.has(p));

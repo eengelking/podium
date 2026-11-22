@@ -43,7 +43,8 @@ describe('migration 54: the columns and indexes nothing reads', () => {
         const have = columns(db, table);
         for (const c of gone) expect(have, `${table}.${c}`).not.toContain(c);
       }
-      expect(indexes(db, 'group_messages')).toEqual(['group_messages_created', 'group_messages_owner']);
+      // `group_messages_counter` is migration 60's, which the database has by now.
+      expect(indexes(db, 'group_messages')).toEqual(['group_messages_counter', 'group_messages_created', 'group_messages_owner']);
       expect(indexes(db, 'peer_requests')).not.toContain('peer_requests_owner');
       // Every row is there with the values the columns that stay hold.
       expect(db.prepare('SELECT id, owner_id, text FROM group_messages ORDER BY seq').all()).toEqual([{ id: 'grp_1', owner_id: 1, text: 'one' }, { id: 'grp_2', owner_id: null, text: 'nobody reads this' }]);
