@@ -1,7 +1,6 @@
 // The browser's routes for Chat's channels (#1034), under /respond/chat/channels. Mounted on responding's browser router, so they share its sign-in
 // cookie, its cross-site check and its no-store header. These routes read and write General and My group only: they never touch a direct message.
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
 import { fail, GROUP, GENERAL, isPublicChannel, noOwnMessages, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
@@ -36,6 +35,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : nul
 
 export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): void {
   const { fleet } = d;
+  const chatHandler = fleet.chat.handler;
   const channels = () => fleet.chat.channels;
 
   /** The viewer and the channel a route is about, or an answer already sent. */
@@ -56,7 +56,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   };
 
   /** Opens a public channel (#1035): a signed-in person or an Admin. `201 { ok, channel }`, the channel as the overview lists it. */
-  browser.post('/chat/channels', asyncHandler(async (req, res) => {
+  browser.post('/chat/channels', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
     const out = await fleet.chat.publicChannels.open(v, (req.body ?? {}) as Record<string, unknown>);
@@ -65,7 +65,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** Changes a public channel's description: the person who opened it, or an Admin. */
-  browser.patch('/chat/channels/:channel', asyncHandler(async (req, res) => {
+  browser.patch('/chat/channels/:channel', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
     const channel = await channels().resolve(req.params.channel);
@@ -77,7 +77,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** Removes a public channel and everything in it: an Admin only. Its opener is told who did it. */
-  browser.delete('/chat/channels/:channel', asyncHandler(async (req, res) => {
+  browser.delete('/chat/channels/:channel', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
     const channel = await channels().resolve(req.params.channel);
@@ -88,7 +88,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json(out);
   }));
 
-  browser.get('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
+  browser.get('/chat/channels/:channel/messages', chatHandler(async (req, res) => {
     const t = await target(req, res, req.query.owner);
     if (!t) return;
     const page = pageOf(req, res);
@@ -103,7 +103,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** An Admin's open group pings this every 15 seconds so its person keeps seeing that it is being read. Answers only `ok`. */
-  browser.post('/chat/channels/:channel/reading', asyncHandler(async (req, res) => {
+  browser.post('/chat/channels/:channel/reading', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
     const channel = await channels().resolve(req.params.channel);
@@ -117,7 +117,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json({ ok: true });
   }));
 
-  browser.post('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
+  browser.post('/chat/channels/:channel/messages', chatHandler(async (req, res) => {
     // An owner named in the body is the group the message is meant for: an Admin may name another person's, and is refused in `post`.
     const t = await target(req, res, ((req.body ?? {}) as Record<string, unknown>).owner);
     if (!t) return;
@@ -149,7 +149,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   };
 
   /** The author edits their own message: `{ text }`. `200 { ok, message }`, the message as a read returns it; refused with 404, 403, 409 (`locked`, `deleted`, `approval`), 400, 422 or 429. */
-  browser.patch('/chat/channels/:channel/messages/:id', asyncHandler(async (req, res) => {
+  browser.patch('/chat/channels/:channel/messages/:id', chatHandler(async (req, res) => {
     const t = await changeTarget(req, res);
     if (!t) return;
     const out = await channels().editMessage(t.v, t.channel, t.owner, t.id, (req.body ?? {}) as Record<string, unknown>);
@@ -158,7 +158,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** The author deletes their own message; a tombstone stays. `DELETE .../messages` without an id is Remove all and stays as it was. */
-  browser.delete('/chat/channels/:channel/messages/:id', asyncHandler(async (req, res) => {
+  browser.delete('/chat/channels/:channel/messages/:id', chatHandler(async (req, res) => {
     const t = await changeTarget(req, res);
     if (!t) return;
     const out = await channels().deleteMessage(t.v, t.channel, t.owner, t.id);
@@ -166,7 +166,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])) });
   }));
 
-  browser.put('/chat/channels/:channel/pause', asyncHandler(async (req, res) => {
+  browser.put('/chat/channels/:channel/pause', chatHandler(async (req, res) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const t = await target(req, res, b.owner);
     if (!t) return;
@@ -176,7 +176,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json(out);
   }));
 
-  browser.put('/chat/channels/:channel/disconnect', asyncHandler(async (req, res) => {
+  browser.put('/chat/channels/:channel/disconnect', chatHandler(async (req, res) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const t = await target(req, res, b.owner);
     if (!t) return;
@@ -186,7 +186,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json(out);
   }));
 
-  browser.delete('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
+  browser.delete('/chat/channels/:channel/messages', chatHandler(async (req, res) => {
     const t = await target(req, res, (req.body as { owner?: unknown } | undefined)?.owner);
     if (!t) return;
     const out = await channels().clear(t.v, t.channel, t.owner);
@@ -195,7 +195,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** What a typed `@` can mean, narrowed by what is typed so far. For a direct message the list is the viewer's own agents. */
-  browser.get('/chat/addresses', asyncHandler(async (req, res) => {
+  browser.get('/chat/addresses', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
     // A public channel's list is General's: everyone who can be reached from it. Anything that is not a channel is the viewer's group, as before.

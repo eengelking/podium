@@ -3,7 +3,6 @@
 // the credential must be the person's token that owns the session, and the session's last report must have said `peers: true`. A direct message cannot
 // be read from here: the only write besides the channels is an agent's answer in a conversation it is a member of (#1299).
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import { jsonBody } from '../jsonBody.js';
 import { agentGate, refuser } from './routeGate.js';
 import { peersEnabled, type PeerDeps } from './peerRoutes.js';
@@ -14,6 +13,7 @@ import type { PublicChannel } from '../storage/types.js';
 
 export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
+  const chatHandler = fleet.chat.handler;
   const json = jsonBody({ limit: '128kb' });
 
   const refuse = refuser(logger, 'chat.refused', { session: true });
@@ -34,7 +34,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   const failed = (req: Request, res: Response, f: Fail) => refuse(req, res, f.status, f.error);
 
   /** The channels an agent can use (#1035): General and every public channel, as the catalogue says them (decision 69), never My group and never a message. The flags are this person's. */
-  router.get('/sessions/:id/chat/channels', d.requireToken, asyncHandler(async (req, res) => {
+  router.get('/sessions/:id/chat/channels', d.requireToken, chatHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
     const person = o.ownerId;
@@ -57,7 +57,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
     res.json({ ok: true, channels });
   }));
 
-  router.post('/sessions/:id/chat/channels/:channel/messages', d.requireToken, json, asyncHandler(async (req, res) => {
+  router.post('/sessions/:id/chat/channels/:channel/messages', d.requireToken, json, chatHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
     const channel = await channelOrNot(req, res);
@@ -68,7 +68,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   }));
 
   /** An agent answers in a Direct Message of people and agents it is a member of, where a person wrote to it (#1299). The only conversation route here: it reads nothing, and posts only as the agent. */
-  router.post('/sessions/:id/chat/conversations/:conversation/messages', d.requireToken, json, asyncHandler(async (req, res) => {
+  router.post('/sessions/:id/chat/conversations/:conversation/messages', d.requireToken, json, chatHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
     const out = await fleet.chat.conversations.agentSend(o, String(req.params.conversation), (req.body ?? {}) as Record<string, unknown>);
@@ -77,7 +77,7 @@ export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   }));
 
   /** The last hour of a channel the agent was called into: the newest messages that fit in about 30,000 characters, oldest first; `older` is the cursor for the ones before them that are inside the hour. The same for General, My group and every public channel (#1035). */
-  router.get('/sessions/:id/chat/channels/:channel/messages', d.requireToken, asyncHandler(async (req, res) => {
+  router.get('/sessions/:id/chat/channels/:channel/messages', d.requireToken, chatHandler(async (req, res) => {
     const o = await session(req, res);
     if (!o) return;
     const channel = await channelOrNot(req, res);
