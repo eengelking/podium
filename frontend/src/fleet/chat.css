@@ -82,7 +82,8 @@
    composer without making the top of a long one unreachable (justify-content:flex-end would). */
 .podium .adminv .apage.ch-fill { padding: 16px; }
 .adminv .apage-in.ch-page { display: flex; flex-direction: column; gap: 0; padding-bottom: 0; align-content: normal; min-height: 0; }
-.adminv .ch-asec { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+/* `.asec` is also in the selector so this wins over `.adminv .asec { display: grid }` (admin.css, which Chat.tsx imports after this file): as a grid, the rows (a banner, the split) shared the free height, and a one-line banner grew tall (#1340). */
+.adminv .asec.ch-asec { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 .ch-flow { margin-top: auto; }
 /* At 1040 px and under the console stacks and its height is auto (fleet.css), so there is no window height to fill; the chat is most of the window tall and its sidebar and list scroll inside it, and the page scrolls as a whole like every stacked page. */
 @media (max-width: 1040px) { .ch-split { flex: none; height: max(360px, calc(100svh - 240px)); } }
