@@ -23,7 +23,13 @@ const NOT_CALLED = new Set<string>([
 /** True when `text` registers a case whose title begins with `title`: the title is the first argument of `it(` or `onEachAdapter(o, `, not a word in a comment or in some other string. */
 function registersCase(text: string, title: string): boolean {
   const escaped = title.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(String.raw`(?:^|[^\w.])(?:it|test)\(\s*(['"\`])${escaped}|\bonEachAdapter\(\s*\w+,\s*(['"\`])${escaped}`, 'm').test(text);
+  const call = new RegExp(String.raw`(?:^|[^\w.])(?:it|test)\(\s*(['"\`])${escaped}|\bonEachAdapter\(\s*\w+,\s*(['"\`])${escaped}`, 'gm');
+  for (const m of text.matchAll(call)) {
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    // A call that follows `//` on its line is commented out.
+    if (!text.slice(lineStart, m.index + m[0].length).includes('//')) return true;
+  }
+  return false;
 }
 
 /**
@@ -126,6 +132,9 @@ describe('the registered adapters', { timeout: 30_000 }, () => {
     const withText = (body: string) => layoutProblems('mine', ['orders'], [named], tables, () => body).join('\n');
     expect(withText("// keeps the rows of orders\n  it('something else', () => {});")).toMatch(/does not hold as a case/);
     expect(withText("const label = 'keeps the rows';\n  it('something else', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  // it('keeps the rows of orders', async () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  it('something else', () => {}); // it('keeps the rows of orders', () => {});")).toMatch(/does not hold as a case/);
+    expect(withText("  // an old case:\n  it('keeps the rows of orders when it is purged', async () => {});")).toBe('');
     expect(withText("  it('keeps the rows of orders when it is purged', async () => {});")).toBe('');
     expect(withText("  onEachAdapter(o, 'keeps the rows of orders', async (s) => {});")).toBe('');
     expect(layoutProblems('mine', ['orders'], [{ ...entry, gain: ' ' }], tables, read).join('\n')).toMatch(/has no gain/);

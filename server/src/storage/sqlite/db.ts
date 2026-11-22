@@ -1080,8 +1080,9 @@ CREATE INDEX chat_read_state_thread ON chat_read_state(thread);`,
     // Two reads that scanned a table read an index now (#1296). Every insert into `peer_messages`, `group_messages`, `public_messages`, `conversation_messages` and `peer_requests` takes the next `seq` from
     // `SELECT COALESCE(MAX(seq), 0) + 1` over its table, and no index began with `seq`, so each insert read a whole index: 5 to 8 ms at 300,000 rows on SQLite, and the time grew with the table. An index on `seq`
     // answers MAX from its last entry. And `peer_messages` was read by `owner_id` (`conversations`, `ownerConversations`, `gone`) with no index on it, so each read scanned every message of every person. The index is
-    // `(owner_id, sent_at, seq)`, the order those reads sort in, because on MariaDB and PostgreSQL an index on `owner_id` alone loses to the `seq` index for the read of an ended agent (`gone`), which
-    // sorts and stops at the first row: 1 s against 5 ms at 300,000 messages of 50 owners on MariaDB, 0.13 s against 1.5 ms on PostgreSQL, with the same speed everywhere else.
+    // `(owner_id, sent_at, seq)`, the order those reads sort in, because on MariaDB an index on `owner_id` alone loses to the `seq` index for the read of an ended agent (`gone`), which
+    // sorts and stops at the first row: about 1 s against 5 ms at 300,000 messages of 50 owners. On PostgreSQL the narrow index is as fast once the table has statistics and is 33 bytes a row smaller, but every
+    // adapter has the same index, so this is the one.
     // The same step is PostgreSQL step 35 and MariaDB step 35.
     sql: `
 CREATE INDEX peer_messages_counter ON peer_messages(seq);
