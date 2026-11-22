@@ -16,6 +16,6 @@ describe('a Chat page size from the query', () => {
   });
 
   it('refuses 0, 101, five digits, a sign, a fraction, text and anything that is not one string', () => {
-    for (const bad of ['0', '101', '10000', '00000', '-1', '+5', '1.5', '1e1', 'abc', ' 5', ['5'], 5, null, {}]) expect(limitOf(bad), String(bad)).toBeNull();
+    for (const bad of ['0', '101', '10000', '00000', '00050', '-1', '+5', '1.5', '1e1', 'abc', ' 5', ['5'], 5, null, {}]) expect(limitOf(bad), String(bad)).toBeNull();
   });
 });
