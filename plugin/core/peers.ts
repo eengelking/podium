@@ -427,6 +427,15 @@ export interface SendOutcome {
   roundTrips?: { used?: unknown; cap?: unknown };
   /** True when the message was an answer to a person who wrote through Podium Chat (#1034). */
   person?: unknown;
+  /** How many values Podium itself replaced with [redacted] before it stored the message, on top of the reporter's own (#1329). Absent when none. */
+  redactions?: unknown;
+}
+
+/** A sentence for the values Podium replaced on its side (#1329): nothing unless the answer carries a count above 0. */
+function serverRedactions(out: SendOutcome): string {
+  const n = typeof out.redactions === 'number' && Number.isInteger(out.redactions) && out.redactions > 0 ? out.redactions : 0;
+  if (n === 0) return '';
+  return ` Podium replaced ${n === 1 ? '1 more value that looked like a secret' : `${n} more values that looked like secrets`} with [redacted] before it stored the message.`;
 }
 
 /** What `podium_send` answers once Podium took the message (202), in the mockup's words. */
@@ -436,7 +445,7 @@ export function sendAnswer(out: SendOutcome, ctx: { owner: string; here: string 
   const who = machine ? `${name} on ${machine}` : name;
   let text: string;
   // An answer to a person is stored at once: there is no reporter to wait for, and no answer comes back unless they write again (#1034).
-  if (out.person === true) return `Sent to ${name}, a person using Podium Chat. ${ctx.owner} can read the conversation too.${ctx.redactions > 0 ? ` Before it left this machine, ${ctx.redactions === 1 ? '1 value that looked like a secret was' : `${ctx.redactions} values that looked like secrets were`} replaced with [redacted].` : ''}`;
+  if (out.person === true) return `Sent to ${name}, a person using Podium Chat. ${ctx.owner} can read the conversation too.${ctx.redactions > 0 ? ` Before it left this machine, ${ctx.redactions === 1 ? '1 value that looked like a secret was' : `${ctx.redactions} values that looked like secrets were`} replaced with [redacted].` : ''}${serverRedactions(out)}`;
   // A paused link holds the message even when the orchestrator waits at its prompt: it does not have it yet.
   if (out.state === 'sent' && out.paused === true) text = `Waiting for ${who}. The link is paused, so it gets the message once ${ctx.owner} resumes it. Its answer arrives here as a new message.`;
   else if (out.state === 'sent') text = `Sent to ${who}. Podium hands it over within seconds. If ${name} is in the middle of a turn, it reads the message at its next step, after the tool call it is on. Its answer arrives here as a new message.`;
@@ -449,7 +458,7 @@ export function sendAnswer(out: SendOutcome, ctx: { owner: string; here: string 
   }
   if (out.paused === true && out.state !== 'sent') text += ` The link is paused, so it also waits until ${ctx.owner} resumes it.`;
   if (ctx.redactions > 0) text += ` Before it left this machine, ${ctx.redactions === 1 ? '1 value that looked like a secret was' : `${ctx.redactions} values that looked like secrets were`} replaced with [redacted].`;
-  return text;
+  return text + serverRedactions(out);
 }
 
 /** What `podium_send` answers once an answer was posted in a channel (#1065). */

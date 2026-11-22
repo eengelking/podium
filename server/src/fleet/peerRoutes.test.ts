@@ -756,3 +756,37 @@ describe('retention (#412)', () => {
     expect(storedMessages(s)).toBe(0);
   });
 });
+
+describe('Podium’s own credentials in peer text (#1329)', () => {
+  const stored = (s: S) => (s.db.prepare('SELECT text FROM peer_messages').all() as { text: string }[]).map((r) => r.text);
+
+  it('stores the admin secret, a person token and a secret-shaped value as [redacted], and says how many the server replaced', async () => {
+    const s = await linked();
+    const out = await send(s, `key ${SECRET} and ${s.alex.token} and sk-live-PEERROUTE1234567890 done`);
+    expect(out.status).toBe(202);
+    expect(out.body.redactions).toBe(3);
+    const [text] = stored(s);
+    expect(text).toBe('key [redacted] and [redacted] and [redacted] done');
+  });
+
+  it('leaves a clean message as it was and reports no replacement', async () => {
+    const s = await linked();
+    const out = await send(s, 'run the tests, then tell me what failed');
+    expect(out.status).toBe(202);
+    expect(out.body.redactions).toBeUndefined();
+    expect(stored(s)).toEqual(['run the tests, then tell me what failed']);
+  });
+
+  it('does not count a [redacted] the reporter already put in', async () => {
+    const s = await linked();
+    const out = await send(s, 'it was [redacted] already');
+    expect(out.status).toBe(202);
+    expect(out.body.redactions).toBeUndefined();
+  });
+
+  it('counts the length of the scrubbed text against the limit, not the raw text', async () => {
+    const s = await linked();
+    const out = await send(s, `${SECRET} `.repeat(900));
+    expect(out.status).toBe(202);
+  });
+});

@@ -98,6 +98,11 @@ another person's agent for a message. Files: `server/src/fleet/chat.ts`, `chatCo
 `chatAgentRoutes.ts`; the console's `Chat.tsx`, `chatData.ts`, `useChat.ts`, `chat.css` and `components/Chat*.tsx`. The rules are in SPEC 7.1,
 7.5, 7.7 and 8.1, and the reasoning in DECISIONS 61 and, for the public channels, 69. The storage is in [Storage](19-storage.md#chats-stores-1034).
 
+**An agent's `podium_send` is scrubbed at its route (#1329).** `POST /sessions/:id/peers/messages` in `peerRoutes.ts` runs
+`cleanPeerText` and `scrubStored` (the admin secret, a person's token and the secret patterns) on the text before it reaches
+`peers.messages.send`, so no adapter stores an unscrubbed text and the length is judged on what is stored. It sits above the
+store because the rule is the same for every adapter. The 202 carries `redactions` when the server added a `[redacted]`.
+
 **Parts.** `ChatService` (`chat.ts`) is the object the fleet owns (`fleet.chat`). It holds three things and keeps them apart on
 purpose. `ChatCore` has what both sides share and touches no message: the Admin's limits, redaction (`scrubStored`), the per-author
 rate limit, the read-state counts and the stream signal, the audit callback, and `deliver`, which hands a text to an agent through

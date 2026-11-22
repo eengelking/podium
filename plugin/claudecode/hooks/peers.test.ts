@@ -260,6 +260,11 @@ describe('peers: what the tools answer', () => {
     expect(sendAnswer({ state: 'turn', paused: true, to: { name: 'T', machine: 'm' } }, { ...ctx, redactions: 2 })).toMatch(
       /The link is paused, so it also waits until Ed resumes it\. Before it left this machine, 2 values that looked like secrets were replaced with \[redacted\]\.$/,
     )
+    // What Podium itself replaced, on top of the reporter's own (#1329), in a sentence of its own so the two counts stay apart.
+    expect(sendAnswer({ state: 'turn', redactions: 2, to: { name: 'T', machine: 'm' } }, { ...ctx, redactions: 0 })).toMatch(/ Podium replaced 2 more values that looked like secrets with \[redacted\] before it stored the message\.$/)
+    expect(sendAnswer({ state: 'sent', redactions: 1, to: { name: 'Eve', machine: '' }, person: true }, { ...ctx, redactions: 0 })).toMatch(/ Podium replaced 1 more value that looked like a secret with \[redacted\] before it stored the message\.$/)
+    expect(sendAnswer({ state: 'turn', redactions: 0, to: { name: 'T', machine: 'm' } }, ctx)).not.toContain('Podium replaced')
+    expect(sendAnswer({ state: 'turn', redactions: 'x', to: { name: 'T', machine: 'm' } }, ctx)).not.toContain('Podium replaced')
     // A paused link holds the message even when the receiver waits at its prompt: never "it has the message now".
     expect(sendAnswer({ state: 'sent', paused: true, to: { name: 'T', machine: 'm' } }, ctx)).toBe(
       'Waiting for T on m. The link is paused, so it gets the message once Ed resumes it. Its answer arrives here as a new message.',

@@ -23,7 +23,7 @@ const MAX_VALUE = 500;
 /** A secret shorter than this is not scrubbed: it would match ordinary text, and an empty one means auth is off. */
 const MIN_SECRET = 8;
 
-const REDACTED = '[redacted]';
+export const REDACTED = '[redacted]';
 
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g;

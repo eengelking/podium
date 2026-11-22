@@ -290,7 +290,9 @@ written for the model and for the person reading the transcript.
   subagent's call: "Not sent. Only an orchestrator can send. Put the message in your result and ask your orchestrator
   to send it."
 - Before the text leaves the machine, the mod replaces anything that looks like a secret with `[redacted]`, and the
-  tool says how many it replaced. The receiver and Chat see the marker. This is best effort.
+  tool says how many it replaced. Podium then scrubs the text again on the server, with its own credentials and the same patterns Chat uses, so a
+  reporter that did not redact, or could not know Podium's own secrets, still stores none; the tool says how many more it replaced. The receiver and
+  Chat see the marker. This is best effort.
 - The tool waits up to 8 seconds for Podium. When Podium cannot be reached, nothing is sent and the tool says so.
 - **Public channels (#1035).** `podium_send` to `channel:<name>` posts in a public channel (`channel:general` and `channel:group` post in General and My group). Every channel takes a post only from an agent it called in with an `@` during the last hour. Everyone signed in to
   Podium can read a public channel, so an agent posts nothing there that it would not say to all of them. Only the orchestrator's main loop lists, reads or posts. A channel message never interrupts a running turn: the agent sees it when it reads the channel or when its turn ends.
