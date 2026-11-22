@@ -153,7 +153,10 @@ export function withMentionState(mentions: ChannelMention[], index: number, patc
   return mentions.map((m, i) => (i === index ? { ...m, state: patch.state, why: patch.why ?? null, stateAt: at, ...(patch.copyId ? { copyId: patch.copyId } : {}) } : m));
 }
 
-/** One entry per person, in the order first seen: a person listed twice has the unread and the mentions of both, as two bumps would give. */
+/**
+ * One entry per person, in ascending person id: a person listed twice has the unread and the mentions of both, as two bumps would give. The order is fixed so that two transactions that count the same
+ * people take the row locks of `chat_read_state` in the same order, and never each hold a row the other waits for (a multi-row upsert locks in the order of its VALUES, and the database would abort one).
+ */
 export function foldBumps(bumps: readonly ReadBump[]): { personId: number; unread: number; mentions: number }[] {
   const by = new Map<number, { personId: number; unread: number; mentions: number }>();
   for (const b of bumps) {
@@ -162,7 +165,7 @@ export function foldBumps(bumps: readonly ReadBump[]): { personId: number; unrea
     if (b.mention) e.mentions++;
     by.set(b.personId, e);
   }
-  return [...by.values()];
+  return [...by.values()].sort((a, b) => a.personId - b.personId);
 }
 
 /** A read state row: one person's counts in one thread, kept by the person's id (#1284). */
@@ -177,7 +180,7 @@ export const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(
 
 /** The answer of `bumpMany`: the new state of each person in `folded` (what `foldBumps` returned), in that order, from the rows the adapter read back for all of them. */
 export function bumpAnswers(folded: readonly { personId: number }[], rows: readonly DbReadState[]): ThreadReadState[] {
-  // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
+  // order-insensitive: the rows are put into a map by person, and the answer follows `folded`, which is in ascending person id.
   const by = new Map(rows.map((r) => [Number(r.person_id), toState(r)]));
   return folded.map((b) => by.get(b.personId) as ThreadReadState);
 }

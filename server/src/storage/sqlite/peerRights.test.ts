@@ -273,7 +273,7 @@ describe('peer rights: defaults and limits', () => {
   });
 
   it('reads past a damaged row: bad JSON, bad values and unknown words fall back', () => {
-    db.prepare("INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES ('7', 7, 1, 'sometimes', 'later', '{oops')").run();
+    db.prepare("INSERT INTO peer_owner_settings (owner_id, trust, on_request, new_send, limits_json) VALUES (7, 1, 'sometimes', 'later', '{oops')").run();
     expect(rights.defaults(id('Dana'))).toEqual({ ...OWNER_DEFAULTS, trust: true });
     db.prepare(`UPDATE peer_owner_settings SET limits_json = '{"roundTrips":0,"perMinute":3}'`).run();
     expect(rights.defaults(id('Dana')).limits).toEqual({ perMinute: 3 });

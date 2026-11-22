@@ -176,11 +176,11 @@ export class MariaPeerRights implements PeerRightsStoreApi {
         }
       }
       await this.db.run(
-        // A row is the person's by `owner_id` (#1284). `owner_lower` was the folded name and is still the primary key, so it holds the id as text: no name, so a newcomer's row never meets another's.
-        `INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE owner_id = VALUES(owner_id), trust = VALUES(trust), on_request = VALUES(on_request),
+        // A row is the person's by `owner_id`, its key (#1284, #1296): no name, so a newcomer's row never meets another's.
+        `INSERT INTO peer_owner_settings (owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE trust = VALUES(trust), on_request = VALUES(on_request),
            new_send = VALUES(new_send), limits_json = VALUES(limits_json)`,
-        [String(ownerId), ownerId, Number(next.trust), next.onRequest, next.newSend, JSON.stringify(next.limits)],
+        [ownerId, Number(next.trust), next.onRequest, next.newSend, JSON.stringify(next.limits)],
       );
       await this.trail({ kind: 'defaults', owner: actor.name, actor });
       return { ok: true as const, defaults: next };

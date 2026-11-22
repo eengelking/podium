@@ -228,8 +228,8 @@ const ID = 'K(255)';
 const REPORTER_KEY = 'K(383)';
 
 /**
- * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. The store used to do this
- * the first time it was used; it is a step now, so that `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. It is a step of its own, so that
+ * `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
  */
 async function fillOwed(db: DB): Promise<void> {
   if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [OWED_FILLED_KEY])) return;
@@ -803,6 +803,15 @@ CREATE INDEX IF NOT EXISTS public_messages_counter ON public_messages(seq);
 CREATE INDEX IF NOT EXISTS conversation_messages_counter ON conversation_messages(seq);
 CREATE INDEX IF NOT EXISTS peer_requests_counter ON peer_requests(seq);
 CREATE INDEX IF NOT EXISTS peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
+`),
+  },
+  {
+    version: 36,
+    // An owner's defaults are found by the person's id alone, which is the key now (#1296). A row with no `owner_id` is dropped, and so are the rows of an `owner_id` that has more than one. See SQLite migration 61. The key, the index
+    // and the column change in one statement, so a step that stopped half way runs again: the delete reads only `owner_id` and can run twice, and the change finds the key, the index and the column as it left them.
+    statements: steps(`
+DELETE FROM peer_owner_settings WHERE owner_id IS NULL OR owner_id IN (SELECT owner_id FROM (SELECT owner_id FROM peer_owner_settings GROUP BY owner_id HAVING COUNT(*) > 1) dup);
+ALTER TABLE peer_owner_settings MODIFY owner_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (owner_id), DROP INDEX IF EXISTS peer_owner_settings_owner_id, DROP COLUMN IF EXISTS owner_lower;
 `),
   },
 ];

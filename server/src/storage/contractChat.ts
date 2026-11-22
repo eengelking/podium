@@ -222,8 +222,8 @@ export function chatCases(o: Openers): void {
     expect(await rs.list(405)).toEqual([large.value[5]]);
     expect(await rs.list(300)).toEqual([small.value[0]]);
     expect(await rs.bumpMany('group:g1', [])).toEqual([]);
-    // A person listed twice is counted twice, as two bumps would.
-    expect((await rs.bumpMany('dm:a|b', [{ personId: 500, mention: true }, { personId: 501, mention: false }, { personId: 500, mention: false }])).map((r) => [r.personId, r.unread, r.mentions])).toEqual([[500, 2, 1], [501, 1, 0]]);
+    // A person listed twice is counted twice, as two bumps would, and the answer is in ascending person id whatever order they were listed in (the order the rows are locked in).
+    expect((await rs.bumpMany('dm:a|b', [{ personId: 501, mention: false }, { personId: 500, mention: true }, { personId: 501, mention: true }])).map((r) => [r.personId, r.unread, r.mentions])).toEqual([[500, 1, 1], [501, 2, 1]]);
     expect(small.statements).toBeLessThanOrEqual(2);
     expect(large.statements).toBe(small.statements);
     // Past one batch of people the statements grow by one pair for each 500 more, and nobody is missed or counted twice.

@@ -234,8 +234,8 @@ function fillDailyOwnerIds(db: DatabaseSync): void {
 }
 
 /**
- * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. The store used to do this
- * the first time it was opened; it is a step now, so that `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. It is a step of its own, so that
+ * `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
  */
 function fillOwed(db: DatabaseSync): void {
   if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
@@ -1091,6 +1091,22 @@ CREATE INDEX public_messages_counter ON public_messages(seq);
 CREATE INDEX conversation_messages_counter ON conversation_messages(seq);
 CREATE INDEX peer_requests_counter ON peer_requests(seq);
 CREATE INDEX peer_messages_owner ON peer_messages(owner_id, sent_at, seq);`,
+  },
+  {
+    version: 61,
+    // An owner's defaults are found by the person's id alone (#1296). `owner_lower` was the folded name the table began with, then (#1284) the id as text, so it said `owner_id` a second time as the key, and
+    // `peer_owner_settings_owner_id` indexed `owner_id` beside it: the person's id was stored three times. The key is `owner_id` now, and it is the table's row id, so a row is stored once. A row with no `owner_id` is dropped
+    // (nothing reads one, and step 50 already removed every one that was not provably a person's), and so are the rows of an `owner_id` that has more than one (no code writes that; nothing says which is the person's,
+    // so they have the server's defaults). SQLite cannot change a key, so the table is made again and its rows copied, as migration 52 does. The same step is PostgreSQL step 36 and MariaDB step 36.
+    sql: `
+CREATE TABLE peer_owner_settings_new (
+  owner_id INTEGER PRIMARY KEY, trust INTEGER NOT NULL DEFAULT 0, on_request TEXT NOT NULL DEFAULT 'ask', new_send TEXT NOT NULL DEFAULT 'ask', limits_json TEXT
+);
+INSERT INTO peer_owner_settings_new (owner_id, trust, on_request, new_send, limits_json)
+  SELECT owner_id, trust, on_request, new_send, limits_json FROM peer_owner_settings
+  WHERE owner_id IS NOT NULL AND owner_id NOT IN (SELECT owner_id FROM peer_owner_settings WHERE owner_id IS NOT NULL GROUP BY owner_id HAVING COUNT(*) > 1);
+DROP TABLE peer_owner_settings;
+ALTER TABLE peer_owner_settings_new RENAME TO peer_owner_settings;`,
   },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;

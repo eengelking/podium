@@ -32,7 +32,6 @@ import {
   type OwnerConversation,
   type PersonMessageInput,
   type MessageTrail,
-  type PeerListing,
   type PeerRequestRow,
   type Refusal,
   type RightRow,
@@ -42,6 +41,7 @@ import { nameKey } from '../rows.js';
 import { decideChange, overLimitWords } from '../peerEdit.js';
 import { countConversations, type ConversationGroupRow } from '../conversationCounts.js';
 import { headOf, linksOf, pairsOf, toSummary, type SummaryHead } from '../peerSummary.js';
+import { leftOutWhy, listingOf, mayBeLeftOut, onPersonReporter, reachedOf, rightKeys, sameOwnerOn, sortListings } from '../peerReach.js';
 import type { PeerLimits } from '../settings.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
 import { MAX_NOTICES, REPLY_WORDS, cleanNameText, cleanPeerText, decodeCursor, encodeCursor, latestOf, pageSize, roundTripsUsed, settleName, type TripRow } from '../peerText.js';
@@ -220,27 +220,32 @@ export class MariaPeerMessages {
     return this.liveDir.get(sessionId) ?? null;
   }
 
-  /** Whether the orchestrator's reporter is its person's: known, not on the admin secret, and filed under the same `people.id` the orchestrator reported with (#1284), so a reporter that changed hands is not the one it ran on. */
-  private async onPersonReporter(o: LiveOrchestrator): Promise<boolean> {
-    const r = await this.reporters.get(o.reporterKey);
-    return r !== null && !r.adminSecret && o.ownerId !== null && r.ownerId === o.ownerId;
+  /** Whether the orchestrator runs on its person's own reporter (`onPersonReporter`), read for this one. */
+  private async onOwnReporter(o: LiveOrchestrator): Promise<boolean> {
+    return onPersonReporter(o, await this.reporters.get(o.reporterKey));
   }
 
-  /** The orchestrators `sender` could reach: the same owner's, messaging on, on a person's reporter, and seen by the sender's reporter. The sender itself is kept. */
+  /**
+   * The orchestrators `sender` could reach: the same owner's, messaging on, on a person's reporter, and seen by the sender's reporter. The sender itself is kept. The reporters are read once and the
+   * sender's rights once for all of them (#1296), so this costs the same for five orchestrators as for fifty. `rights` is the sender's right to each reporter it read, and to those in `more`.
+   */
+  private async reach(sender: LiveOrchestrator, more: readonly string[] = []): Promise<{ live: LiveOrchestrator[]; rights: ReadonlyMap<string, EffectiveRight> }> {
+    const candidates = sameOwnerOn(sender, this.liveDir.values());
+    const reporters = new Map((await this.reporters.getMany(candidates.map((o) => o.reporterKey))).map((r) => [r.key, r]));
+    const keys = rightKeys(sender, candidates, reporters, more);
+    const got = await this.rights.effectiveMany(keys.map((k) => [sender.reporterKey, k] as const));
+    const rights = new Map(keys.map((k, i) => [k, got[i] as EffectiveRight]));
+    return { live: reachedOf(sender, candidates, { reporters, rights }), rights };
+  }
+
   private async reachable(sender: LiveOrchestrator): Promise<LiveOrchestrator[]> {
-    const owner = sender.ownerId;
-    const out: LiveOrchestrator[] = [];
-    for (const o of this.liveDir.values()) {
-      if (owner === null || o.ownerId !== owner || o.peers !== true || !(await this.onPersonReporter(o))) continue;
-      if (o.sessionId === sender.sessionId || (await this.rights.effective(sender.reporterKey, o.reporterKey)).level !== 'none') out.push(o);
-    }
-    return out;
+    return (await this.reach(sender)).live;
   }
 
   /** The sender, when it can take part: live, messaging on, on a person's reporter. */
   private async sender(sessionId: string): Promise<(LiveOrchestrator & { ownerId: number }) | null> {
     const s = this.liveDir.get(sessionId);
-    return s && s.ownerId !== null && s.peers === true && (await this.onPersonReporter(s)) ? (s as LiveOrchestrator & { ownerId: number }) : null;
+    return s && s.ownerId !== null && s.peers === true && (await this.onOwnReporter(s)) ? (s as LiveOrchestrator & { ownerId: number }) : null;
   }
 
   /** The people who wrote to this agent through Chat and whose link is still there (#1034); one who has no link, or whose was removed, is not listed. */
@@ -259,34 +264,12 @@ export class MariaPeerMessages {
   async list(sessionId: string): Promise<PeerListResult> {
     const sender = await this.sender(sessionId);
     if (!sender) return { peers: [], leftOut: [], people: [] };
-    const others = (await this.reachable(sender)).filter((o) => o.sessionId !== sender.sessionId);
-    const peers: PeerListing[] = [];
-    for (const o of others) {
-      const right = await this.rights.effective(sender.reporterKey, o.reporterKey);
-      peers.push({
-        address: `${o.name}@${o.machine}`,
-        id: String(o.agentId),
-        name: o.name,
-        machine: o.machine,
-        os: o.os,
-        project: o.project,
-        status: o.status,
-        level: right.level as PeerListing['level'],
-        paused: right.paused,
-      });
-    }
-    peers.sort((a, b) => a.address.localeCompare(b.address) || a.id.localeCompare(b.id));
+    const machines = (await this.reporters.ofOwner(sender.ownerId)).filter((r) => mayBeLeftOut(r, sender));
+    const { live, rights } = await this.reach(sender, machines.filter((r) => r.peers === true).map((r) => r.key));
+    const others = live.filter((o) => o.sessionId !== sender.sessionId);
+    const peers = sortListings(others.map((o) => listingOf(o, rights.get(o.reporterKey) as EffectiveRight)));
     const listed = new Set(others.map((o) => o.reporterKey));
-    const leftOut: LeftOut[] = [];
-    for (const r of await this.reporters.ofOwner(sender.ownerId)) {
-      // The sender's own reporter is where it runs, not a machine left out (the mockup lists only the others).
-      if (r.adminSecret || r.key === sender.reporterKey || listed.has(r.key)) continue;
-      let why: LeftOut['why'] = 'no orchestrator running';
-      if (r.peers === null) why = 'reporter too old to message';
-      else if (!r.peers) why = 'messaging off on the machine';
-      else if ((await this.rights.effective(sender.reporterKey, r.key)).level === 'none') why = 'no right to see it';
-      leftOut.push({ machine: r.machine, why });
-    }
+    const leftOut: LeftOut[] = machines.filter((r) => !listed.has(r.key)).map((r) => ({ machine: r.machine, why: leftOutWhy(r, rights.get(r.key)) }));
     return { peers, leftOut, people: await this.peopleOf(sender) };
   }
 
@@ -319,7 +302,7 @@ export class MariaPeerMessages {
     const tooMany = (list: LiveOrchestrator[]): Refusal =>
       refuse(409, `There are ${list.length} orchestrators called ${plain}, so Podium cannot tell which one you mean. Send to one by its id: ${ids(list)}. podium_peers lists the ids.`);
     if (/^\d+$/.test(wantId)) {
-      const hit = await this.byAgentId(sender, Number(wantId), address);
+      const hit = await this.byAgentId(sender, Number(wantId), address, reachable);
       // The id names the agent; the name and machine in front of it must be the ones it has, so `Lower Left@Mac#7` is never delivered to agent 7 under another name.
       const named = matches.some((o) => o.agentId === Number(wantId));
       return hit && (named || ('ok' in hit && hit.status === 409)) ? hit : unseen;
@@ -336,9 +319,9 @@ export class MariaPeerMessages {
     return unseen;
   }
 
-  /** The reachable agent with this id, a refusal when it is the sender or when it has ended (#1284), or null when the sender has never been able to see one. */
-  private async byAgentId(sender: LiveOrchestrator, agentId: number, address: string): Promise<LiveOrchestrator | Refusal | null> {
-    const hit = (await this.reachable(sender)).find((o) => o.agentId === agentId);
+  /** The reachable agent with this id (from `reachable` when the caller has already read it), a refusal when it is the sender or when it has ended (#1284), or null when the sender has never been able to see one. */
+  private async byAgentId(sender: LiveOrchestrator, agentId: number, address: string, reachable?: LiveOrchestrator[]): Promise<LiveOrchestrator | Refusal | null> {
+    const hit = (reachable ?? (await this.reachable(sender))).find((o) => o.agentId === agentId);
     if (hit) return hit.sessionId === sender.sessionId ? refuse(422, `${address} is this orchestrator. Send to another one; podium_peers lists them.`) : hit;
     return this.gone(sender, agentId);
   }
@@ -679,7 +662,7 @@ export class MariaPeerMessages {
       return (known?.n ?? 0) > 0 ? refuse(409, 'That agent has ended, so Podium did not send the message. It would never be taken.') : refuse(404, 'There is no such agent.');
     }
     if (target.ownerId === input.personId) return refuse(422, 'That agent is yours. Write to it from your own conversation with it.');
-    if (target.peers !== true || target.ownerId === null || !(await this.onPersonReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
+    if (target.peers !== true || target.ownerId === null || !(await this.onOwnReporter(target))) return refuse(403, `${target.name} is not taking part in orchestrator messaging, so it cannot be written to.`);
     const limits = await this.rights.limits(target.ownerId);
     if (clean.length > limits.maxChars) {
       return refuse(422, overLimitWords(clean.length, limits.maxChars));
