@@ -218,7 +218,8 @@ describe("main", () => {
     expect(seen!.cmd).toBe("bash");
     expect(seen!.env.TEST_ALL_LOCKED).toBe("1");
     expect(seen!.args.join(" ")).toContain("db_lock_acquire");
-    expect(seen!.args.at(-1)).toBe("core");
+    expect(seen!.args.join(" ")).not.toContain("core"); // the arguments never enter the shell command
+    expect(JSON.parse(seen!.env.TEST_ALL_ARGV)).toEqual(["--suite", "core"]);
   });
 });
 

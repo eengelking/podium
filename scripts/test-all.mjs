@@ -209,11 +209,11 @@ export function exitCode(results) {
 
 /**
  * Takes the lock once for the whole run. The lock is bash (scripts/db-lock.sh), so this starts a bash that acquires it, exports
- * PODIUM_DB_LOCK_HELD and runs this script again with TEST_ALL_LOCKED set; the bash's own traps release the lock on exit or a signal.
+ * PODIUM_DB_LOCK_HELD and runs this script again with TEST_ALL_LOCKED set. The arguments travel in TEST_ALL_ARGV (JSON), never in the shell command; the bash's own traps release the lock on exit or a signal.
  */
 export function lockedRun(argv, env = process.env, run = spawnSync) {
-  const script = `source ${JSON.stringify(join(HERE, "db-lock.sh"))} && db_lock_acquire "npm run test:all" && node ${JSON.stringify(fileURLToPath(import.meta.url))} "$@"`;
-  const r = run("bash", ["-c", `${script}; code=$?; db_lock_release; exit $code`, "test-all", ...argv], { stdio: "inherit", env: { ...env, TEST_ALL_LOCKED: "1" } });
+  const script = `source ${JSON.stringify(join(HERE, "db-lock.sh"))} && db_lock_acquire "npm run test:all" && node ${JSON.stringify(fileURLToPath(import.meta.url))}`;
+  const r = run("bash", ["-c", `${script}; code=$?; db_lock_release; exit $code`, "test-all"], { stdio: "inherit", env: { ...env, TEST_ALL_LOCKED: "1", TEST_ALL_ARGV: JSON.stringify(argv) } });
   return r.status ?? (r.signal ? 130 : 2);
 }
 
@@ -255,4 +255,4 @@ export async function main(argv, env = process.env, exec = runLogged, run = spaw
   return exitCode(results);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) process.exit(await main(process.argv.slice(2)));
+if (process.argv[1] === fileURLToPath(import.meta.url)) process.exit(await main(process.env.TEST_ALL_LOCKED && process.env.TEST_ALL_ARGV ? JSON.parse(process.env.TEST_ALL_ARGV) : process.argv.slice(2)));
