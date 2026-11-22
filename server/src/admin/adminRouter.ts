@@ -107,7 +107,6 @@ const COOKIE = 'podium_admin';
 const MAX_SESSIONS = 20;
 export const ADMIN_IDLE_MS = 10 * 60_000;
 
-
 function readCookie(req: Request, name: string): string | null {
   for (const part of (req.get('cookie') ?? '').split(';')) {
     const i = part.indexOf('=');

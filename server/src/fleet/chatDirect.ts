@@ -615,7 +615,7 @@ export class DirectChat {
     if ('status' in scope) return scope;
     const by = () => ({ author: viewer.personId as number, now: this.core.host.now() });
     let out;
-    if (edit) {
+    if (edit !== null) {
       // The same order as a new message: length, then the person's limit, then the scan for secrets. An edit also refuses what is empty once cleaned, or it would leave a message with no text that is not a tombstone.
       const checked = await this.core.screen(edit.text, `person:${nameKey(viewer.name)}`);
       if ('ok' in checked) return checked;
@@ -624,7 +624,7 @@ export class DirectChat {
       out = await this.peers.editMessage(id, { ...by(), text: cleaned });
     } else out = await this.peers.deleteMessage(id, by());
     if (!out.ok) return this.refused(out, scope);
-    this.changed(edit ? 'message_edited' : 'message_deleted', viewer, scope.c, id);
+    this.changed(edit !== null ? 'message_edited' : 'message_deleted', viewer, scope.c, id);
     return { ok: true, message: await this.viewAfter(viewer, scope, out.message) };
   }
 

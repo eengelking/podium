@@ -692,7 +692,7 @@ export class ChannelChat {
     const gate = this.mayChange(viewer, channel, owner);
     if (gate) return gate;
     let text = '';
-    if (edit) {
+    if (edit !== null) {
       const checked = await this.core.screen(edit.text, `person:${nameKey(viewer.name)}`);
       if ('ok' in checked) return checked;
       const cleaned = this.core.cleaned(checked.raw);
@@ -707,19 +707,19 @@ export class ChannelChat {
     if (found.authorKind === 'person' && found.authorId === viewer.personId && found.deletedAt === null && !lockedByDelivery(found.mentions)) {
       const reachable = this.copiesOf(found);
       if (reachable === null) return fail(409, approvalWords(found) as string, 'approval');
-      if (edit && !sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
+      if (edit !== null && !sameMentions(found.text, text)) return fail(422, 'To change who is mentioned, delete this message and send a new one.');
       copies = reachable;
     }
-    const changed = await this.changeCopies(viewer, copies, edit ? { kind: 'edit', text, old: found.text } : { kind: 'delete' });
+    const changed = await this.changeCopies(viewer, copies, edit !== null ? { kind: 'edit', text, old: found.text } : { kind: 'delete' });
     if (!changed.ok) return changed;
     const by = { author: viewer.personId as number, now: this.core.host.now() };
-    const out = edit ? await h.editMessage(id, { ...by, text }) : await h.deleteMessage(id, by);
+    const out = edit !== null ? await h.editMessage(id, { ...by, text }) : await h.deleteMessage(id, by);
     if (!out.ok) {
       // Only a race gets here (the checks above passed a moment ago). An edited copy is put back; a deleted one cannot be, so it stays withdrawn and its mention reads `dropped`, which is true of it.
-      if (edit) await this.restoreCopies(viewer, changed.done, found.text);
+      if (edit !== null) await this.restoreCopies(viewer, changed.done, found.text);
       return this.refusal(out.reason, out.reason === 'locked' ? await h.getMessage(id) : null);
     }
-    this.changed(edit ? 'message_edited' : 'message_deleted', viewer, channel, owner, id);
+    this.changed(edit !== null ? 'message_edited' : 'message_deleted', viewer, channel, owner, id);
     return { ok: true, message: out.message };
   }
 
