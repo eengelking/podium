@@ -393,8 +393,8 @@ export class PgPeerMessages {
     const id = newId();
     // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, 'delivered', ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'agent')`,
       [id, sender.owner, sender.ownerId, linkKey(personKey, sender.reporterKey), sender.reporterKey, personKey, sender.sessionId, personKey, sender.agentId, sender.name, sender.machine, wrote.from_name, clean, now, now],
     );
     await this.trail({ kind: 'delivered', message: (await this.row(id)) as MessageRow });
@@ -435,8 +435,8 @@ export class PgPeerMessages {
       const state: MessageState = approvalWhy ? 'approval' : 'ready';
       // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
       await this.db.run(
-        `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
+        `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages))`,
         [id, sender.owner, sender.ownerId, link, sender.reporterKey, target.reporterKey, sender.sessionId, target.sessionId, sender.agentId, target.agentId, sender.name, sender.machine, target.name, target.machine, clean, now, state, now],
       );
       let requestId: string | null = null;
@@ -478,7 +478,7 @@ export class PgPeerMessages {
       const picked = out.sort((a, b) => a.at - b.at).slice(0, PEER_LIMITS.deliveries);
       const now = this.now();
       for (const d of picked) {
-        if (d.kind === 'message') await this.db.run(`UPDATE peer_messages SET state = 'handed', handed = 1, state_at = ? WHERE id = ? AND state = 'ready'`, [now, d.id]);
+        if (d.kind === 'message') await this.db.run(`UPDATE peer_messages SET state = 'handed', state_at = ? WHERE id = ? AND state = 'ready'`, [now, d.id]);
       }
       return picked;
     });
@@ -661,8 +661,8 @@ export class PgPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, from_agent, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
       [id, target.owner, input.ownerId, link, fromKey, target.reporterKey, fromSession, input.toSession, input.withSession ? (this.liveDir.get(input.withSession)?.agentId ?? (await this.agentOf(input.withSession))) : null, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, input.state ?? 'ready', now, input.authorId ?? null],
     );
     return (await this.row(id)) as MessageRow;
@@ -700,8 +700,8 @@ export class PgPeerMessages {
     const now = this.now();
     // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
     await this.db.run(
-      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, handed, seq, author, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
+      `INSERT INTO peer_messages (id, owner, owner_id, link, from_key, to_key, from_session, to_session, to_agent, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, why, approved, seq, author, author_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?, NULL, 0, (SELECT COALESCE(MAX(seq), 0) + 1 FROM peer_messages), 'person', ?)`,
       [id, target.owner, target.ownerId, linkKey(personKey, target.reporterKey), personKey, target.reporterKey, personKey, input.toSession, target.agentId, cleanNameText(input.person).trim() || input.person, target.name, target.machine, clean, now, state, now, input.authorId ?? null],
     );
     if (state === 'approval') {

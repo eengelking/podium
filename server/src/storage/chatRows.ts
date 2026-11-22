@@ -3,7 +3,7 @@
 // conversation's text are kept in different tables and read by different methods on purpose.
 import { randomBytes } from 'node:crypto';
 import { nameKey } from './rows.js';
-import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal, ReadBump } from './types.js';
+import type { ChannelChange, ChannelFlags, ChannelMention, ChannelMessage, ChannelPostInput, ChatAuthorKind, ChatSettings, ChatSettingsApi, MentionState, NewPublicChannel, PublicChannel, PublicChannelLinkKind, PublicChannelOutcome, PublicChannelRefusal, ReadBump, ThreadReadState } from './types.js';
 
 const CHAT_AUTHOR_KINDS: readonly ChatAuthorKind[] = ['person', 'orchestrator', 'subagent', 'reporter'];
 const MENTION_STATES: readonly MentionState[] = ['waiting', 'working', 'done', 'not-delivered', 'held', 'dropped', 'approval'];
@@ -22,17 +22,15 @@ export const newChannelId = (prefix: 'grp' | 'pub', scope: string): string => `$
 export const newServerScope = (): string => randomBytes(4).toString('hex');
 
 /**
- * What a person is called in a key column that was a name before #1284 (`chat_read_state.person`, `chat_admin_owed.person_key`, and `group_messages.owner` and `.group_id`): `#<people.id>`.
+ * What a person is called in a key column that was a name before #1284 (`chat_admin_owed.person_key`): `#<people.id>`.
  * The column keeps its place in the primary key, so a person is told apart by the id and never by a name, and a person who takes a deleted person's name starts with nothing.
- * Those columns are no longer read as names; the `person_id` and `owner_id` beside them are what every query uses.
+ * It is no longer read as a name; the `person_id` beside it is what every query uses.
  */
 export const personKey = (id: number): string => `#${id}`;
 
 /** The group channel's key columns, in one place for both adapters. */
 export interface DbChannelRow {
   id: string;
-  owner?: string;
-  group_id?: string;
   /** The `people.id` of the group's person (#1284); null for a row whose person is not known. Only in the group table. */
   owner_id?: number | null;
   /** Only in the public table (#1035). */
@@ -42,7 +40,6 @@ export interface DbChannelRow {
   author_name: string;
   text: string;
   created_at: number;
-  updated_at: number;
   issue: string | null;
   project: string | null;
   milestone: string | null;
@@ -97,8 +94,17 @@ function parseMentions(json: string): ChannelMention[] {
   return JSON.parse(json) as ChannelMention[];
 }
 
+/**
+ * A message's `updatedAt` (#1296): the time of its newest change. A post, an edit, a delete and a mention changing state each stamp the time they happen, and nothing else changes a message, so the
+ * newest of those times is what a stored `updated_at` held, and the message keeps no column for it. A time a message does not have is left out.
+ */
+export const newestChange = (...times: (number | null)[]): number => Math.max(...times.filter((t): t is number => t !== null && Number.isFinite(Number(t))).map(Number));
+
 /** One stored row as the interface returns it. */
 export function toChannelMessage(r: DbChannelRow): ChannelMessage {
+  const mentions = parseMentions(r.mentions_json);
+  const editedAt = r.edited_at == null ? null : Number(r.edited_at);
+  const deletedAt = r.deleted_at == null ? null : Number(r.deleted_at);
   return {
     id: r.id,
     ownerId: r.owner_id == null ? null : Number(r.owner_id),
@@ -108,15 +114,15 @@ export function toChannelMessage(r: DbChannelRow): ChannelMessage {
     authorName: r.author_name,
     text: r.text,
     createdAt: r.created_at,
-    updatedAt: r.updated_at,
+    updatedAt: newestChange(r.created_at, editedAt, deletedAt, ...mentions.map((m) => m.stateAt)),
     issue: r.issue,
     project: r.project,
     milestone: r.milestone,
     replyTo: r.reply_to,
-    mentions: parseMentions(r.mentions_json),
+    mentions,
     authorId: r.author_id == null ? null : Number(r.author_id),
-    editedAt: r.edited_at == null ? null : Number(r.edited_at),
-    deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
+    editedAt,
+    deletedAt,
   };
 }
 
@@ -160,15 +166,25 @@ export function foldBumps(bumps: readonly ReadBump[]): { personId: number; unrea
   return [...by.values()];
 }
 
-/** What a read state row says before anything was counted for the thread. */
-export const emptyReadState = (personId: number, thread: string): { personId: number; thread: string; lastRead: null; unread: 0; mentions: 0; updatedAt: 0 } => ({
-  personId,
-  thread,
-  lastRead: null,
-  unread: 0,
-  mentions: 0,
-  updatedAt: 0,
-});
+/** A read state row: one person's counts in one thread, kept by the person's id (#1284). */
+export interface DbReadState {
+  person_id: number;
+  thread: string;
+  unread: number;
+  mentions: number;
+}
+
+export const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(r.person_id), thread: r.thread, unread: r.unread, mentions: r.mentions });
+
+/** The answer of `bumpMany`: the new state of each person in `folded` (what `foldBumps` returned), in that order, from the rows the adapter read back for all of them. */
+export function bumpAnswers(folded: readonly { personId: number }[], rows: readonly DbReadState[]): ThreadReadState[] {
+  // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
+  const by = new Map(rows.map((r) => [Number(r.person_id), toState(r)]));
+  return folded.map((b) => by.get(b.personId) as ThreadReadState);
+}
+
+/** What a thread with no row says, and so what a thread read to the end says: a row at zero is never kept (#1296). */
+export const emptyReadState = (personId: number, thread: string): ThreadReadState => ({ personId, thread, unread: 0, mentions: 0 });
 
 /** What the Admin's Chat settings are until changed, and the whole numbers each takes. */
 const CHAT_DEFAULTS: ChatSettings = { retainDays: 30, graceHours: 24, maxChars: 4000, perMinute: 6 };

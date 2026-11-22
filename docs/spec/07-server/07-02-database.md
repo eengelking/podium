@@ -450,7 +450,7 @@ CREATE TABLE public_channels (   -- the channels beside General: a catalogue, ne
 ```
 
 At most 50 channels are kept beside General, and the limit is checked in the same step as the insert so two at once cannot pass it. A name is folded to lowercase before it is checked and compared without case.
-Deleting a person clears `created_by` of the channels they opened and leaves the channels and their messages. Removing a channel deletes it and every message in it in one step, then the pause and disconnect flags, the read counts and the Admin's records that belonged to it.
+Deleting a person clears `created_by_id` (migration 51) of the channels they opened, and `created_by_name` stays as the text shown, and leaves the channels and their messages. Removing a channel deletes it and every message in it in one step, then the pause and disconnect flags, the read counts and the Admin's records that belonged to it.
 A page of a public channel orders by `created_at, seq` like every other. The retention days apply to a public channel's messages as they do to General's.
 
 Migration 46 (#1269; PostgreSQL and MariaDB main step 22) lets a person edit and delete their own Chat messages. The same three columns go on `group_messages`, `public_messages` and `peer_messages`:
@@ -492,6 +492,32 @@ CREATE TABLE conversation_deliveries (conversation_id TEXT NOT NULL, message_id 
 ```
 
 A message with no row was sent to everyone before this existed, or had no agent to hand it to, and keeps no delivery line. A message's rows are written in the step that stores the message, and are removed with it by retention and with its conversation.
+
+Migration 54 (#1296; PostgreSQL and MariaDB main step 30) keeps each fact of the chat and peer tables in one place. The columns and indexes below are gone, because nothing read them or they held what another column holds:
+
+```sql
+DROP INDEX group_messages_channel;                      -- built on owner and group_id; no query used it
+ALTER TABLE group_messages DROP COLUMN owner;           -- the id's key (#<people.id>) beside owner_id
+ALTER TABLE group_messages DROP COLUMN group_id;        -- the same value again
+ALTER TABLE public_channels DROP COLUMN created_by;     -- always '' beside created_by_id and created_by_name
+ALTER TABLE peer_messages DROP COLUMN handed;           -- what `state` says
+DROP INDEX peer_requests_owner;                         -- no query used it
+ALTER TABLE conversations DROP COLUMN created_by;       -- the other members' added_by records who opened it
+ALTER TABLE group_messages DROP COLUMN updated_at;      -- and on public_messages and conversation_messages
+```
+
+`updated_at` of a message is the newest of its `created_at`, `edited_at`, `deleted_at` and the `stateAt` of its mentions, because a post, an edit, a delete and a mention changing state are the only things that stamp a message. The store works it out when it reads the message, and the field `updatedAt` of the routes is the same value as before.
+
+What the upgrade costs and frees: a new database gets the full saving, and an existing one stops growing into the dropped columns at once. SQLite's file does not shrink at the migration and can grow while `group_messages` is made again (about that table's size plus its indexes, so the disk needs that much free space plus the WAL); the freed pages go to the free list and new rows reuse them, and it shrinks only after a `VACUUM`, and the app never vacuums the main database. On PostgreSQL the `DROP COLUMN`s only change the catalog, and the space comes back on `VACUUM FULL`. On MariaDB each `ALTER TABLE` rebuilds its table, and step 30 does that once for each table.
+
+Migration 55 (#1296; PostgreSQL and MariaDB main step 31) keeps a person's counts in a thread by the person's id and the thread alone:
+
+```sql
+CREATE TABLE chat_read_state (person_id INTEGER NOT NULL, thread TEXT NOT NULL, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (person_id, thread));
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
+```
+
+The name key `person`, the second index on the same two columns (`chat_read_state_person`), `last_read` and `updated_at` are gone. Nothing read the last-read cursor and no route returned it, so the maintainer approved dropping it: `POST /chat/read` still checks `upTo` and no longer keeps it. A row at zero says what no row says, so reading a thread deletes the row, and the upgrade drops the rows at zero and the rows of no person (`person_id` NULL, which nothing could read or clear); every count that is not zero is kept.
 
 Migration 48 (#1284; PostgreSQL and MariaDB main step 24) gives every agent an id the server assigns and never reuses:
 

@@ -1,6 +1,7 @@
 // Shared, database-free helpers for the conversations of people and agents (#1278, DECISIONS 74): ids, member checks, the key that finds the conversation of a set of members,
 // and the mapping of stored rows to the interface's values. No SQL here: each adapter has its own statements, in its own folder.
 import { createHash, randomBytes } from 'node:crypto';
+import { newestChange } from './chatRows.js';
 import type { Conversation, ConversationChange, ConversationDelivery, ConversationDeliveryState, ConversationMember, ConversationMemberInput, ConversationMemberKind, ConversationMessage, ConversationTargetInput } from './types.js';
 
 export const MAX_CONVERSATION_MEMBERS = 50;
@@ -13,7 +14,6 @@ export const newConversationMessageId = (scope: string): string => `cmg_${scope}
 
 export interface DbConversation {
   id: string;
-  created_by: number | null;
   created_at: number;
   members_key: string;
 }
@@ -37,7 +37,6 @@ export interface DbConversationMessage {
   author_id: number | null;
   text: string;
   created_at: number;
-  updated_at: number;
   reply_to: string | null;
   seq: number;
   edited_at: number | null;
@@ -59,7 +58,7 @@ export interface DbDelivery {
 export const DELIVERY_COLS = 'conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at';
 
 export const MEMBER_COLS = 'conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at';
-export const MESSAGE_COLS = 'id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq, edited_at, deleted_at, handed_at';
+export const MESSAGE_COLS = 'id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, reply_to, seq, edited_at, deleted_at, handed_at';
 
 /** The members as stored: trimmed, each kind and ref once (the first name wins). Throws for a kind that is not `person` or `agent`, a person ref that is not an id, or an empty ref or name. */
 export function checkMembers(members: readonly ConversationMemberInput[]): ConversationMemberInput[] {
@@ -109,7 +108,7 @@ function toMember(r: DbMember): ConversationMember {
 /** The conversation as returned: its members in the order they joined (then kind, then ref). */
 export function toConversation(r: DbConversation, members: DbMember[], lastAt: number | null, messages: number): Conversation {
   const list = members.map(toMember).sort((a, b) => a.joinedAt - b.joinedAt || (a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
-  return { id: r.id, createdBy: r.created_by == null ? null : Number(r.created_by), createdAt: Number(r.created_at), members: list, lastAt: lastAt == null ? Number(r.created_at) : Number(lastAt), messages: Number(messages) };
+  return { id: r.id, createdAt: Number(r.created_at), members: list, lastAt: lastAt == null ? Number(r.created_at) : Number(lastAt), messages: Number(messages) };
 }
 
 /**
@@ -156,6 +155,8 @@ export const nextDeliveryState = (from: string | null, to: ConversationDeliveryS
 export const firstDeliveryState = (kind: ConversationMemberKind): ConversationDeliveryState | null => (kind === 'agent' ? 'queued' : null);
 
 export function toConversationMessage(r: DbConversationMessage, deliveries: readonly DbDelivery[] = []): ConversationMessage {
+  const editedAt = r.edited_at == null ? null : Number(r.edited_at);
+  const deletedAt = r.deleted_at == null ? null : Number(r.deleted_at);
   return {
     id: r.id,
     conversationId: r.conversation_id,
@@ -165,10 +166,10 @@ export function toConversationMessage(r: DbConversationMessage, deliveries: read
     authorId: r.author_id == null ? null : Number(r.author_id),
     text: r.text,
     createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
+    updatedAt: newestChange(Number(r.created_at), editedAt, deletedAt),
     replyTo: r.reply_to,
-    editedAt: r.edited_at == null ? null : Number(r.edited_at),
-    deletedAt: r.deleted_at == null ? null : Number(r.deleted_at),
+    editedAt,
+    deletedAt,
     handedAt: r.handed_at == null ? null : Number(r.handed_at),
     deliveries: deliveries.filter((d) => d.message_id === r.id).map(toDelivery).sort((a, b) => byText(a.kind, b.kind) || byText(a.name, b.name) || byText(a.ref, b.ref)),
   };

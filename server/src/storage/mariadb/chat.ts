@@ -5,14 +5,14 @@
 import { chunksOf } from '../batches.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, withMentionState, type DbChannelRow, type DbPublicChannel,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, bumpAnswers, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, toState, withMentionState, type DbChannelRow, type DbPublicChannel, type DbReadState,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ReadBump, ThreadReadState } from '../types.js';
 import type { MariaDbConn } from './conn.js';
 import { mariaConversations } from './conversations.js';
 
-const GROUP_COLS = 'id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
-const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
+const GROUP_COLS = 'id, owner_id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
+const PUBLIC_COLS = 'id, channel, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, author_id, edited_at, deleted_at';
 
 /** Which messages of a table: one person's group, or one public channel (#1035). */
 type Scope = GroupScope | { channel: string };
@@ -50,21 +50,20 @@ class MariaChannel {
       const at = this.now();
       const mentions = mentionsOf(input, at);
       const id = newChannelId(this.grouped ? 'grp' : 'pub', await this.scope());
-      const common = [id, kind, input.authorRef, input.authorName, input.text, at, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions), kind === 'person' ? (input.authorId ?? null) : null] as const;
+      const common = [id, kind, input.authorRef, input.authorName, input.text, at, input.issue ?? null, input.project ?? null, input.milestone ?? null, input.replyTo ?? null, JSON.stringify(mentions), kind === 'person' ? (input.authorId ?? null) : null] as const;
       // `seq` is the next number in the table: the gate in `MariaDbConn.tx` lets one transaction at a time reach this insert.
       if (!('channel' in scope)) {
         await this.db.run(
-          `INSERT INTO group_messages (id, owner, group_id, owner_id, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
-          // `owner` and `group_id` are the older name key and are not read (#1284); they hold the id's key so a name never lands in them.
-          [common[0], personKey(scope.ownerId), personKey(scope.ownerId), scope.ownerId, ...common.slice(1)],
+          `INSERT INTO group_messages (id, owner_id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM group_messages))`,
+          [common[0], scope.ownerId, ...common.slice(1)],
         );
       } else {
         // A channel that is not General must exist, so a post can never fill a channel an Admin has just removed.
         if (scope.channel !== GENERAL_CHANNEL && !(await this.db.get('SELECT 1 AS x FROM public_channels WHERE name = ?', [scope.channel]))) throw new Error('There is no such public channel.');
         await this.db.run(
-          `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, updated_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
+          `INSERT INTO public_messages (id, channel, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, author_id, seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM public_messages))`,
           [common[0], scope.channel, ...common.slice(1)],
         );
       }
@@ -92,7 +91,7 @@ class MariaChannel {
       const at = this.now();
       const next = withMentionState(toChannelMessage(row).mentions, index, patch, at);
       if (!next) return null;
-      await this.db.run(`UPDATE ${this.table} SET mentions_json = ?, updated_at = ? WHERE id = ?`, [JSON.stringify(next), at, id]);
+      await this.db.run(`UPDATE ${this.table} SET mentions_json = ? WHERE id = ?`, [JSON.stringify(next), id]);
       return toChannelMessage((await this.byId(id, scope)) as DbChannelRow);
     });
   }
@@ -108,7 +107,7 @@ class MariaChannel {
     return this.db.tx(async () => {
       const refused = refuseChange(await this.byId(id, scope), x.author);
       if (refused) return refused;
-      await this.db.run(`UPDATE ${this.table} SET text = ?, edited_at = ?, updated_at = ? WHERE id = ?`, [x.text, x.now, x.now, id]);
+      await this.db.run(`UPDATE ${this.table} SET text = ?, edited_at = ? WHERE id = ?`, [x.text, x.now, id]);
       return { ok: true, message: toChannelMessage((await this.byId(id, scope)) as DbChannelRow) };
     });
   }
@@ -118,7 +117,7 @@ class MariaChannel {
     return this.db.tx(async () => {
       const refused = refuseChange(await this.byId(id, scope), x.author);
       if (refused) return refused;
-      await this.db.run(`UPDATE ${this.table} SET text = '', mentions_json = '[]', deleted_at = ?, updated_at = ? WHERE id = ?`, [x.now, x.now, id]);
+      await this.db.run(`UPDATE ${this.table} SET text = '', mentions_json = '[]', deleted_at = ? WHERE id = ?`, [x.now, id]);
       return { ok: true, message: toChannelMessage((await this.byId(id, scope)) as DbChannelRow) };
     });
   }
@@ -178,8 +177,7 @@ class MariaPublicChannels {
       const have = ((await this.db.get<{ n: number }>('SELECT COUNT(*) AS n FROM public_channels')) as { n: number }).n;
       if (Number(have) >= MAX_PUBLIC_CHANNELS) return channelRefusal('limit-reached', `There are already ${MAX_PUBLIC_CHANNELS} channels besides General.`);
       await this.db.run(
-        // `created_by` is the older name key and is not read (#1284); the opener is `created_by_id`.
-        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by, created_by_id, created_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+        `INSERT INTO public_channels (name, description, link_kind, link_ref, link_key, created_by_id, created_by_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [c.name, c.description, c.link?.kind ?? null, c.link?.ref ?? null, c.link?.key ?? null, c.createdById, c.createdByName, at, at],
       );
       return { ok: true as const, channel: toPublicChannel((await this.row(c.name)) as DbPublicChannel) };
@@ -221,58 +219,38 @@ class MariaPublicChannels {
   }
 }
 
-/** A read state row. `person` is the older name key, which holds `#<id>` now and is not read (#1284); the person is `person_id`. */
-interface DbReadState {
-  person_id: number;
-  thread: string;
-  last_read: string | null;
-  unread: number;
-  mentions: number;
-  updated_at: number;
-}
-
-const toState = (r: DbReadState): ThreadReadState => ({ personId: Number(r.person_id), thread: r.thread, lastRead: r.last_read, unread: r.unread, mentions: r.mentions, updatedAt: r.updated_at });
-
 class MariaReadState {
-  constructor(
-    private readonly db: MariaDbConn,
-    private readonly now: () => number,
-  ) {}
+  constructor(private readonly db: MariaDbConn) {}
 
   async get(personId: number, thread: string): Promise<ThreadReadState> {
-    const r = await this.db.get<DbReadState>('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? AND thread = ?', [personId, thread]);
+    const r = await this.db.get<DbReadState>('SELECT person_id, thread, unread, mentions FROM chat_read_state WHERE person_id = ? AND thread = ?', [personId, thread]);
     return r ? toState(r) : emptyReadState(personId, thread);
   }
 
   async list(personId: number): Promise<ThreadReadState[]> {
-    return (await this.db.all<DbReadState>('SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id = ? ORDER BY thread', [personId])).map(toState);
+    return (await this.db.all<DbReadState>('SELECT person_id, thread, unread, mentions FROM chat_read_state WHERE person_id = ? ORDER BY thread', [personId])).map(toState);
   }
 
   /** One insert (and one read) for each batch of people: the number of statements does not grow with the people (#1309). */
   async bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]> {
-    const out = new Map<number, ThreadReadState>();
-    const at = this.now();
+    const read: DbReadState[] = [];
     const folded = foldBumps(bumps);
     for (const part of chunksOf(folded)) {
       await this.db.run(
-        `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES ${part.map(() => '(?, ?, ?, NULL, ?, ?, ?)').join(', ')}
-         ON DUPLICATE KEY UPDATE unread = chat_read_state.unread + VALUES(unread), mentions = chat_read_state.mentions + VALUES(mentions), updated_at = VALUES(updated_at)`,
-        part.flatMap((b) => [personKey(b.personId), b.personId, thread, b.unread, b.mentions, at]),
+        `INSERT INTO chat_read_state (person_id, thread, unread, mentions) VALUES ${part.map(() => '(?, ?, ?, ?)').join(', ')}
+         ON DUPLICATE KEY UPDATE unread = chat_read_state.unread + VALUES(unread), mentions = chat_read_state.mentions + VALUES(mentions)`,
+        part.flatMap((b) => [b.personId, thread, b.unread, b.mentions]),
       );
-      // order-insensitive: the rows are put into a map by person, and the answer follows the order the people were given.
-      const rows = await this.db.all<DbReadState>(`SELECT person_id, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`, [thread, ...part.map((b) => b.personId)]);
-      for (const r of rows) out.set(Number(r.person_id), toState(r));
+      // order-insensitive: `bumpAnswers` puts the rows into a map by person, and the answer follows the order the people were given.
+      read.push(...(await this.db.all<DbReadState>(`SELECT person_id, thread, unread, mentions FROM chat_read_state WHERE thread = ? AND person_id IN (${part.map(() => '?').join(', ')})`, [thread, ...part.map((b) => b.personId)])));
     }
-    return folded.map((b) => out.get(b.personId) as ThreadReadState);
+    return bumpAnswers(folded, read);
   }
 
-  async markRead(personId: number, thread: string, upTo: string | null): Promise<ThreadReadState> {
-    await this.db.run(
-      `INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, 0, 0, ?)
-       ON DUPLICATE KEY UPDATE last_read = VALUES(last_read), unread = 0, mentions = 0, updated_at = VALUES(updated_at)`,
-      [personKey(personId), personId, thread, upTo, this.now()],
-    );
-    return this.get(personId, thread);
+  /** A row at zero says what no row says, so reading a thread removes the row: the counts come back as zeros (#1296). */
+  async markRead(personId: number, thread: string): Promise<ThreadReadState> {
+    await this.db.run('DELETE FROM chat_read_state WHERE person_id = ? AND thread = ?', [personId, thread]);
+    return emptyReadState(personId, thread);
   }
 
   forget(thread: string): Promise<number> {
@@ -437,13 +415,13 @@ export function mariaChat(db: MariaDbConn, opts: ChatStoreOptions): ChatStoreApi
   const scope = scopeOf(db);
   const group = new MariaChannel(db, 'group_messages', opts.now, scope);
   const pub = new MariaChannel(db, 'public_messages', opts.now, scope);
-  const state = new MariaReadState(db, opts.now);
+  const state = new MariaReadState(db);
   const reads = new MariaAdminReads(db, opts.now);
   const readState: ChatReadStateApi = {
     get: (person, thread) => state.get(person, thread),
     list: (person) => state.list(person),
     bumpMany: (thread, bumps) => (bumps.length === 0 ? Promise.resolve([]) : db.tx(() => state.bumpMany(thread, bumps))),
-    markRead: (person, thread, upTo) => db.tx(() => state.markRead(person, thread, upTo)),
+    markRead: (person, thread) => state.markRead(person, thread),
     forget: (thread) => state.forget(thread),
     threads: (prefix) => state.threads(prefix),
   };

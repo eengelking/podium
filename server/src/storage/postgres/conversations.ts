@@ -18,7 +18,7 @@ class PgConversations {
   ) {}
 
   private row(id: string): Promise<DbConversation | undefined> {
-    return this.db.get<DbConversation>('SELECT id, created_by, created_at, members_key FROM conversations WHERE id = ?', [id]);
+    return this.db.get<DbConversation>('SELECT id, created_at, members_key FROM conversations WHERE id = ?', [id]);
   }
 
   private membersOf(id: string): Promise<DbMember[]> {
@@ -51,7 +51,7 @@ class PgConversations {
       const found = await this.db.get<{ id: string }>('SELECT id FROM conversations WHERE members_key = ? ORDER BY created_at, id LIMIT 1', [key]);
       if (found) return { conversation: (await this.load(found.id)) as Conversation, created: false };
       const id = newConversationId(await this.scope());
-      await this.db.run('INSERT INTO conversations (id, created_by, created_at, members_key) VALUES (?, ?, ?, ?)', [id, input.createdBy, at, key]);
+      await this.db.run('INSERT INTO conversations (id, created_at, members_key) VALUES (?, ?, ?)', [id, at, key]);
       for (const m of members) await this.insertMember(id, m, m.kind === 'person' && input.createdBy !== null && m.ref === String(input.createdBy) ? null : input.createdBy, at);
       return { conversation: (await this.load(id)) as Conversation, created: true };
     });
@@ -71,7 +71,7 @@ class PgConversations {
     const args = [member.kind, member.ref];
     return toConversations(
       // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
-      await this.db.all<DbConversation>(`SELECT id, created_by, created_at, members_key FROM conversations WHERE id IN (${mine})`, args),
+      await this.db.all<DbConversation>(`SELECT id, created_at, members_key FROM conversations WHERE id IN (${mine})`, args),
       // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
       await this.db.all<DbMember>(`SELECT ${MEMBER_COLS} FROM conversation_members WHERE conversation_id IN (${mine})`, args),
       // order-insensitive: the rows are folded into one conversation each by `toConversations`, which sorts them.
@@ -122,9 +122,9 @@ class PgConversations {
       const mid = newConversationMessageId(await this.scope());
       // `seq` is the next number in the table: the gate in `PgDb.tx` lets one transaction at a time reach this insert.
       await this.db.run(
-        `INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, updated_at, reply_to, seq)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
-        [mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, at, input.replyTo ?? null],
+        `INSERT INTO conversation_messages (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, reply_to, seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(seq), 0) + 1 FROM conversation_messages))`,
+        [mid, id, kind, input.authorRef, input.authorName, kind === 'person' ? (input.authorId ?? null) : null, input.text, at, input.replyTo ?? null],
       );
       for (const t of targets) {
         const state = firstDeliveryState(t.kind);
@@ -169,7 +169,7 @@ class PgConversations {
     return this.db.tx(async () => {
       const refused = refuseConversationChange(await this.raw(id, messageId), x.author);
       if (refused) return refused;
-      await this.db.run('UPDATE conversation_messages SET text = ?, edited_at = ?, updated_at = ? WHERE id = ?', [x.text, x.now, x.now, messageId]);
+      await this.db.run('UPDATE conversation_messages SET text = ?, edited_at = ? WHERE id = ?', [x.text, x.now, messageId]);
       return { ok: true, message: (await this.message(id, messageId)) as ConversationMessage };
     });
   }
@@ -178,7 +178,7 @@ class PgConversations {
     return this.db.tx(async () => {
       const refused = refuseConversationChange(await this.raw(id, messageId), x.author);
       if (refused) return refused;
-      await this.db.run("UPDATE conversation_messages SET text = '', deleted_at = ?, updated_at = ? WHERE id = ?", [x.now, x.now, messageId]);
+      await this.db.run("UPDATE conversation_messages SET text = '', deleted_at = ? WHERE id = ?", [x.now, messageId]);
       return { ok: true, message: (await this.message(id, messageId)) as ConversationMessage };
     });
   }

@@ -44,7 +44,7 @@ export function conversationCases(o: Openers): void {
       ['person', '1', 'Ed', null, T0, null],
       ['person', '2', 'Maya Kim', 1, T0, null],
     ]);
-    expect(first.conversation).toMatchObject({ createdBy: 1, createdAt: T0, lastAt: T0, messages: 0 });
+    expect(first.conversation).toMatchObject({ createdAt: T0, lastAt: T0, messages: 0 });
     expect(t.get('open again, the other way round')).toMatchObject({ created: false });
     expect(t.get('open with a name changed (the same people)')).toMatchObject({ created: false });
     expect(t.get('open three people')).toMatchObject({ created: true });
@@ -185,7 +185,7 @@ export function conversationCases(o: Openers): void {
     expect(t.get('markHanded (no such message)')).toBeNull();
     expect(t.get('edit (handed)')).toEqual({ ok: false, reason: 'locked' });
     expect(t.get('delete (handed)')).toEqual({ ok: false, reason: 'locked' });
-    expect(t.get('delete')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 150 } });
+    expect(t.get('delete')).toMatchObject({ ok: true, message: { text: '', deletedAt: T0 + 150, updatedAt: T0 + 150 } });
     expect(t.get('delete again')).toEqual({ ok: false, reason: 'deleted' });
     expect(t.get('edit (deleted)')).toEqual({ ok: false, reason: 'deleted' });
     expect(texts(t.get('page after the changes') as ConversationPage)).toEqual(['one, changed', '', 'three', 'four', 'five']);
