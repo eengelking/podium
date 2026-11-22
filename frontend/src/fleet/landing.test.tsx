@@ -41,6 +41,47 @@ describe("Landing", () => {
     expect(ran).toEqual(["a", "no"]);
   });
 
+  // #1296: an answer that throws when it lands is that read's failure and nobody else's.
+  it("lands the other answers when one throws, rejects the read it belongs to, and reads again afterwards", async () => {
+    const lane = new Landing();
+    const ran: string[] = [];
+    const a = held();
+    const b = held();
+    const c = held();
+    const first = lane.run(a.read, nothing);
+    const second = lane.run(b.read, nothing);
+    const third = lane.run(c.read, nothing);
+    const caught = first.catch((err: Error) => err.message);
+    a.answer(() => {
+      throw new Error("boom");
+    });
+    b.answer(() => void ran.push("b"));
+    c.answer(() => void ran.push("c"));
+    await Promise.all([second, third]);
+    expect(await caught).toBe("boom");
+    expect(ran).toEqual(["b", "c"]);
+    await lane.run(async () => () => void ran.push("next"), nothing);
+    expect(ran).toEqual(["b", "c", "next"]);
+  });
+
+  it("stops its wait and lands the rest when the answer that threw was held for a request that never answers", async () => {
+    vi.useFakeTimers();
+    const lane = new Landing();
+    const ran: string[] = [];
+    const hung = held();
+    void lane.run(hung.read, nothing);
+    const first = lane.run(async () => () => {
+      throw new Error("boom");
+    }, nothing);
+    const second = lane.run(async () => () => void ran.push("second"), nothing);
+    const caught = first.catch((err: Error) => err.message);
+    await vi.advanceTimersByTimeAsync(LANDING_WAIT_MS + 1);
+    await second;
+    expect(await caught).toBe("boom");
+    expect(ran).toEqual(["second"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("lets answers land on their own when a request never answers, and loses nothing", async () => {
     vi.useFakeTimers();
     const lane = new Landing();

@@ -19,10 +19,15 @@ export class Landing {
     } catch (err) {
       apply = failed(err);
     }
-    await new Promise<void>((done) => {
+    await new Promise<void>((done, fail) => {
+      // An answer that throws is its own read's failure: the others behind it still land.
       this.held.push(() => {
-        apply?.();
-        done();
+        try {
+          apply?.();
+          done();
+        } catch (err) {
+          fail(err);
+        }
       });
       this.open -= 1;
       if (this.open === 0) this.flush();
