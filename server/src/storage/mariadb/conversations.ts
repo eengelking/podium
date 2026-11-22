@@ -128,7 +128,7 @@ class MariaConversations {
       );
       for (const t of targets) {
         const state = firstDeliveryState(t.kind);
-        await this.db.run('INSERT INTO conversation_deliveries (conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [id, mid, t.kind, t.ref, t.name, t.named ? 1 : 0, state, state === null ? null : at]);
+        await this.db.run('INSERT INTO conversation_deliveries (message_id, member_kind, member_ref, member_name, named, state, state_at) VALUES (?, ?, ?, ?, ?, ?, ?)', [mid, t.kind, t.ref, t.name, t.named ? 1 : 0, state, state === null ? null : at]);
       }
       return this.message(id, mid);
     });
@@ -138,15 +138,16 @@ class MariaConversations {
     return this.db.get<DbConversationMessage>(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE id = ? AND conversation_id = ?`, [messageId, id]);
   }
 
-  private deliveriesOf(id: string, messageIds: string[]): Promise<DbDelivery[]> {
+  /** The deliveries of messages already read out of one conversation, so a message id is enough to find them. */
+  private deliveriesOf(messageIds: string[]): Promise<DbDelivery[]> {
     if (!messageIds.length) return Promise.resolve([]);
     const marks = messageIds.map(() => '?').join(', ');
-    return this.db.all<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id IN (${marks}) ORDER BY message_id, member_kind, member_ref`, [id, ...messageIds]);
+    return this.db.all<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE message_id IN (${marks}) ORDER BY message_id, member_kind, member_ref`, messageIds);
   }
 
   private async message(id: string, messageId: string): Promise<ConversationMessage | null> {
     const r = await this.raw(id, messageId);
-    return r ? toConversationMessage(r, await this.deliveriesOf(id, [messageId])) : null;
+    return r ? toConversationMessage(r, await this.deliveriesOf([messageId])) : null;
   }
 
   async page(id: string, opts: { before?: string | null; limit: number }): Promise<ConversationPage> {
@@ -157,7 +158,7 @@ class MariaConversations {
       : await this.db.all<DbConversationMessage>(`SELECT ${MESSAGE_COLS} FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at DESC, seq DESC LIMIT ?`, [id, limit + 1]);
     const kept = rows.slice(0, limit).reverse();
     const oldest = kept[0];
-    const deliveries = await this.deliveriesOf(id, kept.map((r) => r.id));
+    const deliveries = await this.deliveriesOf(kept.map((r) => r.id));
     return { messages: kept.map((r) => toConversationMessage(r, deliveries)), older: rows.length > limit && oldest ? encodeCursor(Number(oldest.created_at), Number(oldest.seq)) : null };
   }
 
@@ -193,18 +194,19 @@ class MariaConversations {
 
   setDelivery(id: string, messageId: string, member: MemberRef, state: ConversationDeliveryState, at: number): Promise<ConversationMessage | null> {
     return this.db.tx(async () => {
-      const d = await this.db.get<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?`, [id, messageId, member.kind, member.ref]);
+      if (!(await this.raw(id, messageId))) return null;
+      const d = await this.db.get<DbDelivery>(`SELECT ${DELIVERY_COLS} FROM conversation_deliveries WHERE message_id = ? AND member_kind = ? AND member_ref = ?`, [messageId, member.kind, member.ref]);
       if (!d) return null;
       const next = nextDeliveryState(d.state, state);
-      if (next) await this.db.run('UPDATE conversation_deliveries SET state = ?, state_at = ? WHERE conversation_id = ? AND message_id = ? AND member_kind = ? AND member_ref = ?', [next, at, id, messageId, member.kind, member.ref]);
+      if (next) await this.db.run('UPDATE conversation_deliveries SET state = ?, state_at = ? WHERE message_id = ? AND member_kind = ? AND member_ref = ?', [next, at, messageId, member.kind, member.ref]);
       return this.message(id, messageId);
     });
   }
 
   /** Deletes the conversation, its members, its messages and their deliveries. Returns how many messages. */
   private async erase(id: string): Promise<number> {
-    await this.db.run('DELETE FROM conversation_deliveries WHERE conversation_id = ?', [id]);
-    const n = await this.db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
+    await this.db.run('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE conversation_id = ?)', [id]);
+    const n =await this.db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
     await this.db.run('DELETE FROM conversations WHERE id = ?', [id]);
     await this.db.run('DELETE FROM chat_read_state WHERE thread = ?', [`convo:${id}`]);
@@ -245,7 +247,7 @@ export async function removePersonOf(db: MariaDbConn, personId: number): Promise
     const now = left.filter((m) => m.left_at == null);
     if (now.some((m) => m.member_kind === 'person')) await db.run('UPDATE conversations SET members_key = ? WHERE id = ?', [membersKey(now.map((m) => ({ kind: m.member_kind, ref: m.member_ref }))), id]);
     else {
-      await db.run('DELETE FROM conversation_deliveries WHERE conversation_id = ?', [id]);
+      await db.run('DELETE FROM conversation_deliveries WHERE message_id IN (SELECT id FROM conversation_messages WHERE conversation_id = ?)', [id]);
       await db.run('DELETE FROM conversation_messages WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversation_members WHERE conversation_id = ?', [id]);
       await db.run('DELETE FROM conversations WHERE id = ?', [id]);

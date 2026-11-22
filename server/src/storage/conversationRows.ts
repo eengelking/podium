@@ -44,8 +44,8 @@ export interface DbConversationMessage {
   handed_at: number | null;
 }
 
+/** One delivery as stored. The conversation is not a column: the message says which one it is in (#1296). */
 export interface DbDelivery {
-  conversation_id: string;
   message_id: string;
   member_kind: string;
   member_ref: string;
@@ -55,7 +55,7 @@ export interface DbDelivery {
   state_at: number | null;
 }
 
-export const DELIVERY_COLS = 'conversation_id, message_id, member_kind, member_ref, member_name, named, state, state_at';
+export const DELIVERY_COLS = 'message_id, member_kind, member_ref, member_name, named, state, state_at';
 
 export const MEMBER_COLS = 'conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at';
 export const MESSAGE_COLS = 'id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, reply_to, seq, edited_at, deleted_at, handed_at';

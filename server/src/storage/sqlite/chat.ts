@@ -7,7 +7,7 @@ import { conversationsOver } from './conversations.js';
 import { chunksOf } from '../batches.js';
 import { decodeCursor, encodeCursor, pageSize } from '../peerText.js';
 import {
-  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, bumpAnswers, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, OWED_FILLED_KEY, owedIds, personKey, refuseChange, toChannelMessage, toPublicChannel, toState, withMentionState, type DbChannelRow, type DbPublicChannel, type DbReadState,
+  CHANNEL_COLS, CHAT_SCOPE_KEY, GENERAL_CHANNEL, MAX_PUBLIC_CHANNELS, adminKeyOf, channelKey, channelRefusal, chatSettingsOver, checkAuthorKind, checkDescription, checkNewChannel, bumpAnswers, emptyReadState, foldBumps, heldLikes, holdsHeld, holdsMention, idList, idText, mentionLike, mentionsOf, newChannelId, newServerScope, OWED_CAP_MS, refuseChange, toChannelMessage, toPublicChannel, toState, withMentionState, type DbChannelRow, type DbPublicChannel, type DbReadState,
 } from '../chatRows.js';
 import type { AdminReadKind, AdminReadRow, ChannelChange, ChannelMessage, ChannelPage, ChannelPostInput, ChannelStoreApi, ChatAdminReadsApi, ChatReadStateApi, ChatStoreApi, ChatStoreOptions, GroupScope, MentionState, NewPublicChannel, PublicChannel, PublicChannelOutcome, PublicChannelsApi, PublicStoreApi, ReadBump, ThreadReadState } from '../types.js';
 
@@ -275,37 +275,26 @@ interface DbAdminRead {
   kind: AdminReadKind;
 }
 
+/** The key of an Admin record. */
 interface DbOwed {
   thread: string;
   admin_key: string;
   started_at: number;
-  people: string;
-  seen: string;
 }
 
 const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
 
 /** One person owed one Admin record (#1061). */
 const owe = (db: DatabaseSync, thread: string, adminKey: string, startedAt: number, people: number[]): void => {
-  for (const p of people) db.prepare('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING').run(personKey(p), p, thread, adminKey, startedAt);
+  for (const p of people) db.prepare('INSERT INTO chat_admin_owed (person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING').run(p, thread, adminKey, startedAt);
 };
-
-/** Once, fills `chat_admin_owed` from the lists of the records made before it (#1061); the key is set last, so an interrupted fill runs again and adds nothing twice. */
-export function fillOwed(db: DatabaseSync): void {
-  if (db.prepare('SELECT 1 AS x FROM settings WHERE key = ?').get(OWED_FILLED_KEY)) return;
-  const rows = db.prepare("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key").all() as unknown as DbOwed[];
-  for (const r of rows) owe(db, r.thread, r.admin_key, r.started_at, owedIds(r));
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING').run(OWED_FILLED_KEY, '1');
-}
 
 /** The records of an Admin reading a thread that is not theirs (`chat_admin_reads`): who, which thread and when. Never any text. */
 class AdminReads {
   constructor(
     private readonly db: DatabaseSync,
     private readonly now: () => number,
-  ) {
-    fillOwed(db);
-  }
+  ) {}
 
   private owe(thread: string, adminKey: string, startedAt: number, people: number[]): void {
     owe(this.db, thread, adminKey, startedAt, people);
@@ -332,7 +321,7 @@ class AdminReads {
   private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: number[]): AdminReadRow {
     let t = at;
     while (this.db.prepare('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').get(thread, key, t)) t++;
-    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, idText(people), '[]');
+    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people) VALUES (?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, idText(people));
     this.owe(thread, key, t, idList(idText(people)));
     return { admin, startedAt: t, lastSeenAt: t, kind };
   }

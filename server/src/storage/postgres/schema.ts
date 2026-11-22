@@ -5,7 +5,7 @@
 // SQLite, whatever locale the database was created with. Case-insensitive keys are stored folded (`name_lower`) or folded with
 // `podium_lower`, which folds ASCII letters only, as SQLite's `lower()` does.
 import { PgDb } from './conn.js';
-import { flagScopeWithId, listWithIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
+import { flagScopeWithId, listWithIds, OWED_FILLED_KEY, owedIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
 import { CHAT_IDS_DONE_KEY, keepOwnerSettings, OWNED_PEER_TABLES, OWNER_EVIDENCE_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndRewrite, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
 import { nameKey } from '../rows.js';
 
@@ -197,6 +197,18 @@ const typed = (sql: string): string => sql.replace(/\bTXT\b/g, 'TEXT COLLATE "C"
 /** The schema the main stores live in, and the one the Activity history and recordings live in (their own pool and lock). */
 export const MAIN_SCHEMA = 'podium';
 export const ACTIVITY_SCHEMA = 'podium_activity';
+
+/**
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. The store used to do this
+ * the first time it was used; it is a step now, so that `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ */
+async function fillOwed(db: DB): Promise<void> {
+  if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [OWED_FILLED_KEY])) return;
+  for (const r of await db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key")) {
+    for (const p of owedIds(r)) await db.run('INSERT INTO chat_admin_owed (person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', [p, r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', [OWED_FILLED_KEY, '1']);
+}
 
 export const MAIN_STEPS: Step[] = [
   {
@@ -725,6 +737,47 @@ ALTER TABLE chat_read_state ADD PRIMARY KEY (person_id, thread);
 DROP INDEX IF EXISTS chat_read_state_person;
 ALTER TABLE chat_read_state DROP COLUMN IF EXISTS person, DROP COLUMN IF EXISTS last_read, DROP COLUMN IF EXISTS updated_at;
 `),
+  },
+  {
+    version: 32,
+    // A delivery is found by its message (#1296): `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan. See SQLite migration 56,
+    // which also lays its table out another way (DECISIONS 80); there is nothing to do for that here.
+    sql: typed(`
+ALTER TABLE conversation_deliveries DROP CONSTRAINT conversation_deliveries_pkey;
+ALTER TABLE conversation_deliveries DROP COLUMN conversation_id;
+ALTER TABLE conversation_deliveries ADD PRIMARY KEY (message_id, member_kind, member_ref);
+`),
+  },
+  {
+    version: 33,
+    // What an Admin record is owed to, found by the person's id (#1296): `person_key` and `chat_admin_owed_person` go, and the key is `(person_id, thread, admin_key, started_at)`. A row with no person is not kept. Then the lists of the
+    // records made before this table existed fill it, once (`fillOwed`), which needs the `seen` list the next step drops. See SQLite migration 57, which also lays its table out another way (DECISIONS 78).
+    sql: typed(`
+DELETE FROM chat_admin_owed WHERE person_id IS NULL;
+ALTER TABLE chat_admin_owed DROP CONSTRAINT chat_admin_owed_pkey;
+ALTER TABLE chat_admin_owed ALTER COLUMN person_id SET NOT NULL;
+ALTER TABLE chat_admin_owed ADD PRIMARY KEY (person_id, thread, admin_key, started_at);
+DROP INDEX IF EXISTS chat_admin_owed_person;
+ALTER TABLE chat_admin_owed DROP COLUMN IF EXISTS person_key;
+`),
+    after: fillOwed,
+  },
+  {
+    version: 34,
+    // An Admin record no longer keeps the list of who has seen it (#1296). See SQLite migration 58.
+    sql: 'ALTER TABLE chat_admin_reads DROP COLUMN IF EXISTS seen;',
+  },
+  {
+    version: 35,
+    // Two reads that scanned a table read an index now (#1296): the next `seq` of five tables, and `peer_messages` by `owner_id`. See SQLite migration 60.
+    sql: `
+CREATE INDEX peer_messages_counter ON peer_messages(seq);
+CREATE INDEX group_messages_counter ON group_messages(seq);
+CREATE INDEX public_messages_counter ON public_messages(seq);
+CREATE INDEX conversation_messages_counter ON conversation_messages(seq);
+CREATE INDEX peer_requests_counter ON peer_requests(seq);
+CREATE INDEX peer_messages_owner ON peer_messages(owner_id);
+`,
   },
 ];
 
