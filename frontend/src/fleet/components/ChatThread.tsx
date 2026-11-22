@@ -352,20 +352,15 @@ export function DeleteMessageDialog({ text, who, error, busy, onCancel, onDelete
   );
 }
 
-/**
- * What a message row does, for every row, behind one object that keeps its identity (a row is told which message it is when it calls). The
- * thread keeps it pointing at its latest props, so a row that is not drawn again still acts on the thread as it is now (#1311).
- */
+/** What every row does, as one object that keeps its identity and acts on the thread's latest props, so a row that is not drawn again is never stale (#1311). */
 interface MessageActs {
   onSave: (id: string, text: string) => void;
   onCancel: (id: string) => void;
-  /** A right-click or a long press on one of your own messages: opens its menu at the pointer (#1269). */
   onContext: (m: ThreadMessage, e: MouseEvent<HTMLElement>) => void;
-  /** A right-click on a sender's avatar: opens the menu of the sender at the pointer. */
   onSender: (m: ThreadMessage, at: MenuAt) => void;
 }
 
-/** What the row says it replies to: "you", the author's name, or "an earlier message" when the original is not loaded (the thread passes the loaded ones by id). */
+/** What a row replies to: "you", the author's name, or "an earlier message" when the original is not loaded. */
 function replyOf(m: ThreadMessage, byId: ReadonlyMap<string, ThreadMessage>): string | null {
   const to = m.channel?.replyTo;
   if (!to) return null;
@@ -373,18 +368,14 @@ function replyOf(m: ThreadMessage, byId: ReadonlyMap<string, ThreadMessage>): st
   return target ? (target.mine ? "you" : target.authorName) : "an earlier message";
 }
 
-/** The session an agent author is, if the message was written by an agent: its reference, or null for a person and for you. */
+/** The session of the agent that wrote a message, or null for a person and for you. */
 function agentRefOf(m: ThreadMessage, mine: boolean): string | null {
   if (mine) return null;
   if (m.channel) return m.channel.authorKind !== "person" ? m.channel.authorRef : null;
   return m.direct!.from.kind === "agent" ? (m.direct!.from.sessionId ?? "") : null;
 }
 
-/**
- * One message. Everything it draws from is in its props as the message object, strings, numbers and booleans, never an object that is new on each render of
- * the thread, so `memo` skips it unless the message or what it shows about it changed (#1311): a signal, a tick or a keystroke in the box does not parse the
- * text of every message on screen again.
- */
+/** One message. Its props are the message object and plain values, never an object new on each render, so `memo` skips it unless it or what it shows changed (#1311). */
 const Message = memo(function Message({
   m,
   re,
@@ -410,9 +401,7 @@ const Message = memo(function Message({
   acts,
 }: {
   m: ThreadMessage;
-  /** What it replies to, from `replyOf`. */
   re: string | null;
-  /** Who you are: the id decides which messages are yours, the name is on your avatar. */
   meId: MeId["id"];
   meName: string;
   now: number;
@@ -420,11 +409,9 @@ const Message = memo(function Message({
   owner: string;
   across: boolean;
   heldBy?: string;
-  /** The names of the people on this server, for the warning on an agent that has one of them. */
   people: readonly string[];
-  /** Where its author runs, for an agent's chip; null for anyone else or when it is not known. */
   machine: string | null;
-  /** For an agent author: its state, and its model when the console has its session (family and model are null when it does not); null for anyone else. */
+  /** An agent author's state, and its model when the console has its session; null for anyone else. */
   agent: StateKind | null;
   family: ModelFamily | null;
   model: string | null;
@@ -432,11 +419,10 @@ const Message = memo(function Message({
   /** The roving tab stop and index of this message (one stop for the whole list, #1231). */
   tab: number;
   idx: number;
-  /** For one of your own messages: its menu is open, or its delete confirmation, so the row stays marked (#1269). */
+  /** Its menu or delete confirmation is open, so the row stays marked (#1269). */
   marked: boolean;
-  /** Set while one of your own messages is being edited. */
   editing: { error: string | null; busy: boolean } | null;
-  /** Whether a right-click opens a menu on it (yours, with something to do), and whether a right-click on its avatar opens its sender's menu. */
+  /** Whether a right-click opens a menu on the message, and on its avatar. */
   menu: boolean;
   sender: boolean;
   acts: MessageActs;
@@ -669,7 +655,6 @@ export function ChatThread(p: ThreadProps) {
   // a focus that comes from elsewhere ends it, so there is no way the list keeps a person in it or skips a message they came to read.
   const ownNav = useRef(false);
   const programmatic = useRef(false);
-  // What a row does is one object that keeps its identity and calls the thread's latest props, so a row is not drawn again for a new closure (#1311).
   const live = useRef(p);
   useLayoutEffect(() => {
     live.current = p;
@@ -690,10 +675,10 @@ export function ChatThread(p: ThreadProps) {
     }),
     [],
   );
-  // The loaded messages by id, for what a reply points at, and the people's names as one array until a name changes.
   const byId = useMemo(() => new Map(t.messages.map((x) => [x.id, x])), [t.messages]);
   const names = o.people.map((x) => x.name);
   const namesKey = JSON.stringify(names);
+  // The same array until a name changes, so a row is not drawn again for a new overview.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is read as its own text
   const people = useMemo(() => names, [namesKey]);
   const openOwnMenu = (i: number) => {
@@ -1061,12 +1046,11 @@ export function ChatThread(p: ThreadProps) {
   };
   const openKey2 = p.menu?.startsWith("m:") ? p.menu.slice(2) : null;
   const openOwn = openKey2 ? (t.messages.find((m) => m.id === openKey2) ?? null) : null;
-  // One message row. Each prop is a value that stays the same while the message and what it shows stay the same (see `Message`).
   const rowOf = (m: ThreadMessage, cont: boolean, at: number) => {
     const mine = mineOf(m, o.me);
     const ref = agentRefOf(m, mine);
     const session = ref === null ? undefined : p.sessions[ref];
-    const own = ownOf(m, mine);
+    const yours = mine && p.readAs === null;
     return (
       <Message
         key={m.id}
@@ -1087,22 +1071,13 @@ export function ChatThread(p: ThreadProps) {
         cont={cont}
         tab={roving.itemProps(at).tabIndex}
         idx={at}
-        marked={own.marked}
-        editing={own.editing}
-        menu={own.menu}
+        marked={yours && (p.menu === `m:${m.id}` || p.change.deleting === m.id)}
+        editing={yours && p.change.editing?.id === m.id ? p.change.editing : null}
+        menu={yours && hasMenu(m, o.me) && p.change.editing?.id !== m.id}
         sender={senderOf(m, o.me) !== null}
         acts={acts}
       />
     );
-  };
-  /** What a row needs to know about changing one of your own messages (#1269); a message that is not yours has none of it. */
-  const ownOf = (m: ThreadMessage, mineRow: boolean) => {
-    const yours = mineRow && p.readAs === null;
-    return {
-      marked: yours && (p.menu === `m:${m.id}` || p.change.deleting === m.id),
-      editing: yours && p.change.editing?.id === m.id ? p.change.editing : null,
-      menu: yours && hasMenu(m, o.me) && p.change.editing?.id !== m.id,
-    };
   };
 
   return (

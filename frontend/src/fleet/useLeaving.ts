@@ -27,13 +27,13 @@ export function useLeaving<T>(items: T[], keyOf: (item: T) => string): LeavingRo
   const keyRef = useRef(keyOf);
   keyRef.current = keyOf;
 
-  // A new list is turned into rows while it is drawn, so the list is drawn once for the read and not again after an effect puts the rows in state (#1311).
+  // Rows are made while drawing, not by an effect, so a new list is drawn once (#1311).
   if (seen !== items) {
     setSeen(items);
     setRows(rowsFor(rows, items, keyOf));
   }
 
-  // The timers follow the rows: a row that is leaving is removed when its animation is over, and one that came back before then must not be.
+  // A leaving row is removed when its animation is over; one that came back before then must not be.
   useEffect(() => {
     const key = keyRef.current;
     for (const r of rows) {

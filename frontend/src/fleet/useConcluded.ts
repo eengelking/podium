@@ -22,7 +22,7 @@ export function useConcluded(api: Pick<ChatApi, "concluded" | "dismissConcluded"
     let live = true;
     api
       .concluded()
-      // A read that says what is already shown keeps the list it has, so nothing that draws from it is drawn again.
+      // The same list keeps its identity, so nothing that draws from it is drawn again.
       .then((r) => live && setItems((cur) => (JSON.stringify(cur) === JSON.stringify(r.concluded) ? cur : r.concluded)))
       // A read that failed keeps what was shown: the next signal reads again.
       .catch(() => undefined);
