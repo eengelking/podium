@@ -3133,3 +3133,118 @@ describe('a Direct Message ends when one of its agents ends (#1283)', () => {
     expect(await noticesOf(s, 'dev')).toEqual([]);
   });
 });
+
+describe('the chat events of one action (#1296)', () => {
+  /** The `chat` events a step writes, as `{ rev, scope }`, once the Admin log's writes and the stream have settled. */
+  const watch = (w: W) => {
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const events = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!) as { rev: number; scope: string });
+    return async (act: () => Promise<unknown>) => {
+      const from = events().length;
+      await act();
+      await w.fleet.flush();
+      await settle();
+      return events().slice(from);
+    };
+  };
+  const scopesOf = (events: { scope: string }[]) => events.map((e) => e.scope);
+  const CROSS = `${CH}/dm/person:1/sess-alex`;
+  const finish = async (w: W, report: () => Promise<unknown>) => {
+    await report();
+    w.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await w.fleet.sweep();
+  };
+  const resultOf = (w: W, sid: string, id: string) => request(w.app).post(`/api/fleet/sessions/${sid}/deliveries/${id}/result`).set('X-Podium-Token', w.ed.token).send({ result: 'took' });
+
+  it('pins the events of each route: one for a person alone, and what a post that moves other people costs today', async () => {
+    const seen: Record<string, string[]> = {};
+    const w = await world();
+    const step = watch(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    seen.groupPostMentioningOwnAgent = scopesOf(await step(() => say(w.edB, 'group', '@Tester@ci-runner-01 hello')));
+    seen.generalPostMentioningOtherAgent = scopesOf(await step(() => say(w.edB, 'general', '@review@alex-box hello')));
+    seen.generalPost = scopesOf(await step(() => say(w.edB, 'general', 'plain')));
+    let cid = '';
+    let mid = '';
+    seen.conversationOpen = scopesOf(await step(async () => {
+      const conv = await w.edB.post(`${CH}/conversations`).set(H).send({ members: [{ kind: 'person', name: 'Alex' }], text: 'hi' });
+      cid = conv.body.conversation.id as string;
+    }));
+    seen.conversationSend = scopesOf(await step(async () => {
+      mid = (await w.edB.post(`${CH}/conversations/${cid}/messages`).set(H).send({ text: 'once more' })).body.message.id as string;
+    }));
+    seen.conversationEdit = scopesOf(await step(() => w.edB.patch(`${CH}/conversations/${cid}/messages/${mid}`).set(H).send({ text: 'reworded' })));
+    seen.conversationDelete = scopesOf(await step(() => w.edB.delete(`${CH}/conversations/${cid}/messages/${mid}`).set(H)));
+    seen.conversationLeave = scopesOf(await step(() => w.edB.delete(`${CH}/conversations/${cid}/members/me`).set(H)));
+    seen.adminPingGroup = scopesOf(await step(() => admin.post(`${CH}/channels/group/reading`).set(H).send({ owner: 'Ed' })));
+    seen.adminPingAcrossOwners = scopesOf(await step(() => admin.post(`${CROSS}/reading`).set(H).send({})));
+    seen.pause = scopesOf(await step(() => w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true })));
+    await say(w.edB, 'group', '@Tester@ci-runner-01 first');
+    await say(w.edB, 'group', '@Tester@ci-runner-01 second');
+    seen.resumeDeliveringTwo = scopesOf(await step(() => w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: false })));
+    seen.clear = scopesOf(await step(() => w.edB.delete(`${CH}/channels/group/messages`).set(H).send({})));
+    seen.openChannel = scopesOf(await step(() => w.edB.post(`${CH}/channels`).set(H).send({ name: 'build' })));
+    seen.removeChannel = scopesOf(await step(() => admin.delete(`${CH}/channels/build`).set(H)));
+    expect(seen).toEqual({
+      groupPostMentioningOwnAgent: ['group'],
+      generalPostMentioningOtherAgent: ['dm', 'dm', 'dm', 'public'],
+      generalPost: ['public'],
+      conversationOpen: ['dm'],
+      conversationSend: ['dm'],
+      conversationEdit: ['dm'],
+      conversationDelete: ['dm'],
+      conversationLeave: ['dm'],
+      adminPingGroup: ['group'],
+      adminPingAcrossOwners: ['dm', 'dm'],
+      pause: ['group'],
+      resumeDeliveringTwo: ['group'],
+      clear: ['group'],
+      openChannel: ['public'],
+      removeChannel: ['public'],
+    });
+  });
+
+  it('pins the events of each task that no route starts', async () => {
+    const seen: Record<string, string[]> = {};
+    const w = await world();
+    const step = watch(w);
+    seen.sessionSeen = scopesOf(await step(async () => {
+      const r = report('Ed', 'sess-fresh', 'fresh', MAC);
+      r.agents = [];
+      r.events = [];
+      await post(w, w.ed.token, r);
+    }));
+    const [d] = await (async () => {
+      await say(w.edB, 'group', '@Tester@ci-runner-01 go');
+      return deliveriesFor(w, 'tester');
+    })();
+    seen.mentionTaken = scopesOf(await step(() => resultOf(w, 'sess-tester', d!.id)));
+    await w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true });
+    await say(w.edB, 'group', '@dev@ed-mbp first');
+    await say(w.edB, 'group', '@dev@ed-mbp second');
+    seen.sessionLeftWithTwoHeldMentions = scopesOf(await step(() => finish(w, () => dev(w, { status: 'done', waitReason: null }))));
+    const x = await world();
+    await linkedConversation(x);
+    const stepX = watch(x);
+    seen.heartbeatLostWithAConversation = scopesOf(await stepX(() => loseHeartbeat(x)));
+    const y = await world();
+    await linkedConversation(y);
+    const stepY = watch(y);
+    seen.agentToAgentMessage = scopesOf(await stepY(() => request(y.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', y.ed.token).send({ to: 'Tester@ci-runner-01', text: 'second hello' })));
+    const z = await world();
+    const stepZ = watch(z);
+    const sent = await z.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'please run the suite' });
+    expect(sent.status).toBe(202);
+    const [dm] = await deliveriesFor(z, 'tester');
+    seen.directMessageTaken = scopesOf(await stepZ(() => resultOf(z, 'sess-tester', dm!.id)));
+    expect(seen).toEqual({
+      sessionSeen: ['group'],
+      mentionTaken: ['group'],
+      sessionLeftWithTwoHeldMentions: ['group', 'group', 'dm', 'group'],
+      heartbeatLostWithAConversation: ['dm', 'group', 'dm', 'dm', 'group', 'dm', 'group'],
+      agentToAgentMessage: ['dm'],
+      directMessageTaken: ['dm'],
+    });
+  });
+});
