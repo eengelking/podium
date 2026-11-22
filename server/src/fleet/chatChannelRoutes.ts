@@ -1,7 +1,6 @@
 // The browser's routes for Chat's channels (#1034), under /respond/chat/channels. Mounted on responding's browser router, so they share its sign-in
 // cookie, its cross-site check and its no-store header. These routes read and write General and My group only: they never touch a direct message.
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
 import { fail, GROUP, GENERAL, isPublicChannel, noOwnMessages, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
@@ -36,6 +35,7 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : nul
 
 export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): void {
   const { fleet } = d;
+  const asyncHandler = fleet.chat.handler;
   const channels = () => fleet.chat.channels;
 
   /** The viewer and the channel a route is about, or an answer already sent. */

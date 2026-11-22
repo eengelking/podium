@@ -4,6 +4,7 @@
 import { nameKey } from '../storage/rows.js';
 import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { ACT_PREFIX } from './adminActs.js';
+import { asyncHandler } from './asyncHandler.js';
 import { AdminReads, listSubject, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
@@ -121,12 +122,23 @@ export class ChatService {
     this.adminReads.resolve = (thread) => (conversationOfThread(thread) ? this.conversations.subjectOf(thread) : this.direct.subjectOf(thread));
     // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
     this.core.across = (v, sessionId, text, opts) => this.direct.across(v, sessionId, text, opts);
-    this.core.hearAcross((u) => void this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err)));
+    this.core.hearAcross((u) => this.core.also(this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err))));
+  }
+
+  /**
+   * A route of Chat's, as `asyncHandler` makes it, and one action of Chat's (#1296): the consoles are sent one event for each scope the route changed, once it is done,
+   * and when it throws too.
+   */
+  readonly handler = (fn: Parameters<typeof asyncHandler>[0]): ReturnType<typeof asyncHandler> => asyncHandler((req, res, next) => this.core.batch(() => fn(req, res, next)));
+
+  /** A task of the fleet's that moves several sessions at once (the sweep): the consoles hear of it as one action, as of one session's. */
+  batch<T>(task: () => Promise<T>): Promise<T> {
+    return this.core.batch(task);
   }
 
   /** What became of a message between people, from the peer store's own trail: the mention the person wrote moves, and both sides' consoles are told. */
   peerTrail(t: MessageTrail): void {
-    this.direct.peerTrail(t);
+    this.core.also(this.core.batch(async () => this.direct.peerTrail(t)).catch((err: unknown) => this.core.host.warn('a message between people could not be followed in Chat', err)));
   }
 
   /** The Admin's Chat limits and the channels' flags. */
@@ -357,7 +369,11 @@ export class ChatService {
    * A session left the live set (ended, dropped or deleted). `final` is an end that cannot be undone (the session finished or was deleted), as against a lost heartbeat
    * that a report may undo (#1283): a final end concludes the Direct Messages the agent is in, and any other only hides them.
    */
-  async sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null, final = false): Promise<void> {
+  sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null, final = false): Promise<void> {
+    return this.core.batch(() => this.left(sessionId, owner, ownerId, final));
+  }
+
+  private async left(sessionId: string, owner: string | null, ownerId: number | null, final: boolean): Promise<void> {
     this.seen.delete(sessionId);
     if (final) {
       // Each side on its own, so a failure of one does not skip the other.
@@ -385,15 +401,21 @@ export class ChatService {
    */
   async sessionSeen(sessionId: string, owner: string): Promise<void> {
     if (this.seen.has(sessionId)) return;
-    await this.direct.sessionSeen(sessionId, owner);
-    this.seen.add(sessionId);
-    // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
-    // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
-    this.core.signal('group');
+    await this.core.batch(async () => {
+      await this.direct.sessionSeen(sessionId, owner);
+      this.seen.add(sessionId);
+      // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
+      // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
+      this.core.signal('group');
+    });
   }
 
   /** The hourly housekeeping: conversations against the live set, then retention for both channels and the hidden conversations. */
-  async maintain(): Promise<void> {
+  maintain(): Promise<void> {
+    return this.core.batch(() => this.housekeeping());
+  }
+
+  private async housekeeping(): Promise<void> {
     const limits = await this.core.store.settings.get();
     await this.direct.reconcile();
     const now = this.core.host.now();

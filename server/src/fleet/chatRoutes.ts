@@ -2,7 +2,6 @@
 // the channels (chatChannelRoutes.ts), the direct messages (chatDmRoutes.ts) and what an agent may do with its reporter's token (chatAgentRoutes.ts).
 // This file is the gate they share, the overview (counts and names, never text), the read marker and the audit rows.
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import { mountChatAgentRoutes } from './chatAgentRoutes.js';
 import { mountChatChannelRoutes, type ChatBrowserDeps } from './chatChannelRoutes.js';
 import { mountChatDmRoutes } from './chatDmRoutes.js';
@@ -107,6 +106,7 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
 /** The browser side: every Chat route needs orchestrator messaging on and a signed-in viewer. */
 export function mountChatBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserHelpers): void {
   const { fleet, logger } = d;
+  const asyncHandler = fleet.chat.handler;
   fleet.chat.people = d.people;
   wireChatLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);

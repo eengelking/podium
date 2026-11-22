@@ -3,7 +3,6 @@
 // the credential must be the person's token that owns the session, and the session's last report must have said `peers: true`. A direct message cannot
 // be read from here: the only write besides the channels is an agent's answer in a conversation it is a member of (#1299).
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import { jsonBody } from '../jsonBody.js';
 import { agentGate, refuser } from './routeGate.js';
 import { peersEnabled, type PeerDeps } from './peerRoutes.js';
@@ -14,6 +13,7 @@ import type { PublicChannel } from '../storage/types.js';
 
 export function mountChatAgentRoutes(router: Router, d: PeerDeps): void {
   const { fleet, logger } = d;
+  const asyncHandler = fleet.chat.handler;
   const json = jsonBody({ limit: '128kb' });
 
   const refuse = refuser(logger, 'chat.refused', { session: true });

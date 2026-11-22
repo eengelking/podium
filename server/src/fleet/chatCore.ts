@@ -1,6 +1,7 @@
 // What Chat's channel and direct-message sides share (#1034): the Admin's limits, redaction of a person's text, the rate limit, telling the
 // console that something changed (a count, never text), the audit callback, and delivering text to an agent through the console's message path.
 // Nothing here reads a direct message or a channel message.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { cleanNameText, cleanPeerText } from '../storage/peerText.js';
 import { overLimitWords } from '../storage/peerEdit.js';
 import { scrubStored } from '../logging/redact.js';
@@ -110,6 +111,13 @@ export function endedNotice(gone: string, stays = false): string {
 /** The longest issue, project or milestone a post may carry, in characters. */
 const MAX_LABEL = 200;
 
+/** What one action has signalled and started so far (`ChatCore.batch`). `closed` is set once its events are on their way. */
+interface Batch {
+  scopes: Set<ChatScope>;
+  started: Promise<void>[];
+  closed: boolean;
+}
+
 export class ChatCore {
   /** Replaced by the routes, so an event reaches the Admin log and the server log. */
   onEvent: (e: ChatEvent) => void = () => {};
@@ -127,6 +135,8 @@ export class ChatCore {
   changeAcross: AcrossChange | null = null;
   private readonly acrossHearers: ((u: AcrossUpdate) => void)[] = [];
   private rev = 0;
+  /** The action the running code belongs to, when it belongs to one (`batch`). */
+  private readonly batches = new AsyncLocalStorage<Batch>();
   private readonly recent = new Map<string, number[]>();
   private readonly following = new Map<string, (o: DeliveryOutcome) => void>();
 
@@ -213,9 +223,44 @@ export class ChatCore {
     for (const [who, times] of this.recent) if (times.every((t) => now - t >= MINUTE)) this.recent.delete(who);
   }
 
-  /** Tells open consoles that something in `scope` changed, once for each of `times` people it concerns: a counter and the scope, never a name, a count or text. */
-  signal(scope: ChatScope, times = 1): void {
-    for (let i = 0; i < times; i++) this.host.signal({ scope, rev: ++this.rev });
+  /**
+   * Tells open consoles that something in `scope` changed: a counter and the scope, never a name, a count or text. Inside a `batch` it is held until the action is
+   * done, so one action is one event for each scope however many times it signals; outside one it goes out at once.
+   */
+  signal(scope: ChatScope): void {
+    const open = this.batches.getStore();
+    if (open && !open.closed) open.scopes.add(scope);
+    else this.emit(scope);
+  }
+
+  private emit(scope: ChatScope): void {
+    this.host.signal({ scope, rev: ++this.rev });
+  }
+
+  /**
+   * Runs one action (a request, or a task nobody asked for) and, when it and what it `also` started are done, sends one event for each scope it signalled, in the
+   * order it first did (#1296). Every signal of an action comes after the write it follows, so an event never reaches a console before what it announces is stored.
+   * It is sent when the action throws as well. The action is found by the async context, so two actions that overlap each keep their own, and a batch started
+   * inside another that is still open joins it (inside one that is done it is an action of its own). A signal that comes after the batch is done (work nobody waited for) goes out on its own.
+   */
+  async batch<T>(act: () => Promise<T>): Promise<T> {
+    // Only a batch that is still open is joined: code that outlives its batch (a timer, or what a handler's `next()` started) is in a closed one, and its own action gets its own.
+    const outer = this.batches.getStore();
+    if (outer && !outer.closed) return act();
+    const open: Batch = { scopes: new Set(), started: [], closed: false };
+    try {
+      return await this.batches.run(open, act);
+    } finally {
+      while (open.started.length) await Promise.allSettled(open.started.splice(0));
+      open.closed = true;
+      for (const scope of open.scopes) this.emit(scope);
+    }
+  }
+
+  /** Work an action starts and does not wait for: the action's batch waits for it before it sends its events. It must catch its own errors. */
+  also(work: Promise<void>): void {
+    const open = this.batches.getStore();
+    if (open && !open.closed) open.started.push(work);
   }
 
   /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal. The count is kept under the person's id (#1284). */
@@ -223,12 +268,11 @@ export class ChatCore {
     return this.countMany([{ who, mention }], thread, scope);
   }
 
-  /** `count` for several people at once, in one store call (#1309): one signal for each whose count came back. */
+  /** `count` for several people at once, in one store call (#1309): one signal when any count came back. */
   async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: ChatScope): Promise<void> {
     if (people.length === 0) return;
     const rows = await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })));
-    const counted = new Set(rows.map((r) => r.personId));
-    this.signal(scope, people.filter((p) => counted.has(p.who.id)).length);
+    if (rows.length > 0) this.signal(scope);
   }
 
   /**

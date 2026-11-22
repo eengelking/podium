@@ -550,13 +550,15 @@ export class ChannelChat {
     this.core.watch(deliveryId, (o) => {
       const patch = o.kind === 'took' ? { state: 'working' as const } : o.kind === 'queued' ? null : o.kind === 'dropped' ? { state: 'dropped' as const, why: o.why } : { state: 'not-delivered' as const, why: o.why };
       if (!patch) return;
-      void this.handle(channel, owner)
-        .setMention(messageId, index, patch)
-        .then(() => {
-          this.core.onEvent({ kind: o.kind === 'took' ? 'delivered' : 'dropped', channel, owner: oname(owner), by: 'server', messageId, sessionId, ...(o.kind === 'took' ? {} : { why: 'why' in o ? o.why : undefined }) });
-          this.core.signal(scopeOf(channel));
-        })
-        .catch((err: unknown) => this.core.host.warn('a mention in Chat could not be updated', err));
+      this.core.also(
+        this.handle(channel, owner)
+          .setMention(messageId, index, patch)
+          .then(() => {
+            this.core.onEvent({ kind: o.kind === 'took' ? 'delivered' : 'dropped', channel, owner: oname(owner), by: 'server', messageId, sessionId, ...(o.kind === 'took' ? {} : { why: 'why' in o ? o.why : undefined }) });
+            this.core.signal(scopeOf(channel));
+          })
+          .catch((err: unknown) => this.core.host.warn('a mention in Chat could not be updated', err)),
+      );
     });
   }
 
@@ -566,10 +568,7 @@ export class ChannelChat {
     const audience: PersonRef[] = channel === 'group' ? (owner ? [owner] : []) : await this.core.persons();
     const mentioned = new Set(planned.flatMap((p) => (p.bump !== null ? [p.bump] : [])));
     const counted = audience.filter((who) => who.id !== authorId);
-    const rows = counted.length === 0 ? [] : await this.store.readState.bumpMany(thread, counted.map((who) => ({ personId: who.id, mention: mentioned.has(who.id) })));
-    // One signal for each person who was mentioned and whose count came back, then the one for the post.
-    const got = new Set(rows.map((r) => r.personId));
-    this.core.signal(scopeOf(channel), counted.filter((who) => got.has(who.id) && mentioned.has(who.id)).length);
+    if (counted.length > 0) await this.store.readState.bumpMany(thread, counted.map((who) => ({ personId: who.id, mention: mentioned.has(who.id) })));
     this.core.signal(scopeOf(channel));
   }
 

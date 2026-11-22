@@ -1,10 +1,10 @@
 // The browser's routes for Chat's conversations of people and agents (#1278), under /respond/chat. Only a member may use them, and an Admin only to read one that has an
 // agent in it. These routes read and write `conversation_*` only: they never touch a channel or a `peer_messages` row.
 import { type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import { pageOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
 
 export function mountChatConversationRoutes(browser: Router, d: ChatBrowserDeps): void {
+  const asyncHandler = d.fleet.chat.handler;
   const conv = () => d.fleet.chat.conversations;
 
   /** Who the viewer can write to: every person who can sign in, running or not, and the conversation that already holds exactly the two of them. Names only. */

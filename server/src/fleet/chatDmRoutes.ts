@@ -1,10 +1,10 @@
 // The browser's routes for Chat's direct messages (#1034), under /respond/chat/dm. Only the conversation's owner, or an Admin to read, may use them.
 // These routes read and write a conversation (`peer_messages`) only: they never touch a channel.
 import { type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import { pageOf, type ChatBrowserDeps } from './chatChannelRoutes.js';
 
 export function mountChatDmRoutes(browser: Router, d: ChatBrowserDeps): void {
+  const asyncHandler = d.fleet.chat.handler;
   const direct = () => d.fleet.chat.direct;
 
   /**

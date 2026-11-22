@@ -1051,7 +1051,8 @@ export class Fleet {
 
   /** Once a second: stale transitions, drops, lingering done sessions, carry-forward samples. */
   sweep(): Promise<void> {
-    return this.serial.exclusive(() => this.sweepNow());
+    // Every session the sweep ends is one change to Chat's lists, so the consoles hear of the sweep once (#1296).
+    return this.serial.exclusive(() => this.chat.batch(() => this.sweepNow()));
   }
 
   private async sweepNow(): Promise<void> {
