@@ -2,8 +2,10 @@
 // "Earlier messages" above, and the box under them. A message's text is always a text node, never HTML. The feed keeps the
 // reader's place when something is selected or a menu opens; it goes to the newest message on opening a thread and after a send.
 import {
+  memo,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type FocusEvent,
@@ -35,7 +37,7 @@ import {
   type Party,
 } from "../chatData";
 import type { Selection, ThreadMessage, ThreadRead } from "../useChat";
-import type { SessionView } from "../types";
+import type { ModelFamily, SessionView } from "../types";
 import {
   AdminPauseBanner,
   AdminTags,
@@ -58,7 +60,7 @@ import { useRovingList } from "../useRovingList";
 import { agentState } from "./ChatSidebar";
 import { ChatAvatar, ChatAvatarPair } from "./ChatAvatar";
 import { ChatMembersPanel, ChatMembersStack, membersOf } from "./ChatMembers";
-import { ModelChip, StateIcon } from "./Chips";
+import { ModelChip, StateIcon, type StateKind } from "./Chips";
 import { Modal } from "./Modal";
 import { familyName } from "../logic";
 import { hm } from "../trafficData";
@@ -350,85 +352,99 @@ export function DeleteMessageDialog({ text, who, error, busy, onCancel, onDelete
   );
 }
 
-/** What the row needs to know about changing one of your own messages (#1269). */
-interface OwnState {
-  /** Its menu is open, or its delete confirmation: the row stays marked. */
-  marked: boolean;
-  /** Set while it is being edited. */
-  editing: { error: string | null; busy: boolean } | null;
-  onSave: (text: string) => void;
-  onCancel: () => void;
-  /** A right-click or a long press: opens the menu at the pointer; undefined when the message has none. */
-  onContext?: (e: MouseEvent<HTMLElement>) => void;
+/** What every row does, as one object that keeps its identity and acts on the thread's latest props, so a row that is not drawn again is never stale (#1311). */
+interface MessageActs {
+  onSave: (id: string, text: string) => void;
+  onCancel: (id: string) => void;
+  onContext: (m: ThreadMessage, e: MouseEvent<HTMLElement>) => void;
+  onSender: (m: ThreadMessage, at: MenuAt) => void;
 }
 
-function Message({
+/** What a row replies to: "you", the author's name, or "an earlier message" when the original is not loaded. */
+function replyOf(m: ThreadMessage, byId: ReadonlyMap<string, ThreadMessage>): string | null {
+  const to = m.channel?.replyTo;
+  if (!to) return null;
+  const target = byId.get(to)?.channel;
+  return target ? (target.mine ? "you" : target.authorName) : "an earlier message";
+}
+
+/** The session of the agent that wrote a message, or null for a person and for you. */
+function agentRefOf(m: ThreadMessage, mine: boolean): string | null {
+  if (mine) return null;
+  if (m.channel) return m.channel.authorKind !== "person" ? m.channel.authorRef : null;
+  return m.direct!.from.kind === "agent" ? (m.direct!.from.sessionId ?? "") : null;
+}
+
+/** One message. Its props are the message object and plain values, never an object new on each render, so `memo` skips it unless it or what it shows changed (#1311). */
+const Message = memo(function Message({
   m,
-  all,
-  me,
+  re,
+  meId,
+  meName,
   now,
   paused,
   owner,
   across,
   heldBy,
   people,
-  machineOf,
-  sessions,
+  machine,
+  agent,
+  family,
+  model,
   cont,
-  rove,
-  onSender,
-  own,
+  tab,
+  idx,
+  marked,
+  editing,
+  menu,
+  sender,
+  acts,
 }: {
   m: ThreadMessage;
-  all: ThreadMessage[];
-  me: ChatOverview["me"];
+  re: string | null;
+  meId: MeId["id"];
+  meName: string;
   now: number;
   paused: boolean;
   owner: string;
   across: boolean;
   heldBy?: string;
   people: readonly string[];
-  machineOf: (ref: string) => string | null;
-  sessions: Record<string, SessionView>;
+  machine: string | null;
+  /** An agent author's state, and its model when the console has its session; null for anyone else. */
+  agent: StateKind | null;
+  family: ModelFamily | null;
+  model: string | null;
   cont: boolean;
   /** The roving tab stop and index of this message (one stop for the whole list, #1231). */
-  rove: { tabIndex: number; "data-roving": number };
-  /** Opens the menu of this message's sender at the pointer; undefined for your own. */
-  onSender?: (at: MenuAt) => void;
-  /** For one of your own messages: whether it is being edited or has a menu open, and what to do about it (#1269). */
-  own?: OwnState;
+  tab: number;
+  idx: number;
+  /** Its menu or delete confirmation is open, so the row stays marked (#1269). */
+  marked: boolean;
+  editing: { error: string | null; busy: boolean } | null;
+  /** Whether a right-click opens a menu on the message, and on its avatar. */
+  menu: boolean;
+  sender: boolean;
+  acts: MessageActs;
 }) {
+  const me = { id: meId, name: meName };
   const c = m.channel;
   const d = m.direct;
   const mine = mineOf(m, me);
   const name = mine ? "You" : c ? c.authorName : d!.from.name;
-  let re: string | null = null;
-  if (c?.replyTo) {
-    const target = all.find((x) => x.id === c.replyTo)?.channel;
-    re = target
-      ? target.mine
-        ? "you"
-        : target.authorName
-      : "an earlier message";
-  }
   const dl = c
     ? channelDelivery(c)
     : dmDelivery(d!, paused, owner, undefined, across, heldBy);
   const text = (c ?? d)!.text;
-  const marks =
-    c && !mine ? authorMarks(c, people, machineOf(c.authorRef)) : null;
+  const marks = c && !mine ? authorMarks(c, people, machine) : null;
   // The avatar: you are the inverted disc, another person a ring and a disc, an agent a tile in its model's color with its state.
-  const isAgent =
-    !mine && (c ? c.authorKind !== "person" : d!.from.kind === "agent");
-  const ref = c ? c.authorRef : (d!.from.sessionId ?? "");
-  const session = isAgent ? sessions[ref] : undefined;
-  const avatar = isAgent ? (
+  const avatar = agent !== null ? (
     <ChatAvatar
       kind="agent"
       name={name}
       size={40}
-      family={session?.modelFamily}
-      state={agentState(sessions, ref, null, false)}
+      family={family ?? undefined}
+      state={agent}
     />
   ) : (
     <ChatAvatar
@@ -441,14 +457,14 @@ function Message({
   const failed = dl.icon === "no";
   const body = bodyOf(m);
   const gone = !!body.deletedAt;
-  const editing = own?.editing ?? null;
   return (
     <li
-      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}${own?.marked ? " menu-open sel" : ""}${editing ? " editing" : ""}`}
+      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}${marked ? " menu-open sel" : ""}${editing ? " editing" : ""}`}
       data-testid="chat-message"
-      aria-haspopup={own?.onContext ? "menu" : undefined}
-      onContextMenu={own?.onContext}
-      {...rove}
+      aria-haspopup={menu ? "menu" : undefined}
+      onContextMenu={menu ? (e) => acts.onContext(m, e) : undefined}
+      tabIndex={tab}
+      data-roving={idx}
     >
       {cont ? (
         <span className="ch-gut" aria-hidden="true" title={when}>
@@ -459,10 +475,10 @@ function Message({
         <span
           className="ch-gut"
           onContextMenu={
-            onSender
+            sender
               ? (e) => {
                   e.preventDefault();
-                  onSender({ x: e.clientX, y: e.clientY, from: e.currentTarget.closest("li") });
+                  acts.onSender(m, { x: e.clientX, y: e.clientY, from: e.currentTarget.closest("li") });
                 }
               : undefined
           }
@@ -505,11 +521,11 @@ function Message({
                 </span>
               )}
             </span>
-            {session && (
+            {family && (
               <ModelChip
-                family={session.modelFamily}
-                model={session.model}
-                label={`Agent · ${familyName(session.modelFamily, session.model)}`}
+                family={family}
+                model={model}
+                label={`Agent · ${familyName(family, model)}`}
               />
             )}
             <span className="at" title={when}>
@@ -530,7 +546,7 @@ function Message({
             {tombstone(m, me)}
           </div>
         ) : editing ? (
-          <Editor initial={text} error={editing.error} busy={editing.busy} onSave={own!.onSave} onCancel={own!.onCancel} />
+          <Editor initial={text} error={editing.error} busy={editing.busy} onSave={(t) => acts.onSave(m.id, t)} onCancel={() => acts.onCancel(m.id)} />
         ) : (
           <div className="ch-tx">
             <Text text={text} />
@@ -578,7 +594,7 @@ function Message({
       </div>
     </li>
   );
-}
+});
 
 export interface ThreadProps {
   sel: Selection;
@@ -639,6 +655,32 @@ export function ChatThread(p: ThreadProps) {
   // a focus that comes from elsewhere ends it, so there is no way the list keeps a person in it or skips a message they came to read.
   const ownNav = useRef(false);
   const programmatic = useRef(false);
+  const live = useRef(p);
+  useLayoutEffect(() => {
+    live.current = p;
+  });
+  const acts = useMemo<MessageActs>(
+    () => ({
+      onSave: (id, text) => live.current.change.onSave(id, text),
+      onCancel: (id) => live.current.change.onCancel(id),
+      onContext: (m, e) => {
+        e.preventDefault();
+        ownNav.current = true;
+        live.current.onMenu(`m:${m.id}`, "context", { x: e.clientX, y: e.clientY, from: e.currentTarget });
+      },
+      onSender: (m, at) => {
+        const s = senderOf(m, live.current.overview.me);
+        if (s) live.current.onMenu(`t:${s.key}`, "context", at);
+      },
+    }),
+    [],
+  );
+  const byId = useMemo(() => new Map(t.messages.map((x) => [x.id, x])), [t.messages]);
+  const names = o.people.map((x) => x.name);
+  const namesKey = JSON.stringify(names);
+  // The same array until a name changes, so a row is not drawn again for a new overview.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is read as its own text
+  const people = useMemo(() => names, [namesKey]);
   const openOwnMenu = (i: number) => {
     const m = t.messages[i];
     if (!m) return;
@@ -1004,22 +1046,39 @@ export function ChatThread(p: ThreadProps) {
   };
   const openKey2 = p.menu?.startsWith("m:") ? p.menu.slice(2) : null;
   const openOwn = openKey2 ? (t.messages.find((m) => m.id === openKey2) ?? null) : null;
-  const ownOf = (m: ThreadMessage, mineRow: boolean): OwnState | undefined =>
-    mineRow && p.readAs === null
-      ? {
-          marked: p.menu === `m:${m.id}` || p.change.deleting === m.id,
-          editing: p.change.editing?.id === m.id ? p.change.editing : null,
-          onSave: (text) => p.change.onSave(m.id, text),
-          onCancel: () => p.change.onCancel(m.id),
-          onContext: hasMenu(m, o.me) && p.change.editing?.id !== m.id
-            ? (e) => {
-                e.preventDefault();
-                ownNav.current = true;
-                p.onMenu(`m:${m.id}`, "context", { x: e.clientX, y: e.clientY, from: e.currentTarget });
-              }
-            : undefined,
-        }
-      : undefined;
+  const rowOf = (m: ThreadMessage, cont: boolean, at: number) => {
+    const mine = mineOf(m, o.me);
+    const ref = agentRefOf(m, mine);
+    const session = ref === null ? undefined : p.sessions[ref];
+    const yours = mine && p.readAs === null;
+    return (
+      <Message
+        key={m.id}
+        m={m}
+        re={replyOf(m, byId)}
+        meId={o.me.id}
+        meName={o.me.name}
+        now={p.now}
+        paused={dmHead?.paused ?? p.direct?.paused ?? false}
+        owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name}
+        across={cross !== null}
+        heldBy={pause ? adminWho(pause.name) : undefined}
+        people={people}
+        machine={ref !== null && m.channel ? machineOf(m.channel.authorRef) : null}
+        agent={ref === null ? null : agentState(p.sessions, ref, null, false)}
+        family={session?.modelFamily ?? null}
+        model={session?.model ?? null}
+        cont={cont}
+        tab={roving.itemProps(at).tabIndex}
+        idx={at}
+        marked={yours && (p.menu === `m:${m.id}` || p.change.deleting === m.id)}
+        editing={yours && p.change.editing?.id === m.id ? p.change.editing : null}
+        menu={yours && hasMenu(m, o.me) && p.change.editing?.id !== m.id}
+        sender={senderOf(m, o.me) !== null}
+        acts={acts}
+      />
+    );
+  };
 
   return (
     <>
@@ -1161,28 +1220,7 @@ export function ChatThread(p: ThreadProps) {
                       <span>New</span>
                     </li>
                   ) : (
-                    <Message
-                      key={r.m.id}
-                      m={r.m}
-                      all={t.messages}
-                      cont={conts[i]!}
-                      rove={roving.itemProps(msgAt[i]!)}
-                      own={ownOf(r.m, mineOf(r.m, o.me))}
-                      onSender={
-                        senderOf(r.m, o.me)
-                          ? (pos) => p.onMenu(`t:${senderOf(r.m, o.me)!.key}`, "context", pos)
-                          : undefined
-                      }
-                      sessions={p.sessions}
-                      people={o.people.map((x) => x.name)}
-                      machineOf={machineOf}
-                      me={o.me}
-                      now={p.now}
-                      across={cross !== null}
-                      heldBy={pause ? adminWho(pause.name) : undefined}
-                      paused={dmHead?.paused ?? p.direct?.paused ?? false}
-                      owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name}
-                    />
+                    rowOf(r.m, conts[i]!, msgAt[i]!)
                   ),
                 )}
               </ol>

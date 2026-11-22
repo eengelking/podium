@@ -12,6 +12,7 @@ import { fleetReducer } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
 import type { Address, ChannelMessage, ChatApi, ChatOverview, DirectInfo, DirectMessage, DirectPageRead, Party } from "./chatData";
 import { useThread, type Selection } from "./useChat";
+import { Landing } from "./landing";
 import type { RespondMe } from "./types";
 
 const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
@@ -748,7 +749,8 @@ describe("live refresh of earlier pages", () => {
   const ids = (r: { current: { messages: { id: string }[] } }) => r.current.messages.map((m) => m.id);
   const loaded = async (s: ReturnType<typeof paged>, pages: number) => {
     vi.useRealTimers();
-    const hook = renderHook(({ rev }) => useThread(s.api, SEL, rev), { initialProps: { rev: 0 } });
+    const landing = new Landing();
+    const hook = renderHook(({ rev }) => useThread(s.api, SEL, rev, null, landing), { initialProps: { rev: 0 } });
     await waitFor(() => expect(hook.result.current.loaded).toBe(true));
     for (let i = 0; i < pages; i++) await act(async () => void (await hook.result.current.loadEarlier()));
     return hook;

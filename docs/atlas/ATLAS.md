@@ -438,6 +438,7 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `SessionsPage` | Admin > Reporting > Sessions, with the time, reason, agents, depth, answers and answer wait breakdowns. In `frontend/src/fleet/admin/TimePages.tsx`. |
 | Console | `UsagePage` | Admin > Reporting > Usage, with the person and hour (busiest hours) breakdowns. In `frontend/src/fleet/admin/TimePages.tsx`. |
 | Console | `ChatPage` | Channels, Direct Messages and a thread. In `frontend/src/fleet/Chat.tsx`. |
+| Console | `useConcluded` | What was concluded for the signed-in person, read again on the chat event; the console reads it once, for the wall's notice and Chat's banner. In `frontend/src/fleet/useConcluded.ts`. |
 | Console | `ChannelModal` | The New channel form, and a channel's description. In `frontend/src/fleet/components/ChatForms.tsx`. |
 | Console | `DirectModal` | The New direct message form, which picks people and agents. In `frontend/src/fleet/components/ChatForms.tsx`. |
 | Console | `ChatConversation` | A conversation of people and agents, its thread, members and composer. In `frontend/src/fleet/components/ChatConversation.tsx`. |
@@ -454,9 +455,9 @@ code. A function's line number is on the page, not here, because it moves.
 | Console | `messageMenu` | Edit message and Delete message on one of your own messages, off with the reason when it is locked. In `frontend/src/fleet/components/ChatMenu.tsx`. |
 | Console | `Editor` | Edits one of your own messages in place. In `frontend/src/fleet/components/ChatThread.tsx`. |
 | Console | `DeleteMessageDialog` | The confirmation before a message is deleted. In `frontend/src/fleet/components/ChatThread.tsx`. |
-| Console | `useThread` | The open thread; reads the newest and the earlier pages again on the signal, and puts an edited or deleted message in place. In `frontend/src/fleet/useChat.ts`. |
+| Console | `useThread` | The open thread; reads the newest and the earlier pages again on the signal, keeps the message objects that did not change so a memoized row is not drawn again, and puts an edited or deleted message in place. In `frontend/src/fleet/useChat.ts`. |
 | Console | `useRovingList` | One tab stop for the message list, moved with the arrow keys. In `frontend/src/fleet/useRovingList.ts`. |
-| Console | `useChatOverview` | Reads the overview again when the chat event moves, and keeps the records of deleted conversations (gone) even from a read a newer one replaced. In `frontend/src/fleet/useChat.ts`. |
+| Console | `useChatOverview` | Reads the overview again when the chat event moves, and keeps the records of deleted conversations (gone) even from a read a newer one replaced; it lands with the open thread's read through a Landing, so Chat is drawn once for the two. In `frontend/src/fleet/useChat.ts`. |
 | Console | `useReadingPing` | An Admin's open ask, Activity, whole text or live feed posts a reading every 15 seconds. In `frontend/src/fleet/sessionReads.tsx`. |
 | Console | `SessionReadNotes` | The red notice and record lines the owner sees when an Admin reads their ask or Activity. In `frontend/src/fleet/components/SessionReadNotes.tsx`. |
 | Console | `GoneRecordLines` | The quiet lines for records of a deleted conversation. In `frontend/src/fleet/components/ChatAdmin.tsx`. |
