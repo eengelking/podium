@@ -1023,15 +1023,21 @@ export function dmDelivery(
 
 // ---- The box ------------------------------------------------------------------------------------------------------------
 
-/** The word being typed after an `@` that starts a word, up to the caret: a name may hold spaces, so it runs to the line's end. */
+/**
+ * The text typed after the last `@` that starts a word, up to the caret (#1343). A name may hold spaces, so the query runs to the
+ * caret, but it starts at the `@` the caret is in: an address already in the draft (`@name@machine `) is not part of a new query,
+ * so every later `@` opens the list again.
+ */
 export function mentionQuery(
   value: string,
   caret: number,
 ): { from: number; to: number; q: string } | null {
   const before = value.slice(0, caret);
-  const m = /(^|\s)@([^\n]*)$/.exec(before);
-  if (!m) return null;
-  return { from: before.length - m[2]!.length - 1, to: caret, q: m[2]! };
+  let from = -1;
+  for (const m of before.matchAll(/(^|\s)@/g)) from = m.index + m[1]!.length;
+  if (from < 0) return null;
+  const q = before.slice(from + 1);
+  return q.includes("\n") ? null : { from, to: caret, q };
 }
 
 const spoken = (names: string[]): string => (names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);

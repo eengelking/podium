@@ -65,6 +65,20 @@ describe('chat: an @ in a conversation with an agent', () => {
     cy.tid('chat-box').clear();
   });
 
+  it('opens the @ list again after each picked address, so three recipients go into one draft (#1343)', () => {
+    open();
+    cy.tid('chat-box').type('@');
+    cy.tid('chat-listbox').should('be.visible').find('[role=option]').should('have.length', 3);
+    cy.tid('chat-box').type('inv{enter}').should('have.value', '@invoice-v2@ed-mbp ');
+    cy.tid('chat-box').type('@');
+    cy.tid('chat-listbox').should('be.visible').find('[role=option]').should('have.length', 3);
+    cy.tid('chat-box').type('Test{enter}').should('have.value', '@invoice-v2@ed-mbp @Tester@ci-runner-01 ');
+    cy.tid('chat-box').type('@');
+    cy.tid('chat-listbox').should('be.visible').find('[role=option]').should('have.length', 3);
+    cy.tid('chat-box').type('Maya{enter}').should('have.value', '@invoice-v2@ed-mbp @Tester@ci-runner-01 @Maya@console ');
+    cy.tid('chat-box').clear();
+  });
+
   it('hands a message that names a member only to it, and shows who it was for and where it went', () => {
     open();
     cy.tid('chat-box').type(`@invoice-v2@ed-mbp ${NAMED}{enter}`);
@@ -103,5 +117,18 @@ describe('chat: an @ in a conversation with an agent', () => {
     post(convo, ANSWER).its('status', { log: false }).should('eq', 201);
     open();
     cy.tid('chat-message').should('have.length', 4).last().should('contain.text', ANSWER).and('contain.text', 'invoice-v2');
+  });
+
+  it('sends a message that names all three members, each picked from the list, and shows it for each (#1343)', () => {
+    const MANY = 'All three of you, please mention-many-4f1a';
+    open();
+    for (const [find, name] of [['inv', 'invoice-v2@ed-mbp'], ['Test', 'Tester@ci-runner-01'], ['Maya', 'Maya@console']]) {
+      cy.tid('chat-box').type('@');
+      cy.tid('chat-listbox').should('be.visible').find('[role=option]').should('have.length', 3);
+      cy.tid('chat-box').type(`${find}{enter}`).should('contain.value', `@${name} `);
+    }
+    cy.tid('chat-box').type(`${MANY}{enter}`);
+    cy.tid('chat-message').should('have.length', 5).last().should('contain.text', MANY);
+    cy.tid('chat-message').last().find('[data-testid=chat-for]').should('contain.text', 'invoice-v2').and('contain.text', 'Tester').and('contain.text', 'Maya');
   });
 });
