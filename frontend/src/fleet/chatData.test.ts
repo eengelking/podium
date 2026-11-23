@@ -232,7 +232,7 @@ describe("the @ query", () => {
   });
   it("queries from the @ the caret is in, not the first @ of the draft (#1343)", () => {
     // A second @ after a picked address opens a fresh query, with the address already typed left out of it.
-    expect(mentionQuery("@Lower Left@Eds-MacBook-Pro-14 @", 32)).toEqual({ from: 31, to: 32, q: "" });
+    expect(mentionQuery("@Lower Left@mbp @", 17)).toEqual({ from: 16, to: 17, q: "" });
     expect(mentionQuery("hi @a@m @", 9)).toEqual({ from: 8, to: 9, q: "" });
     // Five in a row.
     const five = "@a@m @b@m @c@m @d@m @";
