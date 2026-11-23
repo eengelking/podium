@@ -95,7 +95,7 @@ export type ChatEvent =
   | { kind: 'conversation_members_added'; by: string; conversation: string; count: number }
   | { kind: 'conversation_left'; by: string; conversation: string; deleted: boolean }
   | { kind: 'purged'; channelMessages: number; directMessages: number }
-  | { kind: 'channel_opened' | 'channel_edited' | 'channel_removed'; channel: ChannelId; by: string; messages?: number };
+  | { kind: 'channel_opened' | 'channel_edited' | 'channel_removed'; channel: ChannelId; by: string; messages?: number; /** An Admin's edit or removal of a channel somebody else opened (#1328): who opened it, and how many of their live reporter sessions show the notice now. */ opener?: string; told?: number; unrecorded?: true };
 
 /** What Chat tells the host changed, and so the whole of what the stream carries: a change counter and a coarse scope, no name, count or id (#1034). */
 export type ChatScope = 'public' | 'group' | 'dm';

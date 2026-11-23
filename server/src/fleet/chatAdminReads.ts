@@ -1,7 +1,8 @@
 // An Admin reading a person's group or a Direct Message is recorded and the people in it are told (#1034). One record per Admin per reading session:
 // reads of one thread by one Admin less than 30 minutes apart are one session. A reading is live while the Admin read it in the last 30 seconds.
 // A record holds who, which thread and when, never any text. General is public and is never recorded.
-import type { AdminReadKind, AdminReadRow, ChatAdminReadsApi } from '../storage/types.js';
+import type { AdminReadKind, AdminReadRow, AdminStopKindName, ChatAdminReadsApi } from '../storage/types.js';
+import { actThread } from './adminActs.js';
 import { NOTICE_TTL_MS, type AdminNotice } from './chatAdminNotices.js';
 import { nameKey } from '../storage/rows.js';
 import { LOOP_ID, parseSessionThread, readNeedsLoop, sessionPhrase, sessionSubject, sessionThreadPrefix, type ParsedSessionThread, type SessionReadKind } from './sessionReads.js';
@@ -81,6 +82,15 @@ function codeOf(text: string): string {
   return h.toString(36);
 }
 
+/** The kinds of an Admin's stop that a reporter shows from the record (#1328). */
+const STOP_KINDS: ReadonlySet<AdminReadKind> = new Set<AdminReadKind>(['links_paused', 'links_resumed', 'link_removed', 'channel_edited', 'channel_removed']);
+
+/** The owed stops and the held notices in the order they happened, a stop first when both are at one moment (a stable sort). */
+const later = (stops: AdminNotice[], held: AdminNotice[]): AdminNotice[] => [...stops, ...held].sort((a, b) => a.at - b.at);
+
+/** A session shows at most this many owed stops at once (#1328), the newest. */
+const MAX_STOPS = 8;
+
 /** A thread that records a read of a session's content: a replay (#1075), an ask or stored Activity (#1073, #1074). A session peer messaging does not know is told of these. */
 const isSessionRead = (thread: string): boolean => thread.startsWith('replay:') || parseSessionThread(thread) !== null;
 
@@ -91,6 +101,8 @@ export class AdminReads {
   private recentCache: { at: number; rows: (AdminReadRow & { thread: string })[] } | null = null;
   /** Counts the writes, so a read of the store that began before one is not kept (#1062). */
   private writes = 0;
+  /** Each person's owed stops (#1328) as the store gave them, and when. Dropped by every write and every look, so it is held up to `NOTICE_TTL_MS`. */
+  private readonly owedCache = new Map<number, { at: number; notices: AdminNotice[] }>();
   /** Replaced by the Chat service: what a direct-message thread's callout says, from the conversation. Null when there is none. */
   resolve: (thread: string) => Promise<ReadSubject | null> = async () => null;
 
@@ -126,6 +138,7 @@ export class AdminReads {
   private changed(): void {
     this.writes++;
     this.recentCache = null;
+    this.owedCache.clear();
   }
 
   /**
@@ -218,11 +231,14 @@ export class AdminReads {
     const held = this.core.notices.for(sessionId);
     // A session that peers do not know costs nothing on its report unless a read of a session's content (a replay, an ask, stored Activity) is on record: once one scan
     // has found none, or only old ones, it is skipped until the next one is noted. A restart scans once more, so a read from the minutes before it is not lost (#1075).
-    if (!live && this.replayScanned && this.core.host.now() - this.replayAt >= NOTICE_TTL_MS) return held;
+    const scanned = !live && this.replayScanned && this.core.host.now() - this.replayAt >= NOTICE_TTL_MS;
     // A read of a session's content is recorded whether or not peer messaging is on, so a session that peers do not know still hears of it, from the stored session's owner.
     // The person is the session's owner id (#1284), never its owner name: a person who takes a deleted person's name is told of nothing the earlier person was read for, and a session with no owner id (the admin secret's, or whose person was deleted) has no one to tell.
+    // An Admin's stop owed to the person (#1328) is shown by every session peers know (one that reports with peer messaging on), from one read of the person's owed stops.
+    if (scanned) return held;
     const person = live ? live.ownerId : ((await this.core.host.sessionOf(sessionId))?.ownerId ?? null);
     if (person === null) return held;
+    const stops = await this.owedStops(person);
     const out: AdminNotice[] = [];
     const recent = await this.recentRows();
     for (const r of recent) if (isSessionRead(r.thread)) this.replayAt = Math.max(this.replayAt, r.lastSeenAt);
@@ -233,7 +249,31 @@ export class AdminReads {
       if (!subject || !subject.people.includes(person)) continue;
       out.push({ id: `rd-${r.startedAt.toString(36)}-${codeOf(`${r.thread}|${nameKey(r.admin)}`)}`, at: r.startedAt, text: `${this.whoIs(r.admin)} ${subject.phrase}.` });
     }
-    return [...out.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)), ...held];
+    return [...out.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id)), ...later(stops, held)];
+  }
+
+  /**
+   * The Admin's stops on the person's links or public channels they have not seen (#1328), as callouts, oldest first. The id comes from the record, so a reporter
+   * shows each once across its sessions and a restart. Read from the store once per person for every session's report, not once per report: only this class writes or sees these records, and every write and look drops the cache, so the wait is only a bound.
+   */
+  private async owedStops(person: number): Promise<AdminNotice[]> {
+    const now = this.core.host.now();
+    const hit = this.owedCache.get(person);
+    if (hit && now >= hit.at && now - hit.at < NOTICE_TTL_MS) return hit.notices;
+    this.owedCache.delete(person);
+    const writes = this.writes;
+    const thread = actThread(person);
+    // The same words said again replace the earlier callout, and a session shows at most MAX_STOPS, newest last, as the held notices do.
+    const byText = new Map<string, AdminNotice>();
+    for (const r of [...(await this.store.unseenFor(person))].reverse()) {
+      if (r.thread !== thread || !STOP_KINDS.has(r.kind) || !r.detail) continue;
+      const text = `${this.whoIs(r.admin)} ${r.detail}.`;
+      byText.delete(text);
+      byText.set(text, { id: `st-${r.startedAt.toString(36)}-${codeOf(`${r.kind}|${nameKey(r.admin)}`)}`, at: r.startedAt, text });
+    }
+    const notices = [...byText.values()].slice(-MAX_STOPS);
+    if (writes === this.writes) this.owedCache.set(person, { at: now, notices });
+    return notices;
   }
 
   /**
@@ -302,6 +342,7 @@ export class AdminReads {
     for (const t of threads) {
       records.push(...(await this.store.list(t)));
       await this.store.seen(t, ownerId);
+      this.changed();
     }
     records.sort((a, b) => a.startedAt - b.startedAt || a.admin.localeCompare(b.admin));
     const live = await this.sessionReadersOf(ownerId);
@@ -323,13 +364,17 @@ export class AdminReads {
   }
 
   /**
-   * An Admin paused, resumed or removed links of `owner`'s reporters (#1077): every live session of that person is told once, in the words after the Admin's
-   * name (`paused all messaging links of your reporter box-a`). Content-free, and for the person only. A bulk stop is one call, so a person is not told per link.
+   * An Admin paused, resumed or removed links of a person's reporters (#1077), or edited or removed a public channel the person opened (#1035): the stop is
+   * kept on the person's `act:` thread with its words (`paused all messaging links of your reporter box-a`), owed to them until they have seen it (#1328).
+   * Their reporter sessions are shown it from that record (`noticesFor`), so a person with no live session now, or a restart of the server, loses nothing.
+   * Recorded first, so a failure stops the stop's callout being lost silently: the caller logs it. Nothing for the Admin's own things. Content-free: who,
+   * what and when, the words naming a reporter or a channel and never any message text. Returns how many live sessions of the person will show it now.
    */
-  toldLinkStop(admin: string, ownerId: number, what: string): number {
-    const ids = this.sessionsOf(ownerId);
-    for (const id of ids) this.tell(id, `${this.whoIs(admin)} ${what}.`);
-    return ids.length;
+  async stopOwed(admin: { name: string; id: number | null }, ownerId: number, kind: AdminStopKindName, what: string): Promise<number> {
+    if (admin.id !== null && admin.id === ownerId) return 0;
+    await this.store.mark(actThread(ownerId), admin.name, admin.id, kind, [ownerId], what);
+    this.changed();
+    return this.sessionsOf(ownerId).length;
   }
 
   /** The live reporter sessions of the person (`people.id`, #1284), or of everyone when it is null. A session is a person's by its owner id, never by its owner name. */
@@ -394,8 +439,10 @@ export class AdminReads {
    * smallest meaning of "seen" that is true: Podium sent the record to that person's console. Records of a conversation they can no longer open are
    * never seen, so they stay.
    */
-  seen(thread: string, personId: number): Promise<number> {
-    return this.store.seen(thread, personId);
+  async seen(thread: string, personId: number): Promise<number> {
+    const n = await this.store.seen(thread, personId);
+    this.changed();
+    return n;
   }
 
   /**

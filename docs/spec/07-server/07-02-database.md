@@ -347,7 +347,7 @@ public_messages        (id, author_kind, author_ref, author_name, text, created_
                          PK id;  indexes (created_at, seq), (channel, created_at, seq), (seq)
 public_channels        (name, description, link_kind, link_ref, link_key UNIQUE, created_by_name, created_at, updated_at, created_by_id)    PK name
 chat_read_state        (person_id, thread, unread, mentions)                                                              PK (person_id, thread);  index (thread)
-chat_admin_reads       (thread, admin_key, admin, started_at, last_seen_at, kind, people)                                 PK (thread, admin_key, started_at);  index (last_seen_at)
+chat_admin_reads       (thread, admin_key, admin, started_at, last_seen_at, kind, people, detail)                                 PK (thread, admin_key, started_at);  index (last_seen_at)
 chat_admin_owed        (person_id, thread, admin_key, started_at)                                                         PK all four;  index (thread, admin_key, started_at)
 conversations          (id, created_at, members_key)                                                                      PK id;  index (members_key)
 conversation_members   (conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at)               PK (conversation_id, member_kind, member_ref);  index (member_kind, member_ref)
@@ -439,7 +439,7 @@ CREATE TABLE chat_admin_reads (   -- one row per Admin and thread and reading se
   PRIMARY KEY (thread, admin_key, started_at)
 );
 CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
-ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', or (#1078, on an `act:<name>` thread, no migration) 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted', 'reporter_removed' or (#1251) 'respond_refused'
+ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', or (#1078, on an `act:<name>` thread, no migration) 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted', 'reporter_removed' or (#1251) 'respond_refused', or (#1328, with its words in `detail`) 'links_paused', 'links_resumed', 'link_removed', 'channel_edited' or 'channel_removed'
 ```
 
 Migration 35 (#1051; PostgreSQL and MariaDB main step 11) keeps a record until each person it names has seen it:
@@ -558,6 +558,7 @@ CREATE TABLE chat_admin_owed (person_id INTEGER NOT NULL, thread TEXT NOT NULL, 
   PRIMARY KEY (person_id, thread, admin_key, started_at));                                                   -- 57: person_key and chat_admin_owed_person are gone
 CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
 ALTER TABLE chat_admin_reads DROP COLUMN seen;                                                               -- 58
+ALTER TABLE chat_admin_reads ADD COLUMN detail TEXT NOT NULL DEFAULT '';                                  -- 62 (#1328): the words after the Admin's name for a stop on a person's links or a public channel they opened; a reporter or a channel name, never any message text
 ```
 
 A delivery's conversation was its message's conversation said again, and a key that began with it left the retention delete no way in but a scan of every delivery. A conversation's deliveries are now those of its messages, and a store call that names a message in another conversation finds nothing, as before. `chat_admin_owed.person_key` was the older name key and said the id again, and its person index duplicated the key's first columns; a row that names no person (`person_id` NULL) is not kept, because nothing can see it and step 51 had already removed such rows. `chat_admin_reads.seen` held `[]` for every record made since `chat_admin_owed` was made, because a record is seen when its owed row is deleted, so the owed table was filled once from the lists an older record holds (step 57, in code, as the store did before) and the column goes after it (step 58). `people` stays: deleting a person decides from it whether a record other people had seen is kept, and no Admin notice, record line or Admin log row changes.

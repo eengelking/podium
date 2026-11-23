@@ -1108,6 +1108,11 @@ INSERT INTO peer_owner_settings_new (owner_id, trust, on_request, new_send, limi
 DROP TABLE peer_owner_settings;
 ALTER TABLE peer_owner_settings_new RENAME TO peer_owner_settings;`,
   },
+  {
+    version: 62,
+    // An Admin's stop on a person's messaging links or on a public channel they opened keeps its words with its record (#1328), so the person's reporter session can be shown it from the record until they have seen it, across a restart. The words name a reporter or a channel and never hold message text. The same step is PostgreSQL step 37 and MariaDB step 37.
+    sql: `ALTER TABLE chat_admin_reads ADD COLUMN detail TEXT NOT NULL DEFAULT '';`,
+  },
 ];
 const storedCost: CostOf = (r) => r.cost_usd;
 

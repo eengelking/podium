@@ -494,6 +494,17 @@ export function chatCases(o: Openers): void {
         await reads.forget('act:ed');
         return { owed, after, left: (await reads.list('act:ed')).length };
       })());
+      // #1328: an Admin's stop on a person's links or public channel keeps its words (the reporter, the channel: never message text) with the record, owed to the person until seen.
+      await rec('mark (a stop with its words, owed to the person, seen once)', (async () => {
+        await reads.mark('act:ed', 'Root', null, 'links_paused', ['ed'].map(pid), 'paused all messaging links of your reporter box-a');
+        await reads.mark('act:ed', 'Root', null, 'channel_removed', ['ed'].map(pid), 'removed the channel #ops you opened, with its 3 messages');
+        const owed = (await reads.unseenFor(pid('Ed'))).filter((r) => r.thread === 'act:ed').map((r) => ({ kind: r.kind, detail: r.detail }));
+        const listed = (await reads.list('act:ed')).map((r) => r.detail);
+        await reads.seen('act:ed', pid('ed'));
+        const after = (await reads.unseenFor(pid('Ed'))).filter((r) => r.thread === 'act:ed').length;
+        await reads.forget('act:ed');
+        return { owed, listed, after };
+      })());
       await rec('touch (the other thread again, so forgetting keeps it)', reads.touch('dm:a|b', 'Root', null, GAP));
       await rec('forget the thread', reads.forget('group:ed'));
       await rec('forget (nothing left)', reads.forget('group:ed'));
@@ -526,6 +537,14 @@ export function chatCases(o: Openers): void {
     expect(t.get('list (after the stops are purged)')).toEqual([]);
     expect(t.get('mark (disconnected and reconnected)')).toEqual(['disconnected', 'reconnected']);
     expect(t.get("mark (an Admin act on a person's things, owed to them, seen once)")).toEqual({ owed: ['reporter_removed', 'recording_stopped'], after: 0, left: 0 });
+    expect(t.get('mark (a stop with its words, owed to the person, seen once)')).toEqual({
+      owed: [
+        { kind: 'channel_removed', detail: 'removed the channel #ops you opened, with its 3 messages' },
+        { kind: 'links_paused', detail: 'paused all messaging links of your reporter box-a' },
+      ],
+      listed: ['paused all messaging links of your reporter box-a', 'removed the channel #ops you opened, with its 3 messages'],
+      after: 0,
+    });
     expect(t.get('forget the thread')).toBe(0);
     expect(t.get('forget (nothing left)')).toBe(0);
     expect(t.get('list (after forget)')).toEqual([]);

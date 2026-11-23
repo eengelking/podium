@@ -65,6 +65,23 @@ describe('admin: a reporter\'s Messaging section', () => {
     cy.contains('td', "Admin secret resumed all messaging links of Ed's reporter ed-mbp").should('exist');
   });
 
+  it('tells Ed once, on his Chat overview, that an Admin paused and resumed the messaging links of his reporters, and no one else (#1328)', () => {
+    // The two pauses and two resumes above are owed to Ed until he loads his Chat overview.
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-gone-record').should('not.exist');
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-gone-record').filter(':contains("paused the messaging links of one of your reporters")').should('have.length', 2);
+    cy.tid('chat-gone-record').filter(':contains("resumed the messaging links of one of your reporters")').should('have.length', 2);
+    cy.tid('chat-gone-record').first().invoke('text').should('match', /^Admin.* \(an Admin\) (paused|resumed) the messaging links of one of your reporters on [A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2}.*\.$/);
+    cy.reload();
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-gone-record').should('not.exist');
+  });
+
   it('shows a second warnbar and locks the choices while the owner has "Trust my own reporters" on', () => {
     cy.signIn('Ed');
     cy.request({ method: 'PUT', url: '/api/fleet/respond/peers/defaults', headers: { 'X-Podium-Respond': '1' }, body: { trust: true } }).its('status').should('eq', 200);

@@ -29,7 +29,12 @@ export type AdminReadKind =
   | "access_revoked"
   | "person_deleted"
   | "reporter_removed"
-  | "respond_refused";
+  | "respond_refused"
+  | "links_paused"
+  | "links_resumed"
+  | "link_removed"
+  | "channel_edited"
+  | "channel_removed";
 export interface AdminRead {
   admin: string;
   startedAt: number;
@@ -1303,6 +1308,11 @@ const GONE_WHAT: Record<AdminReadKind, string> = {
   person_deleted: "deleted your Podium account",
   reporter_removed: "removed one of your reporters from the Reporters list",
   respond_refused: "tried to respond to one of your sessions and was refused",
+  links_paused: "paused the messaging links of one of your reporters",
+  links_resumed: "resumed the messaging links of one of your reporters",
+  link_removed: "removed a messaging link of one of your reporters",
+  channel_edited: "edited the description of a channel you opened",
+  channel_removed: "removed a channel you opened",
 };
 
 /** An Admin's stop or delete of the person's own things (#1078): it has no conversation, so the line names no other party. */

@@ -790,6 +790,11 @@ ALTER TABLE peer_owner_settings ALTER COLUMN owner_id SET NOT NULL;
 ALTER TABLE peer_owner_settings ADD PRIMARY KEY (owner_id);
 `,
   },
+  {
+    version: 37,
+    // An Admin's stop on a person's links or public channel keeps its words with its record (#1328). See SQLite migration 62.
+    sql: typed(`ALTER TABLE chat_admin_reads ADD COLUMN IF NOT EXISTS detail TXT NOT NULL DEFAULT '';`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [

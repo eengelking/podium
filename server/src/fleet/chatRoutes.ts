@@ -77,7 +77,9 @@ function wireChatLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logge
       case 'channel_edited':
       case 'channel_removed': {
         const words = e.kind === 'channel_opened' ? 'opened' : e.kind === 'channel_edited' ? 'changed the description of' : `removed${e.messages ? ` (with ${e.messages} messages)` : ''}`;
-        row(e.kind, e.kind === 'channel_removed' ? `Public channel ${e.channel} ${words}` : `${words.replace(/^./, (c) => c.toUpperCase())} public channel ${e.channel}`, actorName(e.by), { channel: e.channel, by: e.by });
+        // An Admin's edit or removal of a channel somebody else opened names the opener and how many of their sessions show it now (#1328), as the link stops do.
+        const told = e.opener === undefined ? '' : e.unrecorded ? ` (opened by ${e.opener}, NOT recorded for them)` : ` (opened by ${e.opener}, ${e.told ?? 0} session${e.told === 1 ? '' : 's'} told)`;
+        row(e.kind, `${e.kind === 'channel_removed' ? `Public channel ${e.channel} ${words}` : `${words.replace(/^./, (c) => c.toUpperCase())} public channel ${e.channel}`}${told}`, actorName(e.by), { channel: e.channel, by: e.by, ...(e.opener === undefined ? {} : { opener: e.opener, told: e.told ?? 0 }) });
         break;
       }
       case 'conversation_opened':

@@ -110,7 +110,7 @@ describe('migrations 57 and 58: what an Admin record is owed to', () => {
         { person_id: 1, thread: 'group:1', admin_key: '#9', started_at: 200 },
       ]);
       expect(db.prepare("SELECT value FROM settings WHERE key = 'chat_admin_owed_filled'").get()).toEqual({ value: '1' });
-      expect(columns(db, 'chat_admin_reads')).toEqual(['thread', 'admin_key', 'admin', 'started_at', 'last_seen_at', 'kind', 'people']);
+      expect(columns(db, 'chat_admin_reads')).toEqual(['thread', 'admin_key', 'admin', 'started_at', 'last_seen_at', 'kind', 'people', 'detail']);
       expect(db.prepare('SELECT thread, admin, started_at, last_seen_at, kind, people FROM chat_admin_reads ORDER BY started_at').all()).toEqual([
         { thread: 'dm:a|b', admin: 'Root', started_at: 100, last_seen_at: 110, kind: 'read', people: '[1,2]' },
         { thread: 'group:1', admin: 'Root', started_at: 200, last_seen_at: 210, kind: 'cleared', people: '[1]' },

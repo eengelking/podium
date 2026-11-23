@@ -546,15 +546,19 @@ export interface ChatSettingsApi {
  * What an Admin record says: `read` (an Admin read the thread), or one of the Admin's stops that stay on the record for good (#1034): `cleared` (removed all
  * messages), `paused` and `resumed` (a link or a group). Only `read` has a session and a live window; the others are one moment (`lastSeenAt` equals `startedAt`).
  */
-export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName;
+export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName | AdminStopKindName;
 /** An Admin's stop or delete of something of a person's, kept on the person's `act:` thread (#1078). */
 type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed' | 'respond_refused';
+/** An Admin's stop on a person's messaging links or on a public channel they opened (#1328): kept with its words in `detail`, owed to the person until they have seen it, and shown in their reporter sessions from the record. */
+export type AdminStopKindName = 'links_paused' | 'links_resumed' | 'link_removed' | 'channel_edited' | 'channel_removed';
 
 export interface AdminReadRow {
   admin: string;
   startedAt: number;
   lastSeenAt: number;
   kind: AdminReadKind;
+  /** The words after the Admin's name for a stop that carries them (#1328): a reporter's or a channel's name, never any message text. Absent when there are none. */
+  detail?: string;
 }
 
 /**
@@ -576,7 +580,7 @@ export interface ChatAdminReadsApi {
    * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people` (their ids). Two
    * records of one Admin in the same millisecond are kept apart by moving the later one on by a millisecond.
    */
-  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people?: number[]): Promise<AdminReadRow>;
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people?: number[], detail?: string): Promise<AdminReadRow>;
   /** The thread's records of every kind, oldest first. */
   list(thread: string): Promise<AdminReadRow[]>;
   /** The reading records (never a stop) of these threads last read after `since`, by thread, then oldest first. */

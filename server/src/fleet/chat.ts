@@ -2,7 +2,7 @@
 // overview the Chat page opens with, and runs the two housekeeping jobs (a conversation hiding and returning as its agents leave and come back, and the
 // retention purge). The two sides stay apart on purpose: see `chatChannels.ts` and `chatDirect.ts`.
 import { nameKey } from '../storage/rows.js';
-import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
+import type { AdminReadRow, AdminStopKindName, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { ACT_PREFIX } from './adminActs.js';
 import { asyncHandler } from './asyncHandler.js';
 import { AdminReads, listSubject, listThread } from './chatAdminReads.js';
@@ -154,9 +154,9 @@ export class ChatService {
     return this.adminReads.noticesFor(sessionId);
   }
 
-  /** An Admin paused, resumed or removed links of a person's reporters: the person's live sessions are told (#1077). Returns how many sessions were. */
-  toldLinkStop(admin: string, ownerId: number, what: string): number {
-    return this.adminReads.toldLinkStop(admin, ownerId, what);
+  /** An Admin paused, resumed or removed links of a person's reporters (#1077): kept owed to the person and shown in their reporter sessions (#1328). Returns how many live sessions show it now. */
+  stopOwed(admin: { name: string; id: number | null }, ownerId: number, kind: AdminStopKindName, what: string): Promise<number> {
+    return this.adminReads.stopOwed(admin, ownerId, kind, what);
   }
 
   /** An Admin reads a conversation between agents outside Chat: recorded before the text is answered, and its people are told (#1072). False when there is none. */

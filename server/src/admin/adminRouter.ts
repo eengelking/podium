@@ -8,7 +8,7 @@ import { jsonBody } from '../jsonBody.js';
 import type { AdminActs } from '../fleet/adminActs.js';
 import { ADMIN_SECRET_ACTOR, PeopleError, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
 import { sourceOf } from '../fleet/routeGate.js';
-import type { ActivityHistoryApi, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
+import type { ActivityHistoryApi, AdminStopKindName, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
@@ -58,8 +58,8 @@ export interface AdminRouterOptions {
   peers?: PeerStoreApi;
   /** The Chat limits (#1034): kept in the settings table. Without it the Chat settings are not offered. */
   chat?: ChatSettingsApi;
-  /** Tells a person's live reporter sessions that an Admin paused, resumed or removed their links (#1077). Returns how many sessions were told. */
-  toldLinkStop?: (admin: string, ownerId: number, what: string) => number;
+  /** Keeps an Admin's pause, resume or removal of a person's links owed to them and shown in their reporter sessions until they have seen it (#1077, #1328). Returns how many live sessions show it now. */
+  stopOwed?: (admin: { name: string; id: number | null }, ownerId: number, kind: AdminStopKindName, what: string) => Promise<number>;
   /** Records an Admin's read of a conversation between agents and tells its people, before the text is answered (#1072). False when there is no such conversation. Without it the text is not served. */
   noteConversationRead?: (viewer: { name: string; actor: string; admin: boolean; personId: number | null }, a: string, b: string) => Promise<boolean>;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
@@ -682,17 +682,17 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const peerFail = (res: Response, out: Refusal) => res.status(out.status).json({ ok: false, error: out.error });
   const withPeerSource = <T>(req: Request, fn: () => T): T => (peers ? peers.withSource(sourceOf(req), fn) : fn());
 
-  // An Admin's stop on a person's links is told to the person in their reporter session (`opts.toldLinkStop`) and written to the Admin log, with who and whose and
+  // An Admin's stop on a person's links is told to the person in their reporter session (`opts.stopOwed`) and written to the Admin log, with who and whose and
   // never any text (#1077). `what` gives the words after the Admin's name, for the person ("your reporter") or the log ("Ed's reporter"). The stop is already
   // done, so a failure to tell is logged, not raised, and the Admin log line still records how many sessions were told.
-  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; ownerId: number | null; machine: string }, what: (whose: string) => string, kind: string): Promise<void> => {
+  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; ownerId: number | null; machine: string }, what: (whose: string) => string, kind: AdminStopKindName, auditKind: string): Promise<void> => {
     let told = 0;
     try {
-      told = ref.ownerId !== null && opts.toldLinkStop ? opts.toldLinkStop(actor.name, ref.ownerId, what('your')) : 0;
+      told = ref.ownerId !== null && opts.stopOwed ? await opts.stopOwed({ name: actor.name, id: (await adminRef(req)).id }, ref.ownerId, kind, what('your')) : 0;
     } catch (err) {
       opts.logger?.warn('admin.link_stop_not_told', `podium: an Admin's link stop could not be told to the person: ${(err as Error).message}`, { reporter: ref.machine });
     }
-    await audit(req, kind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
+    await audit(req, auditKind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
   };
 
   router.get('/reporters/:key/peers', asyncHandler(async (req, res) => {
@@ -722,7 +722,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const out = await withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
     if (!out.ok) return void peerFail(res, out);
     // The person is told once for the whole bulk change, in the session and in the Admin log, by the Admin's name (#1077).
-    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'peer_links_paused' : 'peer_links_resumed');
+    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'links_paused' : 'links_resumed', paused ? 'peer_links_paused' : 'peer_links_resumed');
     res.json(out);
   }));
 
@@ -732,7 +732,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const [a, b] = [(await peers.adminView(req.params.key))?.reporter, (await peers.adminView(req.params.other))?.reporter];
     const out = await withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
     if (!out.ok) return void peerFail(res, out);
-    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'peer_link_removed');
+    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'link_removed', 'peer_link_removed');
     res.json(out);
   }));
 

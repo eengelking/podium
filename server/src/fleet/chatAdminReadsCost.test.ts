@@ -14,7 +14,7 @@ const REPORT_EVERY_MS = 5_000;
 /** An AdminReads over a fake core whose store counts its reads. `conversations` of the `dm:` threads that exist; the rest are deleted conversations. */
 function setup(conversations: number) {
   const clock = { now: T0 };
-  const counts = { recent: 0, resolve: 0 };
+  const counts = { recent: 0, resolve: 0, unseen: 0 };
   const rows: (AdminReadRow & { thread: string })[] = [];
   const store = {
     recent: async (since: number) => {
@@ -26,8 +26,10 @@ function setup(conversations: number) {
       rows.push({ thread, ...record } as AdminReadRow & { thread: string });
       return { started: true, record, previousSeenAt: null };
     },
+    unseenFor: async () => { counts.unseen++; return []; },
     mark: async () => undefined,
     forget: async () => 0,
+    seen: async () => 0,
     purge: async () => 0,
     threads: async () => [],
   } as unknown as ChatAdminReadsApi;
@@ -152,5 +154,17 @@ describe('what a report costs the store while Admins read (#1062)', () => {
     clock.now += NO_SUBJECT_MS + 1;
     await reads.noticesFor('s2');
     expect(counts.resolve).toBeGreaterThan(once);
+  });
+});
+
+describe('what a report costs the store for an Admin\'s stop owed to the person (#1328)', () => {
+  it('reads each person\'s owed stops once, however many reports there are, and again after a write or a look', async () => {
+    const { reads, clock, counts } = setup(READINGS);
+    await minute(reads, clock);
+    // 600 reports of 50 people: one read each, not one per report.
+    expect(counts.unseen).toBe(SESSIONS);
+    await reads.seen('act:1', 1);
+    await reads.noticesFor('s1');
+    expect(counts.unseen).toBe(SESSIONS + 1);
   });
 });

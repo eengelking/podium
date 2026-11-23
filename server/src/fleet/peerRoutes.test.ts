@@ -36,7 +36,7 @@ async function setup(opts: { secret?: string | null; flag?: boolean; toldThrows?
   const logger = createLogger({ format: 'json', level: 'debug', write: (l) => lines.push(l) });
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters, lockout, respondBridge, logger }));
-  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, toldLinkStop: (a, o, w) => { if (opts.toldThrows) throw new Error('no session store'); return fleet.chat.toldLinkStop(a, o, w); }, ...(opts.noRecorder ? {} : { noteConversationRead: (v: Parameters<typeof fleet.chat.noteConversationRead>[0], a: string, b: string) => { if (opts.recordThrows) return Promise.reject(new Error('no record store')); return fleet.chat.noteConversationRead(v, a, b); } }), lockout, respondBridge, now, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, stopOwed: async (a, o, k, w) => { if (opts.toldThrows) throw new Error('no session store'); return fleet.chat.stopOwed(a, o, k, w); }, ...(opts.noRecorder ? {} : { noteConversationRead: (v: Parameters<typeof fleet.chat.noteConversationRead>[0], a: string, b: string) => { if (opts.recordThrows) return Promise.reject(new Error('no record store')); return fleet.chat.noteConversationRead(v, a, b); } }), lockout, respondBridge, now, log: () => {} }));
   await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) await fleet.features.setFeature(PEER_MESSAGING, true);
@@ -673,6 +673,23 @@ describe('the Admin’s side (#412)', () => {
     // The log line names the owner, not "your", and never holds text.
     const rows = (await s.people.listLog({ page: 1, pageSize: 100 })).rows;
     expect(rows.find((r) => r.kind === 'peer_links_paused')?.detail).toBe(`${SECRET_ACTOR} paused all messaging links of Ed's reporter ${MAC.name}`);
+  });
+
+  it('keeps an Admin\'s stop owed to the person until they have seen it: a session that reports later is told, with one id, and a look at the console ends it (#1328)', async () => {
+    const s = await linked('send');
+    const admin = await adminAgent(s);
+    expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: true })).status).toBe(200);
+    // A session of Ed's that had not reported when the Admin stopped (so it was never live then) is told when it first reports, and says the same thing on its next report with the same id.
+    const late = () => report('Ed', 'sess-late', 'late', MAC);
+    const first = (await post(s, s.ed.token, late())).body as { adminNotices?: { id: string; text: string }[] };
+    const again = (await post(s, s.ed.token, late())).body as { adminNotices?: { id: string; text: string }[] };
+    expect(first.adminNotices?.map((n) => n.text)).toEqual([`${SECRET_ACTOR} (an Admin) paused all messaging links of your reporter ${MAC.name}.`]);
+    expect(again.adminNotices?.map((n) => n.id)).toEqual(first.adminNotices?.map((n) => n.id));
+    // The record is Ed's: Alex is told nothing, and the Admin log says how many of Ed's sessions were live.
+    expect(((await post(s, s.alex.token, report('Alex', 'sess-alex', 'review', ALEX_BOX))).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+    // Ed's console shows the line once, and then the reporters stop repeating it.
+    expect(((await s.edBrowser.get('/api/fleet/respond/chat').set(H)).body as { goneReads: { kind: string }[] }).goneReads).toMatchObject([{ kind: 'links_paused' }]);
+    expect(((await post(s, s.ed.token, late())).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
   });
 
   it('keeps the stop and still writes the Admin log line when the person cannot be told (#1077)', async () => {

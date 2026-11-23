@@ -282,6 +282,22 @@ describe('describing and removing a public channel', () => {
     expect((await read(w.edB, 'half-gone')).status).toBe(404);
   });
 
+  it('keeps an Admin\'s removal of a channel owed to its opener, names the opener and the sessions told in the Admin log, and ends once the opener has seen it (#1328)', async () => {
+    const w = await world();
+    await open(w.edB, { name: 'owed' });
+    expect((await remove(w.rootB, 'owed')).status).toBe(200);
+    await settle();
+    const row = (await w.people.listLog({ page: 1, pageSize: 100 })).rows.find((r) => r.kind === 'channel_removed');
+    expect(row?.detail).toMatch(/\(opened by Ed, \d+ sessions? told\)$/);
+    // Ed's sessions say it on every report, with the same id, until his console has shown it.
+    const ids = async () => (((await dev(w, { status: 'running', waitReason: null })).body.adminNotices ?? []) as { id: string }[]).map((n) => n.id);
+    const first = await ids();
+    expect(first).toHaveLength(1);
+    expect(await ids()).toEqual(first);
+    expect(((await w.edB.get('/api/fleet/respond/chat').set(H)).body as { goneReads: { kind: string }[] }).goneReads).toMatchObject([{ kind: 'channel_removed' }]);
+    expect(await ids()).toEqual([]);
+  });
+
   it('tells the opener, in every live session of theirs and no one else\'s, when an Admin edits or removes their channel', async () => {
     const w = await world();
     await open(w.edB, { name: 'mine' });
@@ -292,8 +308,10 @@ describe('describing and removing a public channel', () => {
     expect(await noticesOf(w, 'dev')).toEqual(['Root (an Admin) edited the description of the channel mine you opened.']);
     expect(await noticesOf(w, 'tester')).toEqual(['Root (an Admin) edited the description of the channel mine you opened.']);
     expect(await noticesOf(w, 'alex')).toEqual([]);
+    w.tick(1);
     await describe_(w.secretB, 'mine', { description: 'the secret edits it' });
     expect((await noticesOf(w, 'dev')).at(-1)).toBe('Admin secret (an Admin) edited the description of the channel mine you opened.');
+    w.tick(1);
     expect((await remove(w.rootB, 'mine')).status).toBe(200);
     expect((await noticesOf(w, 'dev')).at(-1)).toBe('Root (an Admin) removed the channel mine you opened.');
     expect((await noticesOf(w, 'tester')).at(-1)).toBe('Root (an Admin) removed the channel mine you opened.');
@@ -303,8 +321,10 @@ describe('describing and removing a public channel', () => {
     await remove(w.rootB, 'roots');
     await open(w.secretB, { name: 'secrets' });
     await remove(w.rootB, 'secrets');
+    // Nothing else is owed, and what Ed was owed stays until he has seen it, however long ago (#1328): the three stops above, said once each.
     w.tick(6 * 60_000);
-    for (const who of ['dev', 'tester', 'alex'] as const) expect(await noticesOf(w, who), who).toEqual([]);
+    expect(await noticesOf(w, 'alex')).toEqual([]);
+    for (const who of ['dev', 'tester'] as const) expect(await noticesOf(w, who), who).toHaveLength(3);
   });
 
   it('tells every session of everyone when an Admin pauses or empties a public channel for all, as for General, and the opener of the removal count', async () => {
@@ -320,6 +340,7 @@ describe('describing and removing a public channel', () => {
     const cleared = await w.rootB.delete(`${CH}/channels/busy/messages`).set(H).send({});
     expect(cleared.body).toEqual({ ok: true, removed: 2 });
     expect((await noticesOf(w, 'dev')).at(-1)).toBe('Root (an Admin) removed all messages in busy.');
+    w.tick(1);
     expect((await remove(w.rootB, 'busy')).status).toBe(200);
     expect((await noticesOf(w, 'dev')).at(-1)).toBe('Root (an Admin) removed the channel busy you opened.');
   });

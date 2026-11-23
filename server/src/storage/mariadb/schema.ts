@@ -814,6 +814,11 @@ DELETE FROM peer_owner_settings WHERE owner_id IS NULL OR owner_id IN (SELECT ow
 ALTER TABLE peer_owner_settings MODIFY owner_id INT NOT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (owner_id), DROP INDEX IF EXISTS peer_owner_settings_owner_id, DROP COLUMN IF EXISTS owner_lower;
 `),
   },
+  {
+    version: 37,
+    // An Admin's stop on a person's links or public channel keeps its words with its record (#1328). See SQLite migration 62.
+    statements: steps(`ALTER TABLE chat_admin_reads ADD COLUMN IF NOT EXISTS detail TXT NOT NULL DEFAULT '';`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
