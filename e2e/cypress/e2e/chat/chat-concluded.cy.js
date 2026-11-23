@@ -25,6 +25,10 @@ describe('chat: a Direct Message concluded because an agent finished', () => {
     cy.tid('chat-concluded').should('contain.text', 'Tester ended. This direct message has been concluded and deleted. Nothing in it is kept.');
     cy.tid('chat-box').should('be.disabled');
     cy.contains('This direct message has ended.').should('exist');
+    // #1340: nothing of the deleted thread is read or shown, so no "no such conversation" error box and no stale message; the banner is one line, not stretched tall.
+    cy.get('.errbox').should('not.exist');
+    cy.tid('chat-message').should('not.exist');
+    cy.tid('chat-concluded').should(($b) => expect($b.outerHeight(), 'the banner is a line or two, not stretched').to.be.lessThan(120));
     // The conversation and its text are deleted: the row has left the sidebar, and a reload shows no trace of it.
     cy.chatRow(DM).should('not.exist');
     cy.contains('button', 'Back to conversations').click();
@@ -67,6 +71,33 @@ describe('chat: a Direct Message concluded because an agent finished', () => {
     // Dismissing only removes the row: the kind is still on for the next one.
     cy.openAdmin('Settings');
     cy.settingSwitch('notice-concluded-direct-messages').should('have.attr', 'aria-checked', 'true');
+  });
+});
+
+// #1340: a session that ended with /clear goes on under a new session, so what is told says it was cleared and not that it ended.
+describe('chat: a Direct Message concluded because an agent was cleared with /clear', () => {
+  before(() => cy.resetServer({ seedArgs: '--talk', env: ['LINGER_MS=2000'] }));
+
+  it('says the agent was cleared and is still running, shows no error box, and puts the same wording on the wall', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(DM).find('button.ch-row').click();
+    cy.tid('chat-message').should('have.length', 4);
+    cy.reportAgain('tester', { status: 'done', endReason: 'clear' });
+    cy.tid('chat-concluded').should('contain.text', 'Tester was cleared.')
+      .and('contain.text', 'It is still running under a new session.')
+      .and('contain.text', 'This direct message has been concluded and deleted. Nothing in it is kept.')
+      .and('not.contain.text', 'Tester ended.');
+    cy.tid('chat-box').should('be.disabled');
+    cy.contains('This direct message has ended.').should('exist');
+    cy.get('.errbox').should('not.exist');
+    cy.tid('chat-message').should('not.exist');
+    cy.chatRow(DM).should('not.exist');
+    cy.openConsole('#/');
+    cy.get('.notices .fold').should('have.length', 1).and('contain.text', 'Tester was cleared.')
+      .and('contain.text', 'It is still running under a new session.')
+      .and('contain.text', 'Its direct message with invoice-v2 was concluded and deleted.')
+      .and('not.contain.text', 'Tester ended.');
   });
 });
 
