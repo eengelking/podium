@@ -4,15 +4,15 @@
 import { undeliveredWords } from "../chatData";
 import { ChInfo } from "./ChatIcons";
 
-export function ConcludedBanner({ agent, undelivered, onBack }: { agent: string; undelivered?: number; onBack: () => void }) {
+export function ConcludedBanner({ agent, cleared, undelivered, onBack }: { agent: string; cleared?: boolean; undelivered?: number; onBack: () => void }) {
   return (
     <div className="ch-nav ro" role="status" data-testid="chat-concluded">
       <ChInfo />
       <span>
         <b>
-          <bdi>{agent}</bdi> ended.
+          <bdi>{agent}</bdi> {cleared ? "was cleared." : "ended."}
         </b>{" "}
-        This direct message has been concluded and deleted. Nothing in it is kept.{undeliveredWords(undelivered)}
+        {cleared ? "It is still running under a new session. " : ""}This direct message has been concluded and deleted. Nothing in it is kept.{undeliveredWords(undelivered)}
       </span>
       <button type="button" className="btn sm" onClick={onBack}>
         Back to conversations

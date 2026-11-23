@@ -140,7 +140,8 @@ function ChatBody(props: ChatPageProps) {
   const rowKey = cv ? key : direct ? `d:${dmKey(direct)}` : key;
   // An Admin with no person of their own, who has not chosen anything, has no thread open: the area says what to do (#1238).
   const idle = !!o && o.me.admin && !o.me.person && readAs === null && picked === null;
-  const thread = useThread(api, o && !stale && !idle && !cv ? sel : null, rev, ro ? readAs : null, landing);
+  // A concluded Direct Message is deleted: nothing is read for it, and what was shown of it goes (#1340).
+  const thread = useThread(api, o && !stale && !idle && !cv && !endedHere ? sel : null, rev, ro ? readAs : null, landing);
   const addrs = useAddresses(api, sel.kind === "channel" && !idle ? sel.id : null);
 
   const refresh = useCallback(async () => {
@@ -669,7 +670,7 @@ function ChatBody(props: ChatPageProps) {
       )}
       {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
       {!ro && <GoneRecordLines reads={gone} />}
-      {!ro && endedHere && <ConcludedBanner agent={endedHere.agent} undelivered={endedHere.undelivered} onBack={() => { setPicked(null); setPane("side"); }} />}
+      {!ro && endedHere && <ConcludedBanner agent={endedHere.agent} cleared={endedHere.cleared === true} undelivered={endedHere.undelivered} onBack={() => { setPicked(null); setPane("side"); }} />}
       <div className={`ch-split${members ? " mem-open" : ""}`} data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}
@@ -750,6 +751,7 @@ function ChatBody(props: ChatPageProps) {
               setMembers(false);
               setPane("side");
             }}
+            concluded={endedHere !== null}
             readAs={ro ? readAs : null}
             serverNow={serverNow}
             change={{ editing, deleting: deleting?.id ?? null, focus: focusMsg, onEdit: startEdit, onSave: (id, text) => void saveEdit(id, text), onCancel: cancelEdit, onDelete: askDelete }}

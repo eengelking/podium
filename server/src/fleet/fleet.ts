@@ -1025,7 +1025,7 @@ export class Fleet {
     this.respond.dropSession(row.id);
     await this.peers.ended(row.id);
     // A finished session ends for good (and a /clear is the old one finishing); a lost heartbeat may be undone by a report, so it only hides (#1283).
-    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner, row.owner_id, reason === 'done'));
+    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner, row.owner_id, reason === 'done', reason === 'done' && row.end_reason === 'clear'));
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);

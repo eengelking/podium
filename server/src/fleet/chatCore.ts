@@ -103,9 +103,14 @@ export function changeState(mine: boolean, locked: boolean, lockedWords: () => s
 }
 
 /** What an agent still in a conversation is told when another agent ended (#1283): it was concluded, or (`stays`, two or more people) it goes on without it. */
-export function endedNotice(gone: string, stays = false): string {
-  const rest = stays ? 'It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.' : `This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone}.`;
-  return `${ENDED_NOTICE_MARK} ${gone} ended. ${rest}`;
+export function endedNotice(gone: string, stays = false, cleared = false): string {
+  // After a /clear the agent goes on under a new session (#1340): the conversation is concluded, and a new one with it is fine.
+  const rest = stays
+    ? 'It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.'
+    : cleared
+      ? `This direct message has been concluded. Do not try to continue it. You can open a new direct message to ${gone}.`
+      : `This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone}.`;
+  return `${ENDED_NOTICE_MARK} ${gone} ${cleared ? 'was cleared with /clear and is still running under a new session' : 'ended'}. ${rest}`;
 }
 
 /** The longest issue, project or milestone a post may carry, in characters. */

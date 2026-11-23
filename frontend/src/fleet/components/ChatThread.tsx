@@ -617,6 +617,8 @@ export interface ThreadProps {
   onClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
   onBack: () => void;
+  /** The Direct Message was concluded and deleted (#1283, #1340): nothing of it is read or shown, so the feed is empty and not "Loading…". */
+  concluded?: boolean;
   /** Whether the members panel is open, and the way to open or close it (#1236). */
   members: boolean;
   onMembers: (open: boolean) => void;
@@ -1168,14 +1170,15 @@ export function ChatThread(p: ThreadProps) {
           near.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        {t.error && !unreadable && (
+        {/* A 404 on a Direct Message is a conversation that is gone, which the message box says; it is not a read to try again (#1340, as ChatConversation does). Any other thread keeps the box. */}
+        {t.error && !unreadable && !(t.error.status === 404 && p.sel.kind === "dm") && (
           <div className="errbox" role="alert">
             Could not load the messages: {t.error.text}.{" "}
             {t.messages.length ? "The ones below may be out of date. " : ""}It
             reads again when something changes.
           </div>
         )}
-        {!t.loaded ? (
+        {p.concluded ? null : !t.loaded ? (
           <div className="hint">Loading…</div>
         ) : (
           <div className="ch-flow">

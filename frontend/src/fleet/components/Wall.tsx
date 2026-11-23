@@ -221,8 +221,8 @@ export function Wall(props: {
         name: "Concluded direct messages",
         body: (
           <>
-            <b>{c.agent} ended.</b>
-            <span>Its direct message with {c.with.join(", ")} was concluded and deleted. A conversation with two or more people stays.{undeliveredWords(c.undelivered)}</span>
+            <b>{c.agent} {c.cleared ? "was cleared." : "ended."}</b>
+            <span>{c.cleared ? "It is still running under a new session. " : ""}Its direct message with {c.with.join(", ")} was concluded and deleted. A conversation with two or more people stays.{undeliveredWords(c.undelivered)}</span>
           </>
         ),
       });

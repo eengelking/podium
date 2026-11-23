@@ -463,6 +463,8 @@ export interface Concluded {
   agent: string;
   with: string[];
   at: number;
+  /** The agent was cleared with `/clear` and goes on under a new session, so it did not end (#1340). Absent otherwise. */
+  cleared?: true;
   /** How many messages the person wrote that the agent never took, one still waiting for its owner's approval among them (#1283). Absent when none. */
   undelivered?: number;
 }

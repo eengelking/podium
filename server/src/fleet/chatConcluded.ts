@@ -8,6 +8,8 @@ export interface ConcludedView {
   thread: string;
   agent: string;
   with: string[];
+  /** The agent was cleared with `/clear` and goes on under a new session, so it did not end (#1340). Absent otherwise. */
+  cleared?: true;
   at: number;
   /** How many messages a person wrote that the agent never took, including one still waiting for its owner's approval, which is discarded (#1283). Absent when none. */
   undelivered?: number;
