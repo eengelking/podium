@@ -3,10 +3,10 @@
 // caller puts the focus back) and offer only what the viewer may do, as the overview's `can` flags say.
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
-import { ChAt, ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
+import { ChAt, ChMsg, ChNo, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
-export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "mention" | "open" | "edit" | "remove-channel" | "edit-message" | "delete-message";
+export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "mention" | "open" | "edit" | "remove-channel" | "edit-message" | "delete-message" | "leave";
 
 interface MenuItem {
   act: MenuAct;
@@ -127,6 +127,11 @@ export function personMenu(name: string, opts: SenderOpts = {}): MenuSpec {
   const items: MenuItem[] = [{ act: "message", label: `Message ${name}`, icon: <ChMsg /> }];
   if (opts.mention) items.push({ act: "mention", label: `Mention ${name}`, icon: <ChAt /> });
   return { label, items };
+}
+
+/** A conversation of people and agents (#1345): the one thing its row offers is to leave it, as its header does. */
+export function conversationMenu(name: string): MenuSpec {
+  return { label: `Actions for ${name}`, items: [{ act: "leave", label: "Leave conversation", icon: <ChNo />, danger: true }] };
 }
 
 /** A pencil, for Edit message: the sprite's `i-edit`. */

@@ -8,8 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type FocusEvent,
-  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -56,7 +54,7 @@ import {
 } from "./ChatIcons";
 import { linkWords } from "./ChatForms";
 import { ChatMenu, agentMenu, messageMenu, personMenu, type MenuAct, type MenuAt, type MenuSpec } from "./ChatMenu";
-import { useRovingList } from "../useRovingList";
+import { useOwnMessageNav } from "./useOwnMessageNav";
 import { agentState } from "./ChatSidebar";
 import { ChatAvatar, ChatAvatarPair } from "./ChatAvatar";
 import { ChatMembersPanel, ChatMembersStack, membersOf } from "./ChatMembers";
@@ -64,7 +62,7 @@ import { ModelChip, StateIcon, type StateKind } from "./Chips";
 import { Modal } from "./Modal";
 import { familyName } from "../logic";
 import { hm } from "../trafficData";
-import { Monogram } from "./People";
+import { ChatIntro } from "./ChatIntro";
 import { channelTag, dmTag } from "../chatData";
 
 /** The messages and the Admin's records in time order: a record comes after every message sent before it. Earlier pages not loaded hide the records older than the oldest message shown. */
@@ -648,104 +646,12 @@ export function ChatThread(p: ThreadProps) {
   const grew = useRef<number | null>(null);
   const newest = t.messages[t.messages.length - 1]?.id ?? null;
   const oldest = t.messages[0]?.id ?? null;
-  // The message list is one tab stop however long it is (#1231); Enter, the ContextMenu key or Shift+F10 on a message opens its sender's menu (#1235), or on
-  // one of your own the menu of Edit message and Delete message (#1269).
+  // The keyboard and the menus of the message list are one copy for every thread of Chat (#1345).
   const section = useRef<HTMLElement>(null);
-  const [said, setSaid] = useState("");
-  // How the focus got to a message of yours. From the box's Up, a right-click or a menu, Up and Down visit your own messages only (#1269), the
-  // way Teams and Slack do; reached with Tab or a click, they keep the list's own arrows and visit every message (#1231). Tab, a click or
-  // a focus that comes from elsewhere ends it, so there is no way the list keeps a person in it or skips a message they came to read.
-  const ownNav = useRef(false);
-  const programmatic = useRef(false);
   const live = useRef(p);
   useLayoutEffect(() => {
     live.current = p;
   });
-  const acts = useMemo<MessageActs>(
-    () => ({
-      onSave: (id, text) => live.current.change.onSave(id, text),
-      onCancel: (id) => live.current.change.onCancel(id),
-      onContext: (m, e) => {
-        e.preventDefault();
-        ownNav.current = true;
-        live.current.onMenu(`m:${m.id}`, "context", { x: e.clientX, y: e.clientY, from: e.currentTarget });
-      },
-      onSender: (m, at) => {
-        const s = senderOf(m, live.current.overview.me);
-        if (s) live.current.onMenu(`t:${s.key}`, "context", at);
-      },
-    }),
-    [],
-  );
-  const byId = useMemo(() => new Map(t.messages.map((x) => [x.id, x])), [t.messages]);
-  const names = o.people.map((x) => x.name);
-  const namesKey = JSON.stringify(names);
-  // The same array until a name changes, so a row is not drawn again for a new overview.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is read as its own text
-  const people = useMemo(() => names, [namesKey]);
-  const openOwnMenu = (i: number) => {
-    const m = t.messages[i];
-    if (!m) return;
-    const item = body.current?.querySelector<HTMLElement>(`[data-roving="${i}"]`);
-    const r = (item?.querySelector(".ch-tx") ?? item)?.getBoundingClientRect();
-    if (r) p.onMenu(`m:${m.id}`, "button", { x: r.left + 16, y: r.bottom + 4, top: r.top, from: item ?? null });
-  };
-  const roving = useRovingList(
-    t.messages.length,
-    (i) => {
-      const m = t.messages[i];
-      if (m && mineOf(m, o.me)) return; // yours opens its own menu, from the keys below
-      const sender = m && senderOf(m, o.me);
-      if (!sender) return;
-      const item = body.current?.querySelector<HTMLElement>(`[data-roving="${i}"]`);
-      const r = (item?.querySelector(".ch-gut") ?? item)?.getBoundingClientRect();
-      if (r) p.onMenu(`t:${sender.key}`, "button", { x: r.left, y: r.bottom, top: r.top, from: item ?? null });
-    },
-    {
-      onKey: (e, i, onItem) => {
-        const m = t.messages[i];
-        if (!onItem || !m || !mineOf(m, o.me) || p.readAs !== null || e.altKey || e.metaKey || e.ctrlKey) return false;
-        const k = e.key;
-        const mine = t.messages.flatMap((x, n) => (mineOf(x, o.me) ? [n] : []));
-        const here = mine.indexOf(i);
-        if (ownNav.current && k === "Escape") {
-          e.preventDefault();
-          toBox();
-          return true;
-        }
-        if (ownNav.current && (k === "ArrowUp" || k === "ArrowDown") && !e.shiftKey) {
-          e.preventDefault();
-          const next = mine[here + (k === "ArrowUp" ? -1 : 1)];
-          if (next !== undefined) toMessageAt(next);
-          else if (k === "ArrowDown") toBox();
-          return true;
-        }
-        if (e.repeat) return false;
-        const why = whyNot(m);
-        if (k === "e" || k === "E") {
-          e.preventDefault();
-          if (why) setSaid(why);
-          else p.change.onEdit(m.id);
-          return true;
-        }
-        if (k === "Delete" || k === "Backspace") {
-          e.preventDefault();
-          if (why) setSaid(why);
-          else p.change.onDelete(m.id);
-          return true;
-        }
-        if ((k === "Enter" || k === "ContextMenu" || (k === "F10" && e.shiftKey)) && hasMenu(m, o.me)) {
-          e.preventDefault();
-          openOwnMenu(i);
-          return true;
-        }
-        return false;
-      },
-    },
-  );
-  const lastNewest = useRef<string | null>(null);
-  const lastOldest = useRef<string | null>(null);
-  const lastToken = useRef<string | null>(null);
   // What a screen reader hears when a message of yours takes the focus: it, its state and the keys that work on it, or why none does.
   const saidOf = (m: ThreadMessage): string => {
     const b = bodyOf(m);
@@ -754,29 +660,46 @@ export function ChatThread(p: ThreadProps) {
     const edited = !gone && b.editedAt ? ` (edited ${hm(b.editedAt)})` : "";
     return `Your message, ${hm(m.at)}: ${noPeriod(gone ? tombstone(m, o.me) : b.text.trim())}${edited}. ${gone ? "" : `${noPeriod(dl.text)}. `}${whyNot(m) || "Press E to edit or Delete to delete."}`;
   };
-  // A message of yours takes the focus from the keyboard (the box's Up, Up and Down among them), and says what it is.
-  const toMessageAt = (i: number) => {
-    const m = t.messages[i];
-    if (!m) return;
-    ownNav.current = true;
-    programmatic.current = true;
-    roving.focusItem(i);
-    programmatic.current = false;
-    setSaid(saidOf(m));
-  };
-  const toBox = () => {
-    ownNav.current = false;
-    setSaid("");
-    section.current?.querySelector<HTMLTextAreaElement>(".ch-composer textarea")?.focus();
-  };
-  const focusAsk = p.change.focus;
-  useEffect(() => {
-    if (!focusAsk) return;
-    const i = t.messages.findIndex((x) => x.id === focusAsk.id);
-    if (i >= 0) toMessageAt(i);
-    // Each request has its own number.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusAsk?.n]);
+  const nav = useOwnMessageNav<ThreadMessage>({
+    messages: t.messages,
+    isMine: (m) => mineOf(m, o.me),
+    whyNot,
+    hasMenu: (m) => hasMenu(m, o.me),
+    hasSender: (m) => senderOf(m, o.me) !== null,
+    readOnly: p.readAs !== null,
+    saidOf,
+    focus: p.change.focus,
+    onEdit: (id) => p.change.onEdit(id),
+    onDelete: (id) => p.change.onDelete(id),
+    openMenu: (m, which, by, at) => {
+      if (which === "own") return p.onMenu(`m:${m.id}`, by, at);
+      const s = senderOf(m, o.me);
+      if (s) p.onMenu(`t:${s.key}`, by, at);
+    },
+    list: body,
+    section,
+  });
+  const roving = nav.roving;
+  const { said, setSaid } = nav;
+  const acts = useMemo<MessageActs>(
+    () => ({
+      onSave: (id, text) => live.current.change.onSave(id, text),
+      onCancel: (id) => live.current.change.onCancel(id),
+      onContext: nav.acts.onContext,
+      onSender: nav.acts.onSender,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nav.acts never changes
+    [],
+  );
+  const byId = useMemo(() => new Map(t.messages.map((x) => [x.id, x])), [t.messages]);
+  const names = o.people.map((x) => x.name);
+  const namesKey = JSON.stringify(names);
+  // The same array until a name changes, so a row is not drawn again for a new overview.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is read as its own text
+  const people = useMemo(() => names, [namesKey]);
+  const lastNewest = useRef<string | null>(null);
+  const lastOldest = useRef<string | null>(null);
+  const lastToken = useRef<string | null>(null);
   // Which thread this is, so what is remembered about one (its New line, what it announced) is not carried to another.
   const threadKey =
     p.channel?.thread ??
@@ -1031,21 +954,6 @@ export function ChatThread(p: ThreadProps) {
       ) : null
     ) : null;
 
-  // Up in an empty message box, with no @ or / list open to take it, moves to your latest message (#1269).
-  const fromBox = (e: KeyboardEvent<HTMLElement>) => {
-    const box = e.target;
-    if (e.key !== "ArrowUp" || e.defaultPrevented || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.nativeEvent.isComposing) return;
-    if (!(box instanceof HTMLTextAreaElement) || !box.closest(".ch-composer") || box.value !== "" || p.readAs !== null) return;
-    const last = t.messages.reduce((at, x, n) => (mineOf(x, o.me) ? n : at), -1);
-    if (last < 0) return;
-    e.preventDefault();
-    toMessageAt(last);
-  };
-  const onListFocus = (e: FocusEvent<HTMLElement>) => {
-    roving.listProps.onFocus(e);
-    const from = e.relatedTarget;
-    if (!programmatic.current && from instanceof Element && !e.currentTarget.contains(from) && !from.closest(".ch-menu")) ownNav.current = false;
-  };
   const openKey2 = p.menu?.startsWith("m:") ? p.menu.slice(2) : null;
   const openOwn = openKey2 ? (t.messages.find((m) => m.id === openKey2) ?? null) : null;
   const rowOf = (m: ThreadMessage, cont: boolean, at: number) => {
@@ -1089,7 +997,7 @@ export function ChatThread(p: ThreadProps) {
       aria-labelledby="th-h"
       data-testid="chat-thread"
       ref={section}
-      onKeyDown={fromBox}
+      onKeyDown={nav.fromBox}
     >
       {back}
       <div className="ch-head">
@@ -1207,7 +1115,7 @@ export function ChatThread(p: ThreadProps) {
               aria-relevant="additions"
               aria-atomic="false"
             >
-              <ol className="ch-msgs" {...roving.listProps} onFocus={onListFocus} onMouseDown={() => void (ownNav.current = false)}>
+              <ol className="ch-msgs" {...nav.listProps}>
                 {rows.map((r, i) =>
                   r.k === "rec" ? (
                     <RecordLine
@@ -1229,22 +1137,12 @@ export function ChatThread(p: ThreadProps) {
               </ol>
             </div>
             {t.messages.length === 0 && (
-              <div className="ch-intro" data-testid="chat-intro">
-                <div className="ch-intro-av" aria-hidden="true">
-                  {introWho.map((n) => (
-                    <Monogram key={n} name={n} size="lg" />
-                  ))}
-                </div>
-                <h3>
-                  This is the start of <bdi>{title}</bdi>
-                </h3>
-                <p>
-                  {sub && p.sel.kind === "channel" ? `${sub}.` : scope}
-                  {p.sel.kind === "channel" && !ro
-                    ? " Say something, or type @ to hand work to an agent."
-                    : ""}
-                </p>
-              </div>
+              <ChatIntro who={introWho} title={title}>
+                {sub && p.sel.kind === "channel" ? `${sub}.` : scope}
+                {p.sel.kind === "channel" && !ro
+                  ? " Say something, or type @ to hand work to an agent."
+                  : ""}
+              </ChatIntro>
             )}
           </div>
         )}
