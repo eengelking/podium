@@ -4659,6 +4659,16 @@ describe("the open Direct Message is concluded because its agent ended (#1283)",
     expect(banner).not.toHaveTextContent("ended");
   });
 
+  it("still shows a 404 on a channel as a failed read, since only a Direct Message has a box that says it is gone (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    chat.api.channelMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such channel." }));
+    p.signal();
+    await flush();
+    expect(screen.getByText(/Could not load the messages: There is no such channel/)).toBeInTheDocument();
+  });
+
   it("does not show a 404 on a Direct Message as a failed read; the box says the conversation is gone (#1340)", async () => {
     const chat = fakeChat();
     const p = page({ chat });

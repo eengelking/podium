@@ -526,7 +526,8 @@ export class ConversationChat {
         this.core.concluded.add(people, { thread: conversationThread(c.id), agent: gone.name, with: withNames, ...(cleared ? { cleared: true as const } : {}) });
         this.core.onEvent({ kind: 'dm_concluded', owner: people.map(String).join(','), a: c.id, b: sessionId, count: out.messages });
       }
-      const told = endedNotice(gone.name, stays, cleared);
+      // A conversation that stays keeps its "ended" wording (the members panel marks the agent ended); the cleared wording is for a conversation that is concluded.
+      const told = endedNotice(gone.name, stays, cleared && !stays);
       // A conversation that stays is found again by a later end of the same session (finished, then deleted), so each agent is told once per conversation.
       for (const m of others) {
         const key = `${c.id}|${sessionId}|${m.ref}`;

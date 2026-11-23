@@ -1170,8 +1170,8 @@ export function ChatThread(p: ThreadProps) {
           near.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        {/* A 404 is a conversation that is gone, which the message box says; it is not a read to try again (#1340, as ChatConversation does). */}
-        {t.error && !unreadable && t.error.status !== 404 && (
+        {/* A 404 on a Direct Message is a conversation that is gone, which the message box says; it is not a read to try again (#1340, as ChatConversation does). Any other thread keeps the box. */}
+        {t.error && !unreadable && !(t.error.status === 404 && p.sel.kind === "dm") && (
           <div className="errbox" role="alert">
             Could not load the messages: {t.error.text}.{" "}
             {t.messages.length ? "The ones below may be out of date. " : ""}It
