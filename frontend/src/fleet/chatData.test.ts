@@ -230,6 +230,22 @@ describe("the @ query", () => {
     expect(mentionQuery("no at here", 5)).toBeNull();
     expect(mentionQuery("done @a\nnew line", 16)).toBeNull();
   });
+  it("queries from the @ the caret is in, not the first @ of the draft (#1343)", () => {
+    // A second @ after a picked address opens a fresh query, with the address already typed left out of it.
+    expect(mentionQuery("@Lower Left@mbp @", 17)).toEqual({ from: 16, to: 17, q: "" });
+    expect(mentionQuery("hi @a@m @", 9)).toEqual({ from: 8, to: 9, q: "" });
+    // Five in a row.
+    const five = "@a@m @b@m @c@m @d@m @";
+    expect(mentionQuery(five, five.length)).toEqual({ from: five.length - 1, to: five.length, q: "" });
+    // A name with spaces still narrows, after earlier addresses.
+    expect(mentionQuery("@a@m @My Ag", 11)).toEqual({ from: 5, to: 11, q: "My Ag" });
+    // A caret in the middle: the @ before it, and only the text up to the caret.
+    expect(mentionQuery("@a@m @Te and @b@m", 8)).toEqual({ from: 5, to: 8, q: "Te" });
+    expect(mentionQuery("@a@m @Te and @b@m", 3)).toEqual({ from: 0, to: 3, q: "a@" });
+    // A new line starts afresh.
+    expect(mentionQuery("@a@m\n@b", 7)).toEqual({ from: 5, to: 7, q: "b" });
+    expect(mentionQuery("no at here", 5)).toBeNull();
+  });
   const book: Address[] = [
     { typed: "My Agent@mbp", label: "Orchestrator", role: "orchestrator", sessionId: "s1" },
     { typed: "Tester@ci-1", label: "Orchestrator", role: "orchestrator", sessionId: "s2" },
