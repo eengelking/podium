@@ -210,7 +210,7 @@ those people, so their page shows the red banner at once. A reading is live for 
 `stopped`, which writes the same table with a `kind` and tells the sessions; `forget` (Delete conversation) and `maintain` (retention) are the only
 things that delete records, and Remove all messages never calls them. `chat.browse` answers `?owner=` with names and counts only, so it notes no
 read. The sentence a reporter shows is built by `AdminNotices` (`chatAdminNotices.ts`): held in memory for 5 minutes, at most 8 for a session, and
-handed over in the reply to the session's report as `adminNotices` (`routes.ts`). `plugin/core/adminNotice.ts` remembers which ids it has shown;
+handed over in the reply to the session's report as `adminNotices` (an Admin's stop on a person's links or a public channel they opened is not held there: `stopOwed` records it on the `act:<id>` thread with its words, and `noticesFor` shows it from the record until the person has seen it, #1328) (`routes.ts`). `plugin/core/adminNotice.ts` remembers which ids it has shown;
 `handleAdminNotices` in the Claude Code hooks shows a 60-second toast and a transcript line, and the OpenCode reporter a toast, with no
 transcript line. Neither reaches the model or depends on the `peers` option. In the console `components/ChatAdmin.tsx` draws the picker, the
 banners, the red tags and the record lines, and the Admin's page hides People and agents while it reads.

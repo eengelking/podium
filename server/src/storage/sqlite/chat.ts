@@ -273,6 +273,7 @@ interface DbAdminRead {
   started_at: number;
   last_seen_at: number;
   kind: AdminReadKind;
+  detail: string;
 }
 
 /** The key of an Admin record. */
@@ -282,7 +283,7 @@ interface DbOwed {
   started_at: number;
 }
 
-const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind });
+const toRead = (r: DbAdminRead): AdminReadRow => ({ admin: r.admin, startedAt: r.started_at, lastSeenAt: r.last_seen_at, kind: r.kind, ...(r.detail ? { detail: r.detail } : {}) });
 
 /** One person owed one Admin record (#1061). */
 const owe = (db: DatabaseSync, thread: string, adminKey: string, startedAt: number, people: number[]): void => {
@@ -303,7 +304,7 @@ class AdminReads {
   touch(thread: string, admin: string, adminId: number | null, gapMs: number, people: number[] = []): { record: AdminReadRow; started: boolean; previousSeenAt: number | null } {
     const now = this.now();
     const key = adminKeyOf(admin, adminId);
-    const last = this.db.prepare("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND kind = 'read' ORDER BY last_seen_at DESC, started_at DESC LIMIT 1").get(thread, key) as unknown as DbAdminRead | undefined;
+    const last = this.db.prepare("SELECT thread, admin, started_at, last_seen_at, kind, detail FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND kind = 'read' ORDER BY last_seen_at DESC, started_at DESC LIMIT 1").get(thread, key) as unknown as DbAdminRead | undefined;
     if (last && now - last.last_seen_at <= gapMs) {
       const seen = Math.max(now, last.last_seen_at);
       this.db.prepare("UPDATE chat_admin_reads SET last_seen_at = ? WHERE thread = ? AND admin_key = ? AND started_at = ? AND kind = 'read'").run(seen, thread, key, last.started_at);
@@ -313,35 +314,35 @@ class AdminReads {
     return { record: row, started: true, previousSeenAt: null };
   }
 
-  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people: number[] = []): AdminReadRow {
-    return this.insert(thread, adminKeyOf(admin, adminId), admin, this.now(), kind, people);
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people: number[] = [], detail = ''): AdminReadRow {
+    return this.insert(thread, adminKeyOf(admin, adminId), admin, this.now(), kind, people, detail);
   }
 
   /** One record at `at`, or the first free millisecond after it, since (thread, admin, time) is the key. */
-  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: number[]): AdminReadRow {
+  private insert(thread: string, key: string, admin: string, at: number, kind: AdminReadKind, people: number[], detail = ''): AdminReadRow {
     let t = at;
     while (this.db.prepare('SELECT 1 AS x FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?').get(thread, key, t)) t++;
-    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people) VALUES (?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, idText(people));
+    this.db.prepare('INSERT INTO chat_admin_reads (thread, admin_key, admin, started_at, last_seen_at, kind, people, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(thread, key, admin, t, t, kind, idText(people), detail);
     this.owe(thread, key, t, idList(idText(people)));
-    return { admin, startedAt: t, lastSeenAt: t, kind };
+    return { admin, startedAt: t, lastSeenAt: t, kind, ...(detail ? { detail } : {}) };
   }
 
   list(thread: string): AdminReadRow[] {
-    return (this.db.prepare('SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key, kind').all(thread) as unknown as DbAdminRead[]).map(toRead);
+    return (this.db.prepare('SELECT thread, admin, started_at, last_seen_at, kind, detail FROM chat_admin_reads WHERE thread = ? ORDER BY started_at, admin_key, kind').all(thread) as unknown as DbAdminRead[]).map(toRead);
   }
 
   live(threads: string[], since: number): (AdminReadRow & { thread: string })[] {
     if (!threads.length) return [];
     const marks = threads.map(() => '?').join(', ');
     const rows = this.db
-      .prepare(`SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE thread IN (${marks}) AND kind = 'read' AND last_seen_at > ? ORDER BY thread, started_at, admin_key`)
+      .prepare(`SELECT thread, admin, started_at, last_seen_at, kind, detail FROM chat_admin_reads WHERE thread IN (${marks}) AND kind = 'read' AND last_seen_at > ? ORDER BY thread, started_at, admin_key`)
       .all(...threads, since) as unknown as DbAdminRead[];
     return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
 
   recent(since: number): (AdminReadRow & { thread: string })[] {
     const rows = this.db
-      .prepare("SELECT thread, admin, started_at, last_seen_at, kind FROM chat_admin_reads WHERE kind = 'read' AND last_seen_at > ? ORDER BY thread, started_at, admin_key")
+      .prepare("SELECT thread, admin, started_at, last_seen_at, kind, detail FROM chat_admin_reads WHERE kind = 'read' AND last_seen_at > ? ORDER BY thread, started_at, admin_key")
       .all(since) as unknown as DbAdminRead[];
     return rows.map((r) => ({ thread: r.thread, ...toRead(r) }));
   }
@@ -357,7 +358,7 @@ class AdminReads {
   unseenFor(personId: number): (AdminReadRow & { thread: string })[] {
     const rows = this.db
       .prepare(
-        `SELECT r.thread, r.admin, r.started_at, r.last_seen_at, r.kind FROM chat_admin_owed o
+        `SELECT r.thread, r.admin, r.started_at, r.last_seen_at, r.kind, r.detail FROM chat_admin_owed o
          JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at
          WHERE o.person_id = ? ORDER BY r.started_at DESC, r.thread, r.admin_key, r.kind`,
       )
@@ -421,7 +422,7 @@ export function chatStoreOver(db: DatabaseSync, lock: AsyncLock, opts: ChatStore
   };
   const adminReads: ChatAdminReadsApi = {
     touch: (thread, admin, adminId, gapMs, people) => step(() => reads.touch(thread, admin, adminId, gapMs, people)),
-    mark: (thread, admin, adminId, kind, people) => step(() => reads.mark(thread, admin, adminId, kind, people)),
+    mark: (thread, admin, adminId, kind, people, detail) => step(() => reads.mark(thread, admin, adminId, kind, people, detail)),
     list: (thread) => step(() => reads.list(thread)),
     live: (threads, since) => step(() => reads.live(threads, since)),
     recent: (since) => step(() => reads.recent(since)),

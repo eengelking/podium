@@ -83,8 +83,8 @@ export class PublicChannels {
     if (typeof body.description !== 'string') return fail(400, 'description must be text.');
     const out = await this.store.channels.updateDescription(c.name, this.core.redact(body.description).trim(), this.core.host.now());
     if (!out.ok) return this.refusal(out, { name: c.name });
-    this.tellOpener(viewer, c, `edited the description of the channel ${c.name} you opened`);
-    this.core.onEvent({ kind: 'channel_edited', channel: c.name, by: viewer.actor });
+    const told = await this.tellOpener(viewer, c, 'channel_edited', `edited the description of the channel ${c.name} you opened`);
+    this.core.onEvent({ kind: 'channel_edited', channel: c.name, by: viewer.actor, ...told });
     this.core.signal('public');
     return { ok: true, channel: out.channel };
   }
@@ -100,8 +100,8 @@ export class PublicChannels {
     const out = await this.store.channels.remove(c.name);
     if (!out.removed) return fail(404, 'There is no such channel.');
     // The removal cannot be undone, so the opener is told and the Admin log written now, before the housekeeping below: a failure there must not leave a removal nobody was told of.
-    this.tellOpener(viewer, c, `removed the channel ${c.name} you opened${out.messages ? `, with its ${out.messages} message${out.messages === 1 ? '' : 's'}` : ''}`);
-    this.core.onEvent({ kind: 'channel_removed', channel: c.name, by: viewer.actor, messages: out.messages });
+    const told = await this.tellOpener(viewer, c, 'channel_removed', `removed the channel ${c.name} you opened${out.messages ? `, with its ${out.messages} message${out.messages === 1 ? '' : 's'}` : ''}`);
+    this.core.onEvent({ kind: 'channel_removed', channel: c.name, by: viewer.actor, messages: out.messages, ...told });
     const settings = this.store.settings;
     for (const scope of Object.keys(await settings.allFlags())) if (scope.startsWith(channelScopePrefix(c.name))) await settings.setFlags(scope, { paused: false, disconnected: false });
     await this.reads.drop(channelThread(c.name));
@@ -109,9 +109,18 @@ export class PublicChannels {
     return { ok: true, removed: out.messages };
   }
 
-  /** An Admin did something to a channel somebody else opened: every live session of that person says who did what. Nothing for the Admin's own channel or one whose opener is gone. */
-  private tellOpener(viewer: ChatViewer, c: PublicChannel, what: string): void {
-    if (!viewer.admin || c.createdById === null || c.createdById === viewer.personId) return;
-    for (const sessionId of this.reads.sessionsOf(c.createdById)) this.reads.tell(sessionId, `${this.reads.who(viewer)} ${what}.`);
+  /**
+   * An Admin did something to a channel somebody else opened: it is kept owed to the opener, and their reporter sessions say who did what from that record until
+   * they have seen it (#1328), so a person with no live session now, or a restart of the server, loses nothing. Nothing for the Admin's own channel or one whose
+   * opener is gone. Returns who the opener is and how many live sessions of theirs show it now, for the Admin log; empty when nobody is owed. A failure to
+   * record is never raised, since the edit or removal is already done: the event says `unrecorded`, so the Admin log tells it from a person with no live session.
+   */
+  private async tellOpener(viewer: ChatViewer, c: PublicChannel, kind: 'channel_edited' | 'channel_removed', what: string): Promise<{ opener?: string; told?: number; unrecorded?: true }> {
+    if (!viewer.admin || c.createdById === null || c.createdById === viewer.personId) return {};
+    try {
+      return { opener: c.createdByName, told: await this.reads.stopOwed({ name: viewer.actor, id: viewer.personId }, c.createdById, kind, what) };
+    } catch {
+      return { opener: c.createdByName, told: 0, unrecorded: true };
+    }
   }
 }

@@ -330,6 +330,8 @@ describe('chat: public channels', () => {
       expect(r.body.error).to.eq('Only an Admin can remove a channel.');
     });
     openChat('Admin');
+    // An Admin's edit of a channel Ed opened is owed to Ed too (#1328), with the removal below.
+    call('PATCH', `/channels/${CH}`, { description: 'Edited by an Admin.' }).its('status').should('eq', 200);
     cy.chatRow(CH_ROW).find('button.ch-row').click();
     cy.tid('chat-desc').should('exist');
     openMenu(CH_ROW);
@@ -350,6 +352,22 @@ describe('chat: public channels', () => {
     call('GET', `/channels/${CH}/messages`).its('status').should('eq', 404);
     cy.request({ url: `/api/fleet/sessions/${INVOICE}/chat/channels/${CH}/messages`, headers: edToken(), failOnStatusCode: false, log: false }).its('status').should('eq', 404);
     create('release-1-7-again', '', { kind: 'issue', ref: '12' }).its('status').should('eq', 201);
+  });
+
+  it('tells Ed once, as quiet lines on his Chat overview, that an Admin edited and removed the channel he opened, and the Admin log names him (#1328)', () => {
+    openChat('Alex');
+    cy.tid('chat-gone-record').should('not.exist');
+    openChat('Ed');
+    cy.tid('chat-gone-record').should('have.length', 2);
+    cy.tid('chat-gone-record').eq(0).invoke('text').should('match', /^Admin.* \(an Admin\) removed a channel you opened on [A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2}.*\.$/);
+    cy.tid('chat-gone-record').eq(1).invoke('text').should('match', /^Admin.* \(an Admin\) edited the description of a channel you opened on [A-Z][a-z]{2} \d{1,2} at \d{1,2}:\d{2}.*\.$/);
+    // Shown once: the next load does not have them.
+    cy.reload();
+    cy.chatRow('c:general').should('exist');
+    cy.tid('chat-gone-record').should('not.exist');
+    cy.openAdmin('Admin log');
+    cy.contains('td', new RegExp(`Changed the description of public channel ${CH} \\(opened by Ed, \\d+ sessions? told\\)$`)).should('exist');
+    cy.contains('td', new RegExp(`Public channel ${CH} removed( \\(with \\d+ messages\\))? \\(opened by Ed, \\d+ sessions? told\\)$`)).should('exist');
   });
 
   it('gives the sidebar a column of 300 to 360 px at the wide width', () => {

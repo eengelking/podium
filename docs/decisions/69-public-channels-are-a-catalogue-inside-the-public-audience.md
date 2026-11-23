@@ -40,7 +40,7 @@ Chat has General and My group, and General is the only public place ([61](61-cha
 ## Cost
 
 - An agent cannot look back past an hour in any channel. A person reads the full history in the console.
-- An Admin who edits or removes a channel is told to the opener only in live reporter sessions, for five minutes. A person with no live session sees nothing, because the Admin records have no kind for these acts yet.
+- An Admin who edits or removes a channel was told to the opener only in live reporter sessions, for five minutes, so a person with no live session saw nothing. That is closed (#1328): the act is kept on the opener's `act:<id>` thread with its words, owed until they have seen it.
 - An `@` of another person's agent in a public channel still creates the request for that agent's owner, as in General, and that request is a conversation row holding the person's own public text.
 
 <!-- nav:start -->
