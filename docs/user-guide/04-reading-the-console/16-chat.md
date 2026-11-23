@@ -94,7 +94,7 @@ every message and keeps the rights. Remove link takes the rights away and keeps 
 Delete conversation removes its messages and leaves the list.
 
 A conversation ends when an agent in it finishes, or an Admin deletes that agent (#1283). The conversation and its messages are deleted and leave your list, a note on the wall says
-which agent ended ("Tester ended. Its direct message with dev was concluded and deleted."), and if you had it open a banner says so and the box is off. The agents still in it are told once
+which agent ended ("Tester ended. Its direct message with dev was concluded and deleted."), and if you had it open a banner says so and the box is off, with nothing of the deleted messages left under it. When the agent was reset with `/clear`, the note and the banner say "Tester was cleared" and that it is still running under a new session, and you can start a new direct message with it. The agents still in it are told once
 not to continue it or open a new one, and a message of yours that was still waiting for approval is discarded and you are told. A conversation with two or more people in it stays, with the agent marked
 "Ended": nobody can write to it, and the people can keep writing. A conversation between people alone is never ended this way. A new session that takes the name of an agent that ended is a different agent and
 starts a new conversation. If an agent only loses its heartbeat, the conversation leaves the list and its messages are kept for as long as the agent's harness lets you resume that session (30 days for Claude Code unless its `cleanupPeriodDays` says
