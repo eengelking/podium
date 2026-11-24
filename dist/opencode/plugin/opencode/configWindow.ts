@@ -30,7 +30,7 @@ import {
 type Env = Readonly<Record<string, string | undefined>>;
 
 /** One row as the server part sees it now: the value the reporter runs with, and what decides it when the window cannot. */
-export interface ConfigRow {
+interface ConfigRow {
   id: string;
   value: string;
   lock: string | null;

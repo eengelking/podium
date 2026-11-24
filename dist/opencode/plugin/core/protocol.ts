@@ -14,10 +14,10 @@
  * means it is supported but has no value right now (an effort not chosen, a cost not yet known). Nothing else is
  * guessed from an omission, and a reader never turns one into the other.
  */
-export const REPORT_VERSIONS = [1, 2] as const;
+const REPORT_VERSIONS = [1, 2] as const;
 export type ReportVersion = (typeof REPORT_VERSIONS)[number];
 /** The harness a v1 report comes from, since v1 has no block to say so. */
-export const CLAUDE_CODE_HARNESS = 'claude-code';
+const CLAUDE_CODE_HARNESS = 'claude-code';
 /** The id of the harness a report comes from: its block, else the session's own field (#851), else Claude Code. */
 export function harnessOf(r: { harness?: { id: string }; session: { harness?: string } }): string {
   return r.harness?.id ?? r.session.harness ?? CLAUDE_CODE_HARNESS;
@@ -30,7 +30,7 @@ export type Effort = string;
 export type CostSource = 'harness' | 'estimate';
 
 /** How many characters of a session id the console and the logs show: enough to tell sessions apart, and the id shown whole is what is copied. */
-export const SHORT_ID_LENGTH = 8;
+const SHORT_ID_LENGTH = 8;
 
 /**
  * A session id shortened for display (#853): its first eight characters, counted after a short word prefix such as `ses_`, which is kept.
@@ -63,7 +63,7 @@ export interface TokenCounts {
 }
 
 /** `cacheWrite` is the 5-minute cache write; `cacheWrite1h` the 1-hour one (0 when the reporter cannot split them). */
-export interface UsageTokens extends TokenCounts {
+interface UsageTokens extends TokenCounts {
   cacheWrite1h: number;
 }
 
@@ -170,9 +170,9 @@ export interface ToolStat {
 }
 
 /** Each call length bucket is this much longer than the one before, so a percentile read from the buckets is within 10% of the call's real length. */
-export const TIME_BUCKET_RATIO = 1.1;
+const TIME_BUCKET_RATIO = 1.1;
 /** The longest call that is told apart: an hour. Longer calls count in the last bucket. */
-export const TIME_BUCKET_MAX_MS = 3_600_000;
+const TIME_BUCKET_MAX_MS = 3_600_000;
 
 /** The bucket a call of `ms` milliseconds counts in: 0 up to 1 ms, then one step for each 10% more. */
 export function timeBucket(ms: number): number {
@@ -207,7 +207,7 @@ export const MAIN_LOOP = '@orchestrator';
 
 /** The status of one file's diff, as the mod answers a request for it (#319, SPEC 6.4). */
 export const FILE_DIFF_STATUSES = ['ok', 'binary', 'withheld', 'too-large', 'unavailable'] as const;
-export type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
+type FileDiffStatus = (typeof FILE_DIFF_STATUSES)[number];
 
 /** A diff the session's owner is waiting for, in the report reply's `diffs` list. */
 export interface DiffRequest {
@@ -345,6 +345,8 @@ export interface AgentReport {
   answerText?: string;
   /** The agent's last 20 activity entries, oldest first: only while someone watches it, with the `activityFeed` option on (0.13.0 and later). */
   activity?: ActivityEntry[];
+  /** The background shells and monitors this agent started (#897): only while someone watches it, with the `activityFeed` option on. Absent from a reporter older than the release that adds it. */
+  backgroundItems?: BackgroundItem[];
   failure: Failure | null;
 }
 
@@ -371,6 +373,42 @@ export interface BackgroundWait {
   tasks: BackgroundTask[];
   /** When the next scheduled wake-up fires (epoch ms); null when there is none or its time is unknown. */
   wakeAt: number | null;
+}
+
+/** What a loop started in the background that the Background tab of the Activity modal lists (#897). Monitors exist on Claude Code only. */
+export type BackgroundItemKind = 'shell' | 'monitor';
+
+/**
+ * One background shell or monitor of a loop (#897): its state, its times and, with the output switches on, its whole command and
+ * its newest output. It belongs to the loop that started it: the orchestrator, or the agent or fork whose id the report carries
+ * it under. Sent with the `activityFeed` option on and only for a loop the reply lists in `watch`; `command` and `output` also
+ * need the `backgroundOutput` option and the loop in `watchBackground`. The server holds all of it in memory and never stores it.
+ */
+export interface BackgroundItem {
+  /** The harness's own id for the task, stable for its life. */
+  id: string;
+  kind: BackgroundItemKind;
+  state: 'running' | 'exited';
+  /** The exit code, when the harness knows it. An `exited` item with none ended without one (a signal, for example); it is not called killed. */
+  exitCode?: number;
+  /** When the item started (epoch ms): the harness's own time, or the time the reporter first saw it (`startedKnown` false). */
+  startedAt: number;
+  /** True when `startedAt` is the harness's own time; false when it is the time the reporter first saw the item. */
+  startedKnown: boolean;
+  /** When the item last printed (epoch ms); absent when it has printed nothing or the harness does not say. */
+  lastOutputAt?: number;
+  /** When the item ended, as the reporter learned it (OpenCode's event time; Claude Code: when the reporter first saw it ended). Absent while it runs, so the run time of a finished item is `endedAt - startedAt`. */
+  endedAt?: number;
+  /** The command's first word, redacted and cut: what the list shows with the output switches off. */
+  label: string;
+  /** The loop that started the item, when it is not the loop this list belongs to: a list holds its own loop's items and those of every agent under it (#1242). Absent for the loop's own. */
+  ownerId?: string;
+  /** The whole command, redacted, cut with a visible marker. Needs the `backgroundOutput` option and the loop in `watchBackground`. */
+  command?: string;
+  commandCut?: boolean;
+  /** The newest output, redacted, cut with a visible marker. Same switches as `command`. An empty string is an item that printed nothing. */
+  output?: string;
+  outputCut?: boolean;
 }
 
 export interface SessionReport {
@@ -418,6 +456,10 @@ export interface SessionReport {
   activityFeed?: boolean;
   /** Whether the reporter's `activityOutput` option is on (#431): a Bash command's output may go out, only while a viewer has the feed open. Absent from a reporter older than the release that adds it. */
   activityOutput?: boolean;
+  /** Whether the reporter's `backgroundOutput` option is on (#897): a background shell's whole command and output may go out, only while a viewer has the Background tab open. Absent from a reporter older than the release that adds it, which sends no background items. */
+  backgroundOutput?: boolean;
+  /** The background shells and monitors the orchestrator started (#897); see `backgroundItems` on an agent. */
+  backgroundItems?: BackgroundItem[];
   /** Whether the reporter's `fileDiff` option is on (#319). Absent from a reporter older than the release that adds it. */
   fileDiff?: boolean;
   /** Whether the reporter's `fileDiffPreload` option is on (#631): the console may ask for every changed file's diff while its page is open. Absent from a reporter older than the release that adds it. */
@@ -526,7 +568,7 @@ export function acceptsFor(level: RespondLevel, limits: readonly RespondLimit[],
 
 export type AskKind = 'question' | 'plan' | 'permission';
 
-export interface AskOption {
+interface AskOption {
   label: string;
   description: string;
   preview: string | null;
@@ -581,7 +623,6 @@ export const tooManyOptions = (count: number): boolean => count > RESPOND_LIMITS
 
 /** What a delivery carries. `reply` is a message sent in place of an answer. */
 export type DeliveryKind = 'question' | 'reply' | 'plan-approve' | 'plan-feedback' | 'allow-once' | 'deny' | 'message' | 'command';
-export const DELIVERY_KINDS: readonly DeliveryKind[] = ['question', 'reply', 'plan-approve', 'plan-feedback', 'allow-once', 'deny', 'message', 'command'];
 
 /** One question's answer by position: the chosen options' indexes, a typed answer, or null for skipped. */
 export type QuestionAnswer = { options: number[] } | { text: string } | null;
@@ -590,7 +631,6 @@ export type PlanMode = 'auto' | 'acceptEdits' | 'default';
 export const PLAN_MODES: readonly PlanMode[] = ['auto', 'acceptEdits', 'default'];
 
 export type PodiumCommand = 'clear' | 'compact';
-export const PODIUM_COMMANDS: readonly PodiumCommand[] = ['clear', 'compact'];
 
 /** One answer or message sent from Podium, as the server hands it to the mod. */
 export interface Delivery {
@@ -609,6 +649,13 @@ export interface Delivery {
   chat?: true;
   /** Set on a message from an `@` in a Chat channel (#1034), to a session whose reporter has peer tools: the channel's name (`General` or `My group`). The reporter adds where to read what was said around it. Older reporters ignore it. */
   channel?: string;
+  /** Set on a message written in a Direct Message of people and agents (#1299): that conversation's id. The agent answers it with `podium_send` to `convo:<id>`, because `person:<name>` names a person and may be in several conversations with the agent. Older reporters ignore it. */
+  convo?: string;
+  /** Where a message was written (#1251): `chat` is the owner's own Chat message to this agent, `channel` an `@` in a Chat channel, `console` the session page's message box. Set on every message from a server that frames them; a reporter that finds it absent keeps the text as it was. */
+  via?: 'chat' | 'channel' | 'console';
+  /** Set on a message an Administrator sent to a person's session after the person allowed it (#1251). `owner` is that person. */
+  admin?: true;
+  owner?: string;
 }
 
 /** What became of a delivery, as the mod reports it. */
@@ -676,6 +723,12 @@ export interface PeerDelivery {
   text: string;
 }
 
+/**
+ * What every notice that tells an orchestrator a direct message it was in has ended begins with (#1283). The server writes it and every reporter reads it, so a
+ * reporter turns that one notice into a turn in Podium's own words (the agent must not continue the conversation or open a new one) while any other notice stays a log line.
+ */
+export const ENDED_NOTICE_MARK = 'A direct message you were in has ended.';
+
 /** What became of a peer delivery, as the mod reports it. */
 export type PeerResult = 'took' | 'queued' | 'refused';
 export const PEER_RESULTS: readonly PeerResult[] = ['took', 'queued', 'refused'];
@@ -715,42 +768,6 @@ export interface AdminNotice {
   id: string;
   at: number;
   text: string;
-}
-
-/** The reply to an accepted report. Older servers send only some of it. */
-export interface ReportReply {
-  ok: true;
-  serverTime: number;
-  ackedEvents: number;
-  sessionId: string;
-  liveSessions: number;
-  serverVersion: string;
-  /** The commit of a dev build of the server (#400); null for a release. Older servers do not send it. */
-  serverBuild?: string | null;
-  reporterSupport: { min: string; max: string };
-  reporterCompat: 'ok' | 'outdated' | 'newer' | 'unknown';
-  watch: string[];
-  /**
-   * The loops of `watch` that a viewer has the feed open on right now (a live lease), when the Admin's `activity-output` flag is
-   * on (#431). A subset of `watch`: a loop listed there only because the Activity history keeps it is not here. The mod captures
-   * a Bash call's output only for these loops, and only with its `activityOutput` option on. Absent from a server older than the
-   * release that adds it, which asks for none.
-   */
-  watchOutput?: string[];
-  /** Whether the server takes answers for this session now; the mod announces asks only while it is true. */
-  respond: boolean;
-  /** Messages and commands from Podium waiting for this session, oldest first; empty while `respond` is false. */
-  deliveries: Delivery[];
-  /** Whether this session's orchestrator can take part in messaging now (#347): authentication on, the Admin's flag on, the session owned by a person, and the `peers` option on. */
-  peers?: boolean;
-  /** Messages and notices for this orchestrator, oldest first, handed over only while it is idle; empty while `peers` is false. */
-  peerDeliveries?: PeerDelivery[];
-  /** The owner's open requests about this session's reporter, for a toast and `/podium allow|decline|deliver`; empty while `peers` is false. */
-  peerRequests?: PeerRequest[];
-  /** Callouts for the person, present only while there is one (#1034). Absent from a server older than the release that adds it; an older reporter ignores it. */
-  adminNotices?: AdminNotice[];
-  /** Session recording's consent state for this session (#353). Absent from a server older than the release that adds it, which records nothing. */
-  recording?: RecordingGrant;
 }
 
 /**
@@ -802,15 +819,6 @@ export interface RecordingBatch {
   entries: RecordingEntry[];
 }
 
-/** The server's answer to a batch. A batch that was accepted is never sent again. */
-export interface RecordingBatchReply {
-  ok: true;
-  /** How many entries were new; the rest were already held. */
-  stored: number;
-  /** The state after this batch, so a cap reached by it stops the mod at once. */
-  recording: RecordingGrant;
-}
-
 export const RECORDING_STATES = ['off', 'recording', 'stopped', 'limit'] as const;
 /** `off`: nothing is chosen. `recording`: capturing. `stopped`: capture ended and what was recorded is kept. `limit`: the per-session cap or the disk budget stopped it. */
 export type RecordingState = (typeof RECORDING_STATES)[number];
@@ -819,7 +827,7 @@ export type RecordingState = (typeof RECORDING_STATES)[number];
 export type RecordingLimit = 'session' | 'budget';
 
 /** The three yes answers. Capture needs all three. */
-export interface RecordingConsent {
+interface RecordingConsent {
   /** The Admin's `session-recording` flag is on and the server has authentication on. */
   admin: boolean;
   /** Someone with the right (the session's owner or an Admin) chose to record this session. */
@@ -920,6 +928,8 @@ export interface RecordingPage {
   loops: RecordingLoopInfo[];
   /** The session's owner, for the refusal a viewer who may not read it is shown. */
   owner: string | null;
+  /** The owner's `people.id` (#1291), which decides who the owner is: `owner` is only the name shown. Null for a session owned by the admin secret or by a person since deleted; absent from an older server, which a reader treats as null. */
+  ownerId?: number | null;
 }
 
 /** A row of the Admin's Recordings table. */

@@ -1,8 +1,11 @@
 // The OpenCode reporter's runtime (#855): one Reporter per location, many root sessions in it. `handle` folds an event
 // and returns at once; only `tick` and `close` talk to the server, so the event loop never waits on the network. Each
 // root has its own Transport (queue, backoff, acks), which keeps a slow server from stalling the other roots.
+import path from 'node:path';
+import { outputTimes, readTail } from '../core/background.ts';
+import { nodeOutputFs } from './outputFs.ts';
 import { excerpt, explainPrompt } from '../core/failures.ts';
-import { lastSegment, readChanges, readGit, type Runner } from '../core/git.ts';
+import { lastSegment, readChanges, readGitState, type Runner } from '../core/git.ts';
 import { gitPlace } from '../core/place.ts';
 import { isLaunchId, LAUNCH_ENDED, launchId, launchName } from '../core/launch.ts';
 import { readFileDiff } from '../core/fileDiff.ts';
@@ -11,11 +14,12 @@ import { ADMIN_NOTICE_TOAST_MS, AdminNoticeSeen, adminNoticeToast } from '../cor
 import { Responder, sessionPath } from '../core/respond.ts';
 import { isRecordingGrant, Transport, type FetchLike } from '../core/transport.ts';
 import { setTitle } from '../core/plan.ts';
+import type { PeerToolName } from '../core/peerTools.ts';
 import { Peers } from './peers.ts';
 import { Answering, RESPOND_OFF, type Consent, type Host } from './answering.ts';
 import { buildReport, type ReportMeta } from './report.ts';
 import { limitLine, refusedLine, startLine, stoppedLine } from './recordingLines.ts';
-import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedOutput, sweep, setBackground, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
+import { announce as announceRoot, apply, endQuiet, finish, newStore, setWatched, setWatchedBackground, setWatchedOutput, sweep, setBackground, loopChain, type BusEvent, type IdleJob, type Root, type Store } from './state.ts';
 
 export interface ReporterOptions {
   serverUrl: string;
@@ -39,6 +43,8 @@ export interface ReporterOptions {
   activityFeed?: boolean;
   /** The activity output consent (`PODIUM_ACTIVITY_OUTPUT`): a shell call's output may go out, for a loop a viewer has open. Needs `activityFeed`. */
   activityOutput?: boolean;
+  /** The background output consent (`PODIUM_BACKGROUND_OUTPUT`): a background shell's whole command and output may go out, for a loop a viewer has the Background tab open on. Needs `activityFeed`. */
+  backgroundOutput?: boolean;
   /** The full prompts consent (`PODIUM_FULL_PROMPTS`): send each agent's whole prompt and answer, once. */
   fullPrompts?: boolean;
   /** The explain failures consent (`PODIUM_EXPLAIN_FAILURES`): a small model is asked to explain each new failure, from its redacted record only. Off when absent. */
@@ -131,7 +137,7 @@ export interface Summary {
 }
 
 /** How long after a callout was offered to the TUI part, with no word that it was shown, it is offered again. A report goes out every few seconds, so this is a few reports. */
-export const ADMIN_OFFER_AGAIN_MS = 10_000;
+const ADMIN_OFFER_AGAIN_MS = 10_000;
 
 export const DEFAULTS = { explainMs: 30_000, answerMs: 10_000, idleMs: 60_000, flushMs: 1000, heartbeatMs: 5000, gitEveryMs: 10_000, keepDoneMs: 6 * 3_600_000, closeMs: 1500 } as const;
 
@@ -334,7 +340,7 @@ export class Reporter {
 
   private meta(now: number): ReportMeta {
     const o = this.opts;
-    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached?.() ? { attached: true } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
+    return { now, version: o.version, engineVersion: this.engineVersion ?? o.engineVersion, hostSurface: o.hostSurface, build: o.build, userName: o.userName, optionName: o.sessionName, machine: o.machine, ...(this.deps.attached?.() ? { attached: true } : {}), fileDiff: o.fileDiff === true, fileDiffPreload: o.fileDiffPreload, activity: o.activityFeed === true, activityOutput: o.activityFeed === true && o.activityOutput === true, backgroundOutput: o.activityFeed === true && o.backgroundOutput === true, fullText: o.fullPrompts === true, sessionRecording: o.sessionRecording === true, peers: o.peers === true && !!this.peers, windowOf: (p, m) => (p && m ? (this.windows.get(`${p}\u0000${m}`)?.window ?? null) : null) };
   }
 
   /** What a report says about answering: what the session takes, and the asks open now while the server takes answers. */
@@ -344,7 +350,7 @@ export class Reporter {
     return { info: this.answering.info(), asks: this.answering.asks(root, t) };
   }
 
-  private send(root: Root, t: Transport, now: number): Promise<void> {
+  private send(root: Root, t: Transport, now: number, force = false): Promise<void> {
     root.dirty = false;
     // The full texts this report carries, by agent, so only those are marked sent when it is accepted.
     let texts: Record<string, { promptText?: string; answerText?: string }> = {};
@@ -353,9 +359,9 @@ export class Reporter {
       texts = Object.fromEntries(report.agents.map((a) => [a.id, { promptText: a.promptText, answerText: a.answerText }]));
       return report;
     };
-    return t.send(build, now).then((outcome) => {
-      // A report that did not get through must go again.
-      if (outcome === 'failed' || outcome === 'refused' || outcome === 'rejected') root.dirty = true;
+    return t.send(build, now, force).then((outcome) => {
+      // A report that did not get through must go again, and so must one held back for being a large one that only counted (#752).
+      if (outcome === 'failed' || outcome === 'refused' || outcome === 'rejected' || outcome === 'held') root.dirty = true;
       if (outcome === 'ok') this.accepted(root, t, texts);
     });
   }
@@ -373,6 +379,7 @@ export class Reporter {
     // With the option off nothing is ever watched (#118). A loop is given output only while it is also watched.
     setWatched(root, o.activityFeed ? t.watch : []);
     setWatchedOutput(root, o.activityFeed && o.activityOutput ? t.watchOutput.filter((id) => root.watched.includes(id)) : []);
+    setWatchedBackground(root, o.activityFeed && o.backgroundOutput ? t.watchBackground.filter((id) => root.watched.includes(id)) : []);
     this.takeRecording(root, t.recording);
     this.takeAdminNotices(t);
   }
@@ -464,8 +471,11 @@ export class Reporter {
     this.gitAt.set(root.id, now);
     const cwd = root.cwd;
     const run = this.deps.runIn(cwd);
-    const branch: Promise<void> = readGit(run, cwd).then(
-      (g) => {
+    // One branch read, and the file read waits for it to reuse its top level and HEAD: two git processes fewer (#753).
+    const state = readGitState(run, cwd);
+    const branch: Promise<void> = state.then(
+      (s) => {
+        const g = s?.info ?? null;
         if (JSON.stringify(g) !== JSON.stringify(root.git)) {
           root.git = g;
           root.dirty = true;
@@ -474,7 +484,7 @@ export class Reporter {
       () => undefined,
     );
     // Tried even when the branch read gave null: a repository with no commits yet fails that but has files to list. A failed read keeps the last list.
-    const files: Promise<void> = readChanges(run, cwd, root.gitBase).then(
+    const files: Promise<void> = state.then((s) => readChanges(run, cwd, root.gitBase, s ?? undefined)).then(
       (c) => {
         if (!c) return;
         root.gitBase = c.base;
@@ -533,6 +543,53 @@ export class Reporter {
   }
 
   /**
+   * Reads, for each watched loop, when its shells last printed and, with the output switches on for the loop, the tail of what they printed (#897).
+   * Only the file OpenCode itself reported in `shell.created` (`info.file`) is read: it must be a `.out` file, a regular file and not a link, in the
+   * folder it names. A finished shell is read once more after it exits and then left alone. A file that is gone or unreadable is no output, never an error.
+   */
+  private async refreshShells(root: Root): Promise<void> {
+    const o = this.opts;
+    if (o.activityFeed !== true || !root.watched.length) return;
+    for (const s of root.sessions.values()) {
+      // A shell is read for any loop above its session that is watched: its output shows in that loop's list too (#1242).
+      const chain = loopChain(root, s);
+      if (!chain.some((l) => root.watched.includes(l))) continue;
+      const detail = o.backgroundOutput === true && chain.some((l) => root.watchedBackground.includes(l));
+      for (const sh of s.shells.values()) {
+        if (!sh.file || !path.isAbsolute(sh.file) || !sh.file.endsWith('.out') || (sh.exited && sh.settled && (!detail || sh.output !== null))) continue;
+        const dir = path.dirname(sh.file);
+        if (detail) {
+          // A file that has not changed since it was read has nothing new: it is not read, redacted and cut again every tick.
+          const seen = await outputTimes(nodeOutputFs, sh.file, dir);
+          if (seen.ok && sh.output !== null && sh.lastOutputAt !== null && Math.round(seen.mtimeMs) === sh.lastOutputAt) {
+            sh.settled = sh.exited;
+            continue;
+          }
+          const r = await readTail(nodeOutputFs, sh.file, dir);
+          if (!r.ok) {
+            sh.settled = sh.exited;
+            continue;
+          }
+          if (sh.output !== r.text || sh.lastOutputAt !== Math.round(r.mtimeMs)) root.dirty = true;
+          sh.output = r.text;
+          sh.outputCutAtStart = r.cutAtStart;
+          sh.lastOutputAt = r.size > 0 ? Math.round(r.mtimeMs) : null;
+        } else {
+          const r = await outputTimes(nodeOutputFs, sh.file, dir);
+          if (!r.ok) {
+            sh.settled = sh.exited;
+            continue;
+          }
+          const at = r.size > 0 ? Math.round(r.mtimeMs) : null;
+          if (at !== sh.lastOutputAt) root.dirty = true;
+          sh.lastOutputAt = at;
+        }
+        sh.settled = sh.exited;
+      }
+    }
+  }
+
+  /**
    * One pass of the flush timer: finish quiet roots, then send what is due. Resolves when this pass's sends have
    * settled, which only the timer's caller waits on, never `handle`.
    */
@@ -540,6 +597,8 @@ export class Reporter {
     if (this.closed) return;
     const now = this.deps.now();
     sweep(this.store, now, this.opts.idleMs, this.deps.attached?.() ?? false);
+    // What a watched loop's shells have printed, read from the files OpenCode reported, before the reports are built (#897).
+    await Promise.all([...this.store.roots.values()].map((root) => this.refreshShells(root)));
     const sends: Promise<void>[] = [];
     for (const root of [...this.store.roots.values()]) {
       this.queue(root);
@@ -617,18 +676,12 @@ export class Reporter {
    * A messaging tool's call (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`) from the session it ran in. A call from a subagent's
    * session is refused: only an orchestrator takes part. The answer is the tool's text, never a thrown error.
    */
-  async peerTool(name: 'podium_peers' | 'podium_send' | 'podium_request_access' | 'podium_chat_read', sessionId: string, input: unknown): Promise<string> {
+  async peerTool(name: PeerToolName, sessionId: string, input: unknown): Promise<string> {
     const peers = this.peers;
     if (!peers) return 'Not taking part. Orchestrator messaging is off on this machine.';
     const rootId = this.store.rootOf.get(sessionId);
     const root = rootId ? this.store.roots.get(rootId) : undefined;
-    const t = root ? this.transportOf(root) : undefined;
-    const sub = !!root && root.id !== sessionId;
-    const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
-    if (name === 'podium_peers') return peers.list(root, t, sub);
-    if (name === 'podium_send') return peers.send(root, t, sub, args);
-    if (name === 'podium_chat_read') return peers.chatRead(root, t, sub, args);
-    return peers.access(root, t, sub, args);
+    return peers.tool(name, root, root ? this.transportOf(root) : undefined, !!root && root.id !== sessionId, input);
   }
 
   /** `/podium allow|decline|deliver <id>` typed in a session, and the waiting requests `/podium` lists. */
@@ -683,7 +736,8 @@ export class Reporter {
       for (const root of this.store.roots.values()) {
         this.queue(root);
         const t = this.transportOf(root);
-        if (root.dirty && now >= t.nextAttemptAt) sends.push(this.send(root, t, now));
+        // The last report of a closing plugin is never held back (#752).
+        if (root.dirty && now >= t.nextAttemptAt) sends.push(this.send(root, t, now, true));
       }
       await Promise.all(sends);
       await Promise.all([...this.store.roots.values()].map((root) => this.sendRecording(root, now)));

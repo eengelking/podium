@@ -14,6 +14,7 @@ export const CLAUDE_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'classic.Notification': ['message', 'notification_type'],
   'classic.SessionStart': ['cwd'],
   'classic.UserPromptSubmit': ['cwd'],
-  'classic.Stop': ['background_tasks', 'session_crons'],
+  'classic.Stop': ['background_tasks', 'scratchpad_dir', 'session_crons'],
+  'classic.SubagentStop': ['agent_id', 'background_tasks', 'scratchpad_dir'],
   'command.run': ['args'],
 };

@@ -2,7 +2,7 @@
 // and never throws on malformed input (it is ignored).
 import type { Plan, PlanStep } from './protocol.ts';
 
-export interface TaskState {
+interface TaskState {
   id: string;
   text: string;
   activeText: string | null;

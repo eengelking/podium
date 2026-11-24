@@ -11,7 +11,7 @@ export const DETAIL_LIMIT = 20_000;
 /** Raw characters read before redaction, so a huge output costs bounded work; the cut at DETAIL_LIMIT comes after redaction. */
 const RAW_LIMIT = 100_000;
 /** Characters of commands and output over one report (the server's `activityDetailChars`), apart from the 60,000 of summaries. */
-export const DETAIL_CHARS_PER_REPORT = 200_000;
+const DETAIL_CHARS_PER_REPORT = 200_000;
 /** Full prompt and answer characters in one report; the server accepts a 512 kB body. The rest goes in later reports. */
 export const MAX_FULL_TEXT_PER_REPORT = 120_000;
 /** Activity-feed characters in one report (#118), as the server takes them: the orchestrator's first, then the agents'. */
@@ -185,13 +185,31 @@ export function withinDetailBudget(r: Report): Report {
  */
 export function withinSize(r: Report): void {
   const lists = feeds(r);
-  if (!lists.length || utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return;
+  if (!lists.length || fits(r)) return;
   const order = lists.slice().reverse().flatMap((list) => list);
   for (const fields of [OUTPUT_FIELDS, COMMAND_FIELDS]) {
     for (const e of order) {
       if (!fields.some((k) => k in e)) continue;
       for (const k of fields) delete e[k];
-      if (utf8Bytes(JSON.stringify(r)) <= RECORDING_LIMITS.bodyBytes) return;
+      if (fits(r)) return;
     }
   }
+}
+
+/** The body a report was last serialized to by `withinSize` (#752), so the transport does not serialize it a second time. */
+const bodies = new WeakMap<Report, string>();
+
+/** Serializes the report, keeps the string for `reportBody`, and says whether it is within the server's body limit. */
+function fits(r: Report): boolean {
+  const body = JSON.stringify(r);
+  bodies.set(r, body);
+  return utf8Bytes(body) <= RECORDING_LIMITS.bodyBytes;
+}
+
+/**
+ * The report as JSON: what `withinSize` serialized when it was the last thing to touch the report, else a fresh serialization. A builder
+ * calls `withinSize` last, as both reporters do, so a report carrying a feed is serialized once and not twice.
+ */
+export function reportBody(r: Report): string {
+  return bodies.get(r) ?? JSON.stringify(r);
 }

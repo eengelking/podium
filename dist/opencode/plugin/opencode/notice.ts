@@ -148,7 +148,7 @@ export class StatusRelay {
 }
 
 /** How long a toast that is not an Admin callout is taken to stay up, when it names no time (the host's own default is about this). */
-export const OTHER_TOAST_MS = 5000;
+const OTHER_TOAST_MS = 5000;
 const RESHOW_GAP_MS = 300;
 
 /**
@@ -196,7 +196,7 @@ export class ToastKeeper {
 /** How many lines the board holds. */
 const BOARD_LINES = 5;
 /** How long a line stays on the board: twice the time the server hands a callout over, so it is there for as long as the reading is. */
-export const BOARD_KEEP_MS = 10 * 60_000;
+const BOARD_KEEP_MS = 10 * 60_000;
 
 /**
  * The Admin callouts that stay in view (#1051). OpenCode has no transcript a plugin may write to without the model reading it, so a toast, which passes, is
