@@ -3,6 +3,7 @@
 // sessions it launched are one Root and one report; a child is an agent in that report.
 import { isLaunchId } from '../core/launch.ts';
 import { activityText, clip, whole, excerpt, cap, candidateFrom, classify, buildFailure, evidence, fullText, tailLines, LIMITS, type FailureCandidate } from '../core/failures.ts';
+import { BACKGROUND_KEPT_FINISHED, loopChain as chainOf } from '../core/background.ts';
 import { ACTIVITY_KEPT } from '../core/feed.ts';
 import { emptyPlan, todoWrite, type PlanState } from '../core/plan.ts';
 import type { Place } from '../core/place.ts';
@@ -31,7 +32,7 @@ export interface Tokens {
   cacheWrite: number;
 }
 
-export interface Call {
+interface Call {
   id: string;
   tool: string;
   input: Record<string, unknown>;
@@ -45,9 +46,31 @@ export interface Call {
   refused?: boolean;
 }
 
-export type SessEnd = 'running' | 'done' | 'failed' | 'aborted';
+type SessEnd = 'running' | 'done' | 'failed' | 'aborted';
 
 /** One OpenCode session: the root, or a child it launched. */
+/** One background shell OpenCode started (#897). Its output file is the one OpenCode reported; the reporter reads it only while a viewer has the loop open. */
+interface Shell {
+  id: string;
+  command: string;
+  /** The `.out` file OpenCode writes the shell's output to, as `shell.created` reported it; null when it reported none. */
+  file: string | null;
+  /** When OpenCode started it: its own time (`info.time.started`), else the event's. */
+  startedAt: number;
+  exited: boolean;
+  /** When `shell.exited` arrived (its own time, else the reporter's); null while the shell runs. */
+  endedAt: number | null;
+  /** The exit code `shell.exited` carried; null for a shell still running and for one that ended without a code (a signal). */
+  exitCode: number | null;
+  /** When the output file last changed, as the reporter last read it; null before the first read or when there is no file. */
+  lastOutputAt: number | null;
+  /** The newest output as last read, only while the output switches were on for the loop; null otherwise. */
+  output: string | null;
+  outputCutAtStart: boolean;
+  /** Whether the file was read after the shell exited, so a finished shell is not read again. */
+  settled: boolean;
+}
+
 export interface Sess {
   id: string;
   parentId: string | null;
@@ -66,6 +89,8 @@ export interface Sess {
   /** The last step's prompt size: input + cache read + cache write. */
   ctxTokens: number | null;
   executing: boolean;
+  /** A child that never reported its end was taken as over by `sweep` (#1262); later work from it makes it run again. */
+  swept?: boolean;
   end: SessEnd;
   calls: Map<string, Call>;
   toolCalls: number;
@@ -94,6 +119,8 @@ export interface Sess {
   failedCalls: Record<string, number>;
   /** The last 20 activity entries, oldest first. Empty unless the loop is watched (#118). */
   activity: ActivityEntry[];
+  /** The background shells this session started, by OpenCode's shell id, from `shell.created` and `shell.exited` (#897). Held whether or not the loop is watched: the report sends them only when it is. */
+  shells: Map<string, Shell>;
   /** The whole redacted prompt and answer, for the `fullPrompts` option; null until known. */
   promptText: string | null;
   answerText: string | null;
@@ -188,6 +215,8 @@ export interface Root {
   watched: string[];
   /** The loops of `watched` a viewer has the feed open on: a shell call's output is kept only for these. */
   watchedOutput: string[];
+  /** The loops of `watched` a viewer has the Background tab open on (#897): a shell's whole command and output go out only for these. */
+  watchedBackground: string[];
   /** What the session records (#353). It captures nothing until the server grants it and the person's option is on. */
   recorder: Recorder;
   /** Messages from Podium handed to OpenCode as a prompt and not yet seen back, so the recording keeps the text that was sent. */
@@ -202,6 +231,8 @@ export interface Store {
   roots: Map<string, Root>;
   /** Session id to the id of its root. */
   rootOf: Map<string, string>;
+  /** A background shell's id to the id of the session that started it, so `shell.exited`, which names no session, finds it (#897). */
+  shellOf: Map<string, string>;
 }
 
 /**
@@ -218,9 +249,11 @@ export const EVENT_TYPES = [
   'session.compaction.started', 'session.compaction.ended', 'session.compaction.failed',
   'permission.asked', 'permission.replied',
   'form.created', 'form.replied', 'form.cancelled',
+  // A background shell starting and ending (#897): `shell.created` carries the session that started it, `shell.exited` only the shell's id.
+  'shell.created', 'shell.exited',
 ] as const;
 
-export const newStore = (): Store => ({ roots: new Map(), rootOf: new Map() });
+export const newStore = (): Store => ({ roots: new Map(), rootOf: new Map(), shellOf: new Map() });
 
 const zero = (): Tokens => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 
@@ -229,7 +262,7 @@ function newSess(id: string, parentId: string | null, at: number): Sess {
     id, parentId, startedAt: at, endedAt: null, lastAt: at, title: null, agent: null, model: null, provider: null,
     tokens: zero(), costUsd: 0, ctxTokens: null, executing: false, end: 'running', calls: new Map(), toolCalls: 0,
     toolCounts: {}, toolStats: {}, lastTool: null, steps: 0, blowouts: 0, blowoutTimes: [], prompt: '', answer: '', failure: null, explainedAt: null, effort: null, skills: [], usage: {}, candidate: null, failedCalls: {},
-    activity: [], promptText: null, answerText: null, promptSent: false, answerSent: false,
+    activity: [], shells: new Map(), promptText: null, answerText: null, promptSent: false, answerSent: false,
   };
 }
 
@@ -239,12 +272,21 @@ function newRoot(id: string, cwd: string | null, at: number): Root {
   return {
     id, cwd, startedAt: at, lastAt: at, sessions: new Map([[id, newSess(id, null, at)]]), children: [], plan: emptyPlan,
     asks: new Map(), compacting: false, compactions: 0, done: false, endReason: null, git: null, place: null, storedName: null, background: null, placeFor: null, signals: {}, files: null, gitBase: null, events: [], seq: 0, dirty: true,
-    watched: [], watchedOutput: [], recorder, sentFromPodium: [], podiumCompact: null, podiumAnswered: new Set(),
+    watched: [], watchedOutput: [], watchedBackground: [], recorder, sentFromPodium: [], podiumCompact: null, podiumAnswered: new Set(),
   };
 }
 
 /** The loop key of a session in the server's watch list and in a recording: the orchestrator's own, else the child's session id. */
 export const loopKey = (root: Root, s: Sess): string => (s.id === root.id ? MAIN_LOOP : s.id);
+
+/** The loop keys a session sits under (#1242): its own, then each parent session up to the orchestrator, which ends the chain. */
+export function loopChain(root: Root, s: Sess): string[] {
+  return chainOf(loopKey(root, s), (key) => {
+    const parent = root.sessions.get(key)?.parentId;
+    // A parent session this root has not seen is no loop: the child sits directly under the orchestrator.
+    return !parent || parent === root.id || !root.sessions.has(parent) ? null : parent;
+  }, root.sessions.size + 1);
+}
 
 /** The entries of every loop without its `output` once the loop has lost its lease; how a call ended stays (#598). */
 function withoutOutput(list: ActivityEntry[]): ActivityEntry[] {
@@ -264,6 +306,8 @@ export function setWatched(root: Root, ids: readonly string[]): void {
   if (next.length === root.watched.length && next.every((id, i) => id === root.watched[i])) return;
   root.watched = next;
   for (const s of root.sessions.values()) if (!next.includes(loopKey(root, s))) s.activity = [];
+  // A shell started before the viewer came is listed with the next report, not whenever something else changes (#897).
+  if ([...root.sessions.values()].some((s) => s.shells.size > 0)) root.dirty = true;
   setWatchedOutput(root, root.watchedOutput.filter((id) => next.includes(id)));
 }
 
@@ -273,6 +317,25 @@ export function setWatchedOutput(root: Root, ids: readonly string[]): void {
   if (next.length === root.watchedOutput.length && next.every((id, i) => id === root.watchedOutput[i])) return;
   root.watchedOutput = next;
   for (const s of root.sessions.values()) if (!next.includes(loopKey(root, s))) s.activity = withoutOutput(s.activity);
+}
+
+/**
+ * The loops a viewer has the Background tab open on (#897). A loop that drops off the list forgets the whole command and the output its shells
+ * held; the list of shells (state and times) stays while the loop is watched.
+ */
+export function setWatchedBackground(root: Root, ids: readonly string[]): void {
+  const next = [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+  if (next.length === root.watchedBackground.length && next.every((id, i) => id === root.watchedBackground[i])) return;
+  root.watchedBackground = next;
+  if ([...root.sessions.values()].some((s) => s.shells.size > 0)) root.dirty = true;
+  for (const s of root.sessions.values()) {
+    if (loopChain(root, s).some((l) => next.includes(l))) continue;
+    for (const sh of s.shells.values()) {
+      sh.output = null;
+      sh.outputCutAtStart = false;
+      sh.settled = false;
+    }
+  }
 }
 
 /** Adds an entry to the feed of a loop that is watched, keeping the last 20. A loop nobody watches keeps nothing. */
@@ -429,10 +492,74 @@ function ask(root: Root, a: Ask): void {
 }
 
 /**
+ * `shell.created` and `shell.exited` (#897). The first carries `info: { id, status, command, cwd, file, metadata.sessionID, time.started }`;
+ * the second only the shell's id, its status and its exit code (absent for a shell signalled from outside). A shell of a session this
+ * reporter does not know is ignored: it must not invent a root. Returns the root it changed, or null.
+ */
+/** A session keeps its running shells and the latest finished ones; an older finished shell, and its id in the store, are forgotten (#897). */
+function pruneShells(store: Store, s: Sess): void {
+  const done = [...s.shells.values()].filter((x) => x.exited);
+  for (const x of done.slice(0, Math.max(0, done.length - BACKGROUND_KEPT_FINISHED))) {
+    s.shells.delete(x.id);
+    store.shellOf.delete(x.id);
+  }
+}
+
+function applyShell(store: Store, ev: BusEvent, at: number): Root | null {
+  const d = ev.data ?? {};
+  if (ev.type === 'shell.created') {
+    const info = d.info ?? d;
+    const id = str(info.id);
+    const sid = str(info.metadata?.sessionID) ?? str(info.sessionID);
+    if (!id || !sid) return null;
+    const rid = store.rootOf.get(sid);
+    const root = rid ? store.roots.get(rid) : undefined;
+    const s = root?.sessions.get(sid);
+    if (!root || !s) return null;
+    if (s.shells.has(id)) return null;
+    const started = typeof info.time?.started === 'number' && Number.isFinite(info.time.started) ? whole(info.time.started) : whole(typeof ev.created === 'number' && Number.isFinite(ev.created) ? ev.created : at);
+    s.shells.set(id, {
+      id,
+      command: typeof info.command === 'string' ? info.command : '',
+      file: str(info.file),
+      startedAt: started,
+      exited: false,
+      endedAt: null,
+      exitCode: null,
+      lastOutputAt: null,
+      output: null,
+      outputCutAtStart: false,
+      settled: false,
+    });
+    store.shellOf.set(id, sid);
+    pruneShells(store, s);
+    root.dirty = true;
+    return root;
+  }
+  const info = d.info ?? d;
+  const id = str(info.id);
+  const sid = id ? store.shellOf.get(id) : undefined;
+  const rid = sid ? store.rootOf.get(sid) : undefined;
+  const root = rid ? store.roots.get(rid) : undefined;
+  const owner = sid ? root?.sessions.get(sid) : undefined;
+  const sh = owner && id ? owner.shells.get(id) : undefined;
+  if (!root || !owner || !sh) return null;
+  sh.exited = true;
+  sh.endedAt = whole(typeof ev.created === 'number' && Number.isFinite(ev.created) ? ev.created : at);
+  // OpenCode names no code for a shell that was signalled; it is not called killed, because OpenCode does not say so.
+  sh.exitCode = typeof info.exit === 'number' && Number.isInteger(info.exit) ? info.exit : null;
+  sh.settled = false;
+  pruneShells(store, owner);
+  root.dirty = true;
+  return root;
+}
+
+/**
  * Folds one event into the store and returns the root it changed, or null when it changes nothing a report shows.
  * `at` is the time to use when the event carries none.
  */
 export function apply(store: Store, ev: BusEvent, at: number): Root | null {
+  if (ev.type === 'shell.created' || ev.type === 'shell.exited') return applyShell(store, ev, at);
   const d = ev.data ?? {};
   const t = whole(typeof ev.created === 'number' && Number.isFinite(ev.created) ? ev.created : at);
   const sid = str(d.sessionID) ?? str(d.form?.sessionID);
@@ -451,6 +578,13 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
   if (ending && root.done) return root;
   root.lastAt = t;
   s.lastAt = t;
+  // A child `sweep` took as over that does more work was alive after all.
+  if (s.swept && (type === 'session.step.started' || type === 'session.tool.input.started' || type === 'session.tool.called')) {
+    s.swept = false;
+    s.executing = true;
+    s.end = 'running';
+    s.endedAt = null;
+  }
   if (!ending) reopen(root, t);
   root.dirty = true;
   switch (type) {
@@ -475,6 +609,7 @@ export function apply(store: Store, ev: BusEvent, at: number): Root | null {
     }
     case 'session.execution.started':
       s.executing = true;
+      s.swept = false;
       // The list was true when the session went idle; a new run makes it stale.
       if (root.background) {
         root.background = null;
@@ -681,11 +816,34 @@ export function idleFor(root: Root, now: number, idleMs: number): boolean {
 }
 
 /**
+ * How long a child session may stay silent while it shows as executing before it is taken as over (#1262). OpenCode lists no
+ * sessions to ask, so silence is the only sign: a child with a tool call, a shell or a permission or question still open is never taken as over, and
+ * one that shows more work later runs again. Ten minutes is long enough for a model to think without a word.
+ */
+const LOST_CHILD_MS = 10 * 60_000;
+
+/** A child that never reported its stop stops holding the root at running. The root's own execution is left alone: only its end can be lost harmlessly. */
+function sweepLost(root: Root, now: number): void {
+  if (root.done) return;
+  for (const s of root.sessions.values()) {
+    if (s.id === root.id || !s.executing || now - s.lastAt < LOST_CHILD_MS) continue;
+    if ([...s.calls.values()].some((c) => !c.done) || [...s.shells.values()].some((sh) => !sh.exited) || [...root.asks.values()].some((a) => a.sessionId === s.id)) continue;
+    s.executing = false;
+    s.swept = true;
+    s.end = 'done';
+    s.endedAt = now;
+    emit(root, now, 'done', s.id, 'finished');
+    root.dirty = true;
+  }
+}
+
+/**
  * Finishes every root that has been quiet for `idleMs`. Returns the roots it finished. While `hold` is set (a TUI is attached,
  * so the session is open and can be messaged) nothing is finished for being quiet (#984).
  */
 export function sweep(store: Store, now: number, idleMs: number, hold = false): Root[] {
   const out: Root[] = [];
+  for (const r of store.roots.values()) sweepLost(r, now);
   if (hold) return out;
   for (const r of store.roots.values()) {
     // The launch placeholder (#1112) stands for an open OpenCode with no session yet: it ends when a real session starts or on shutdown, never for being quiet.

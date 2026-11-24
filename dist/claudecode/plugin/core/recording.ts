@@ -15,11 +15,11 @@ export const RECORDING_BATCH_INTERVAL_MS = 5000;
 /** A queue this big (256 KB) goes at the next flush tick without waiting out the interval, so a busy loop does not pile up. */
 export const RECORDING_FLUSH_BYTES = 256 * 1024;
 /** Entries in one request (the server's limit). */
-export const RECORDING_BATCH_ENTRIES = RECORDING_LIMITS.entries;
+const RECORDING_BATCH_ENTRIES = RECORDING_LIMITS.entries;
 /** Serialized bytes of one request (the server's limit, under its 512 KB body limit). */
-export const RECORDING_BATCH_BYTES = RECORDING_LIMITS.bodyBytes;
+const RECORDING_BATCH_BYTES = RECORDING_LIMITS.bodyBytes;
 /** Bytes the queue holds while the server cannot be reached. 8 MB, see SPEC 6.4. */
-export const RECORDING_QUEUE_BYTES = RECORDING_LIMITS.queueBytes;
+const RECORDING_QUEUE_BYTES = RECORDING_LIMITS.queueBytes;
 /** Room in a request for its envelope (`v`, `sentAt`, the array) beyond the entries. */
 const ENVELOPE_BYTES = 200;
 
@@ -71,7 +71,7 @@ function pathOf(tool: string, input: Record<string, unknown>): { key: string; pa
 }
 
 /** Whether a tool call names a file on the never-send list. */
-export function withheldCall(tool: string, input: Record<string, unknown>): boolean {
+function withheldCall(tool: string, input: Record<string, unknown>): boolean {
   const p = pathOf(tool, input);
   return !!p && withheldPath(p.path);
 }

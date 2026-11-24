@@ -30,7 +30,7 @@ export function isMachineId(v: unknown): v is string {
 }
 
 /** The file name the machine id is shared under, in the Claude config directory (#267). */
-export const MACHINE_ID_FILE = 'podium-machine-id';
+const MACHINE_ID_FILE = 'podium-machine-id';
 
 /**
  * Where the shared machine id file lives: `CLAUDE_CONFIG_DIR` when set, else `~/.claude`. Null when
@@ -44,7 +44,7 @@ export function machineIdPath(configDir: string | undefined, home: string | unde
 }
 
 /** The file name of the id shared by every reporter, in the person's `~/.podium/` folder (#856). */
-export const SHARED_MACHINE_ID_FILE = 'machine-id';
+const SHARED_MACHINE_ID_FILE = 'machine-id';
 
 /** `~/.podium`. Null when the home directory is not an absolute path. */
 export function sharedPodiumDir(home: string | undefined): string | null {
@@ -88,7 +88,7 @@ export function parseMachineIdFile(text: string | null | undefined): string | nu
 }
 
 /** The file name the machine's name is pinned under, beside the id file (#715). */
-export const MACHINE_NAME_FILE = 'podium-machine-name';
+const MACHINE_NAME_FILE = 'podium-machine-name';
 
 /** Where the pinned name lives: the id file's folder, so both follow `CLAUDE_CONFIG_DIR`. Null when the id file has no place. */
 export function machineNamePath(configDir: string | undefined, home: string | undefined): string | null {
@@ -143,7 +143,7 @@ export function machineInfo(host: string | null, id: string, os: string | null =
 // The mods API has no call for it, so the mod runs a command and takes the first that works.
 
 /** The longest OS string a report carries (PEER_LIMITS.os). */
-export const OS_MAX = 80;
+const OS_MAX = 80;
 
 /** One line of free text, without control characters, cut to 80. Null when nothing is left. */
 export function cleanOs(v: string | null | undefined): string | null {

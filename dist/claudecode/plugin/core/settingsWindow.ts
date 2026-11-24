@@ -10,7 +10,7 @@ import { CONSENT_VARS } from './settings.ts';
 export type Harness = 'claudecode' | 'opencode';
 export type SettingGroup = 'consent' | 'connection' | 'timing' | 'context';
 /** `choice` picks one of `choices`, `switch` is on or off, `number` is a whole number of at least `min`, `info` is shown and never changed here. */
-export type SettingKind = 'choice' | 'switch' | 'number' | 'info';
+type SettingKind = 'choice' | 'switch' | 'number' | 'info';
 
 export interface Setting {
   id: string;
@@ -39,7 +39,7 @@ export const SETTING_GROUPS: readonly { id: SettingGroup; title: string; short: 
   { id: 'context', title: 'Context', short: 'Context' },
 ];
 
-export const RESPOND_CHOICES = ['off', 'questions', 'questions-and-plans', 'everything'] as const;
+const RESPOND_CHOICES = ['off', 'questions', 'questions-and-plans', 'everything'] as const;
 
 /** Every row the window can show. A harness shows a row that it has a home for (`settingsFor`). The token is not here, and never will be. */
 export const SETTINGS: readonly Setting[] = [
@@ -67,7 +67,7 @@ export const WRITABLE_KEYS: ReadonlySet<string> = new Set(SETTINGS.filter((s) =>
 export const WRITABLE_OPTIONS: ReadonlySet<string> = new Set(SETTINGS.filter((s) => s.editable && s.option).map((s) => s.option!));
 
 /** Below this many columns a harness draws the short labels. */
-export const NARROW_COLUMNS = 60;
+const NARROW_COLUMNS = 60;
 export const isNarrow = (columns: number | null | undefined): boolean => typeof columns === 'number' && columns > 0 && columns < NARROW_COLUMNS;
 
 export const WINDOW_TITLE = 'Podium settings';
@@ -75,10 +75,10 @@ export const WINDOW_TITLE = 'Podium settings';
 export const NEXT_START = 'next start';
 export const NEXT_START_NOTE = 'Changes take effect at the next start.';
 export const LOCKED_NOTE = 'Change it where it is set. This window cannot.';
-export const CONTEXT_HINT = 'Switch it with /podium context use <name>.';
+const CONTEXT_HINT = 'Switch it with /podium context use <name>.';
 export const CLAUDE_CONFIGURE = '/plugin configure podium-reporter';
-export const CLAUDE_CONNECTION_HINT = `Token and server: ${CLAUDE_CONFIGURE}`;
-export const OPENCODE_CONNECTION_HINT = 'Server and name: PODIUM_SERVER and PODIUM_USER in ~/.podium/config.env';
+const CLAUDE_CONNECTION_HINT = `Token and server: ${CLAUDE_CONFIGURE}`;
+const OPENCODE_CONNECTION_HINT = 'Server and name: PODIUM_SERVER and PODIUM_USER in ~/.podium/config.env';
 
 /** What `/podium config` says where no window can be drawn. */
 export function noWindowText(harness: Harness, path: string | null): string {

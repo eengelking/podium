@@ -1,1 +1,0 @@
-The atlas now covers addressing a member with an @ in a Direct Message (#1282): the `conversation_deliveries` table (SQLite migration 53, PostgreSQL and MariaDB step 29), `resolveTargets`, and the For and delivery lines.

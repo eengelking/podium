@@ -1,1 +1,0 @@
-The console now decides which sessions are yours by your id, not your name: the wall's Me view and My sessions, who may answer or record a session, and who an Admin's read is told to. A session of a person who was deleted is no one's, even for a new person with the same name.

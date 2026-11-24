@@ -309,7 +309,7 @@ else `USERPROFILE`, else `HOMEDRIVE` plus `HOMEPATH`, and `/podium` shows which 
 that none was found). The reporter then
 connects to the address in the file, the server's reporter port, over HTTPS with your certificate, and the certificate is what proves who you are. That port accepts only a valid certificate. A token you have set is still sent, inside the TLS connection, and the server ignores it when your certificate is present. Nothing is installed on your machine.
 A session with no `userName` option and no `PODIUM_USER` reports as the name in the file's `# user:` line. If either is
-set to another name, the status line says "wrong config for this name" and names which one: empty it, or set it to the
+set to another name, the status line (on OpenCode, the console line below) says "wrong config for this name" and names which one: empty it, or set it to the
 file's name. Set `PODIUM_REPORTER_CONFIG` to use a file somewhere else. With no file, nothing changes. If you use more than one Podium server, name each file with a context (below).
 The OpenCode reporter finds and uses the file the same way, with no helper: it makes the connection inside the OpenCode process, and it has no status line, so what is wrong (a file others can read, an expired or refused certificate, the wrong name) is written once to the console as a `podium-reporter:` line.
 
@@ -330,7 +330,7 @@ unless you say otherwise. A context is a name for one file, and the current cont
 
 - **Switching never touches a running session.** It keeps the server and the person it started with. Start a new
   session to use the new context.
-- **Two servers at once.** Set `PODIUM_REPORTER_CONTEXT=work` in one terminal before starting Claude Code there. It wins over
+- **Two servers at once.** Set `PODIUM_REPORTER_CONTEXT=work` in one terminal before starting Claude Code or OpenCode there. It wins over
   the current context for that terminal only. `PODIUM_REPORTER_CONFIG` still wins over both.
 - **The status line and `/podium`** show the context, such as `podium v1.4.0 [work] ● 3 live`. A context that could not be
   used shows `[context unusable]`.
@@ -367,7 +367,8 @@ unless you say otherwise. A context is a name for one file, and the current cont
   another name than this session's, an expired or revoked certificate, or a server certificate that is expired, for
   another name or from another CA. It never falls back to HTTP.
 - **What the status line is telling you.** The server's side of this (turning TLS on and the reporter port) is in
-  [SERVER.md](SERVER.md#built-in-tls).
+  [SERVER.md](SERVER.md#built-in-tls). OpenCode has no status line: its reporter writes a problem once to the console as a
+  `podium-reporter:` line, and `/podium` shows it, so read the table below as that line and the `TLS:` line on OpenCode.
 
   | Status line says | What it means and what to do |
   |---|---|
