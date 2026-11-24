@@ -8,7 +8,7 @@ import type { SessionView } from "../types";
 import { AdminTags, ReadPicker } from "./ChatAdmin";
 import { ChatAvatar, ChatAvatarPair, type AvatarProps } from "./ChatAvatar";
 import { ChChev, ChDm, ChDots, ChGroup, ChHash, ChPlus, TagGlyph } from "./ChatIcons";
-import { ChatMenu, agentMenu, channelMenu, dmMenu, personMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
+import { ChatMenu, agentMenu, channelMenu, conversationMenu, dmMenu, personMenu, type MenuAct, type MenuSpec } from "./ChatMenu";
 import { stateKind, type StateKind } from "./Chips";
 import { PageNav } from "./PageNav";
 import { Tip } from "./Tip";
@@ -118,6 +118,14 @@ export interface SidebarProps {
   serverNow: number;
 }
 
+/** A conversation of people and agents: the other person's avatar, or two of them overlapped (the people first, then the agents). Its row and its header draw it (#1345). */
+export function ConversationAvatar({ c }: { c: ConversationInfo }): ReactNode {
+  const others = c.members.filter((m) => !m.you).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "person" ? -1 : 1));
+  const av = (m: ConversationInfo["members"][number]): AvatarProps => (m.kind === "agent" ? { kind: "agent", name: m.name } : { kind: "person", name: m.name });
+  if (others.length >= 2) return <ChatAvatarPair a={av(others[0]!)} b={av(others[1]!)} />;
+  return <ChatAvatar {...av(others[0] ?? c.members[0]!)} size={28} />;
+}
+
 export function ChatSidebar(p: SidebarProps) {
   const { overview: o } = p;
   const person = o.me.person;
@@ -196,21 +204,13 @@ export function ChatSidebar(p: SidebarProps) {
     ), { open: () => p.onDm(d), aria: `Actions for ${name}`, unread: !ro && d.unread + d.mentions > 0 });
   };
 
-  /** A conversation of people and agents: the other person's avatar, or two of them overlapped (the people first, then the agents). */
-  const convoAvatar = (c: ConversationInfo): ReactNode => {
-    const others = c.members.filter((m) => !m.you).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === "person" ? -1 : 1));
-    const av = (m: ConversationInfo["members"][number]): AvatarProps => (m.kind === "agent" ? { kind: "agent", name: m.name } : { kind: "person", name: m.name });
-    if (others.length >= 2) return <ChatAvatarPair a={av(others[0]!)} b={av(others[1]!)} />;
-    return <ChatAvatar {...av(others[0] ?? c.members[0]!)} size={28} />;
-  };
-
   const convoRow = (c: ConversationInfo) => {
     const name = conversationName(c);
     const ro = p.readAs !== null;
     const readers = ro ? [] : liveReaders(c.adminReading, p.serverNow);
-    return row(`v:${c.id}`, null, (
+    return row(`v:${c.id}`, ro ? null : conversationMenu(name), (
       <>
-        {convoAvatar(c)}
+        <ConversationAvatar c={c} />
         <span className="stack">
           <span className="nm" title={name}><bdi>{name}</bdi></span>
           <span className="sub">{conversationSub(c)}</span>

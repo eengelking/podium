@@ -4364,6 +4364,11 @@ describe("conversations of people and agents (#1278)", () => {
   });
 
   describe("editing and deleting your own message (#1296: the rows are memoized, so the actions must still reach the page's latest props)", () => {
+    // Your message is the second row; a right-click opens the menu every other chat has (#1345).
+    const chooseOwn = (name: string) => {
+      fireEvent.contextMenu(within(screen.getByTestId("chat-conversation")).getAllByTestId("chat-message")[1]!, { clientX: 100, clientY: 100 });
+      fireEvent.click(within(screen.getByRole("menu", { name: "Your message" })).getByRole("menuitem", { name }));
+    };
     const opened = async () => {
       const chat = withConvo();
       const p = page({ chat });
@@ -4380,7 +4385,7 @@ describe("conversations of people and agents (#1278)", () => {
         chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
         return { ok: true as const, message: m };
       });
-      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      chooseOwn("Edit message");
       fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "yes, after lunch" } });
       p.signal();
       await flush();
@@ -4395,10 +4400,10 @@ describe("conversations of people and agents (#1278)", () => {
 
     it("closes the box on Cancel and on a save of the same text, without asking the server", async () => {
       const { chat, c } = await opened();
-      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      chooseOwn("Edit message");
       fireEvent.click(c.getByRole("button", { name: "Cancel" }));
       expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
-      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      chooseOwn("Edit message");
       fireEvent.click(c.getByRole("button", { name: "Save" }));
       await flush();
       expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
@@ -4407,7 +4412,7 @@ describe("conversations of people and agents (#1278)", () => {
 
     it("shows the server's words when a save is refused, and a plain line when it did not answer, and keeps the box", async () => {
       const { chat, c } = await opened();
-      fireEvent.click(c.getByRole("button", { name: "Edit message" }));
+      chooseOwn("Edit message");
       fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "changed" } });
       chat.api.editConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "Podium has already sent this message to Tester, so it can no longer be changed." }));
       fireEvent.click(c.getByRole("button", { name: "Save" }));
@@ -4423,7 +4428,7 @@ describe("conversations of people and agents (#1278)", () => {
     it("deletes after the question, leaves the note a delete leaves, and says so when the server refuses", async () => {
       const { chat } = await opened();
       chat.api.deleteConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "It is locked." }));
-      fireEvent.click(within(screen.getByTestId("chat-conversation")).getByRole("button", { name: "Delete message" }));
+      chooseOwn("Delete message");
       const dialog = within(screen.getByRole("alertdialog"));
       fireEvent.click(dialog.getByRole("button", { name: "Delete message" }));
       await flush();
@@ -4438,6 +4443,137 @@ describe("conversations of people and agents (#1278)", () => {
       expect(chat.api.deleteConversationMessage).toHaveBeenLastCalledWith("cnv_1", "k2");
       expect(screen.queryByRole("alertdialog")).toBeNull();
       expect(within(screen.getByTestId("chat-conversation")).getByText("You deleted this message.")).toBeInTheDocument();
+    });
+  });
+
+  // #1345: a Direct Message to a person is the same chat as every other one.
+  describe("a Direct Message to a person looks and acts like every other chat (#1345)", () => {
+    const opened = async (chat = withConvo()) => {
+      const p = page({ chat });
+      await flush();
+      fireEvent.click(rowBtn("v:cnv_1"));
+      await flush();
+      return { chat, p, c: within(screen.getByTestId("chat-conversation")) };
+    };
+
+    it("has no Edit, Delete or Leave button among the messages or above the box", async () => {
+      const { c } = await opened();
+      expect(c.queryByRole("button", { name: "Edit message" })).toBeNull();
+      expect(c.queryByRole("button", { name: "Delete message" })).toBeNull();
+      expect(screen.getByTestId("chat-conversation").querySelector(".ch-own, .ch-actions")).toBeNull();
+      expect(screen.getByTestId("chat-conversation").querySelector(".ch-composer")!.previousElementSibling?.querySelector("button")).toBeNull();
+    });
+
+    it("uses the thread's own layout classes, so its list scrolls and is padded like the others", async () => {
+      await opened();
+      const t = screen.getByTestId("chat-conversation");
+      expect(t.querySelector(".ch-body")).not.toBeNull();
+      expect(t.querySelector(".ch-scroll")).toBeNull();
+      expect(t.querySelector(".ch-alert")).not.toBeNull();
+    });
+
+    it("says who can read it under the title, in the second line, and the count in the first", async () => {
+      await opened();
+      const subs = screen.getByTestId("chat-conversation").querySelectorAll(".ch-head > .sub");
+      expect(subs).toHaveLength(2);
+      expect(subs[0]).toHaveTextContent("2 messages");
+      expect(subs[1]).toHaveTextContent("Only you and Maya can read this. An Admin cannot.");
+    });
+
+    it("opens the menu on a right-click, from the keyboard on the focused message, and does so for your own message only", async () => {
+      const { c } = await opened();
+      const rows = c.getAllByTestId("chat-message");
+      expect(fireEvent.contextMenu(rows[0]!)).toBe(true);
+      expect(screen.queryByRole("menu", { name: "Your message" })).toBeNull();
+      expect(fireEvent.contextMenu(rows[1]!, { clientX: 130, clientY: 210 })).toBe(false);
+      const m = screen.getByRole("menu", { name: "Your message" });
+      expect(within(m).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Edit messageE", "Delete messageDel"]);
+      expect(rows[1]).toHaveClass("menu-open");
+      fireEvent.keyDown(m, { key: "Escape" });
+      await flush();
+      act(() => rows[1]!.focus());
+      fireEvent.keyDown(rows[1]!, { key: "Enter" });
+      expect(screen.getByRole("menu", { name: "Your message" })).toBeInTheDocument();
+    });
+
+    it("edits on E and asks before deleting on Delete, on the focused message", async () => {
+      const { c } = await opened();
+      const mine = () => c.getAllByTestId("chat-message")[1]!;
+      act(() => mine().focus());
+      fireEvent.keyDown(mine(), { key: "e" });
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toBeInTheDocument();
+      fireEvent.click(c.getByRole("button", { name: "Cancel" }));
+      act(() => mine().focus());
+      fireEvent.keyDown(mine(), { key: "Delete" });
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    it("moves to your latest message on Up in an empty box", async () => {
+      const { c } = await opened();
+      const box = c.getByLabelText("Message Maya");
+      fireEvent.keyDown(box, { key: "ArrowUp" });
+      expect(c.getAllByTestId("chat-message")[1]).toHaveFocus();
+    });
+
+    it("keeps the menu closed on a message the server will not let you change, and says why on E", async () => {
+      const { c } = await opened(withConvo(convo(), [cmessage("k1", "locked", true, { canChange: false, changeWhy: "Podium has already sent this message to Tester, so it can no longer be changed." })]));
+      const row0 = c.getAllByTestId("chat-message")[0]!;
+      fireEvent.contextMenu(row0, { clientX: 1, clientY: 1 });
+      expect(within(screen.getByRole("menu", { name: "Your message" })).getByRole("menuitem", { name: "Edit message" })).toHaveAttribute("aria-disabled", "true");
+      fireEvent.keyDown(screen.getByRole("menu", { name: "Your message" }), { key: "Escape" });
+      await flush();
+      act(() => row0.focus());
+      fireEvent.keyDown(row0, { key: "e" });
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(screen.getByTestId("chat-msg-said")).toHaveTextContent("so it can no longer be changed");
+    });
+
+    it("opens the sender's menu on another person's avatar, with Message", async () => {
+      const { c } = await opened();
+      fireEvent.contextMenu(c.getAllByTestId("chat-message")[0]!.querySelector(".ch-gut")!, { clientX: 20, clientY: 20 });
+      expect(within(screen.getByRole("menu", { name: "Actions for Maya" })).getByRole("menuitem", { name: "Message Maya" })).toBeInTheDocument();
+    });
+
+    it("puts Leave conversation in the header, left of the members, and leaves from there", async () => {
+      const { chat } = await opened();
+      const top = screen.getByTestId("chat-conversation").querySelector(".ch-head-top") as HTMLElement;
+      const leave = within(top).getByRole("button", { name: "Leave conversation" });
+      const stack = within(top).getByTestId("chat-members-toggle");
+      expect(leave.compareDocumentPosition(stack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      fireEvent.click(leave);
+      await flush();
+      expect(chat.api.leaveConversation).toHaveBeenCalledWith("cnv_1");
+      expect(screen.queryByTestId("chat-conversation")).toBeNull();
+      expect(screen.getByText("You left the conversation.")).toBeInTheDocument();
+    });
+
+    it("gives its row in the list the same ... menu as the others, with Leave conversation", async () => {
+      const { chat } = await opened();
+      const more = within(row("v:cnv_1")).getByRole("button", { name: "Actions for Maya" });
+      fireEvent.click(more);
+      const m = screen.getByRole("menu", { name: "Actions for Maya" });
+      fireEvent.click(within(m).getByRole("menuitem", { name: /Leave conversation/ }));
+      await flush();
+      expect(chat.api.leaveConversation).toHaveBeenCalledWith("cnv_1");
+      expect(screen.queryByTestId("chat-conversation")).toBeNull();
+      expect(screen.getByText("You left the conversation.")).toBeInTheDocument();
+    });
+
+    it("says so, and stays, when leaving fails", async () => {
+      const chat = withConvo();
+      chat.api.leaveConversation.mockRejectedValueOnce(new Error("offline"));
+      await opened(chat);
+      fireEvent.click(within(screen.getByTestId("chat-conversation").querySelector(".ch-head-top") as HTMLElement).getByRole("button", { name: "Leave conversation" }));
+      await flush();
+      expect(screen.getByTestId("chat-conversation")).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Could not leave: the server did not answer. You are still in it. Try again.");
+    });
+
+    it("shows the start of an empty one with the people's avatars, as every other thread does", async () => {
+      await opened(withConvo(convo(), []));
+      const intro = screen.getByTestId("chat-intro");
+      expect(intro.querySelector(".ch-intro-av")).not.toBeNull();
+      expect(intro).toHaveTextContent("This is the start of Maya");
     });
   });
 

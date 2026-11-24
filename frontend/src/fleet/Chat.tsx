@@ -272,6 +272,19 @@ function ChatBody(props: ChatPageProps) {
     if (!name) setTimeout(() => document.getElementById("read-as")?.focus(), 0);
   };
   const openDm = (d: DirectInfo) => select({ kind: "dm", a: d.a.sessionId, b: d.b.sessionId, key: dmKey(d) });
+  /** Leaves a conversation of people (#1345): from its header or from its row's menu. The page says so, or says why not, and goes back to the list. */
+  const leaveConvo = (id: string) =>
+    void act(
+      async () => {
+        await api.leaveConversation(id);
+        if (picked?.kind === "convo" && picked.id === id) {
+          setPicked(null);
+          setPane("side");
+        }
+      },
+      "You left the conversation.",
+      (w) => `Could not leave: ${w}. You are still in it. Try again.`,
+    );
 
   /** Runs one action of a menu and reads again. A refusal is said in words, with what to try. */
   const act = async (run: () => Promise<unknown>, ok: string, failed: (why: string) => string) => {
@@ -426,6 +439,10 @@ function ChatBody(props: ChatPageProps) {
         setConfirm("remove-channel");
       }
       else if (a === "disconnect") void act(() => (own(c) ? api.disconnect(c.id, !c.disconnected, readAs) : api.disconnect(c.id, !c.disconnected)), c.disconnected ? "Your agents are reconnected." : "Your agents are disconnected.", (w) => `Could not ${c.disconnected ? "reconnect" : "disconnect"} your agents: ${w}. Nothing changed. Try again.`);
+      return;
+    }
+    if (kind === "v") {
+      if (a === "leave") leaveConvo(id);
       return;
     }
     const d = o.directs.find((x) => dmKey(x) === id);
@@ -728,6 +745,18 @@ function ChatBody(props: ChatPageProps) {
             }}
             onChanged={() => overview.reload()}
             onSaid={setSaid}
+            onLeave={() => leaveConvo(cv.id)}
+            leaving={busy}
+            alert={alert}
+            draft={draft}
+            onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
+            onMessagePerson={(name, from) => openForm({ kind: "dm", person: name }, `p:${name}`, from)}
+            onMessageAgent={(sessionId, name, from) => {
+              const agent = o.agents.find((x) => x.sessionId === sessionId);
+              if (agent) startAgent(agent);
+              else openForm({ kind: "dm", search: name }, `h:${sessionId}`, from);
+            }}
+            onStopReading={() => chooseReader(null)}
           />
         ) : (
           <ChatThread

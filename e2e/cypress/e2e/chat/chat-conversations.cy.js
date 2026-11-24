@@ -1,7 +1,7 @@
 // SPEC 8.1 Chat page (#1278, DECISIONS 74), Direct Messages as conversations of people and agents: Ed messages a person who has no orchestrator running (Maya) from People and agents,
-// the first message is in his thread (its privacy line, Edit message and Delete message on his own message), Maya sees the conversation in her list with an unread count and reading it
+// the first message is in his thread (its privacy line, and Edit message and Delete message in the menu a right-click on his own message opens, with no button for either, #1345), Maya sees the conversation in her list with an unread count and reading it
 // clears the count, the same two members reuse one conversation (the dialog says so), a third person (Sam) added from the members panel reads it, a stranger and an Admin are answered 404
-// for a conversation of people alone and an Admin browsing Ed's Chat is not shown it, and Leave conversation takes it out of the leaver's list.
+// for a conversation of people alone and an Admin browsing Ed's Chat is not shown it, and Leave conversation, in the "..." menu of its row in the list and as a button in the header, takes it out of the leaver's list.
 // Order: the tests below are one story on one server (the file resets the server once, in `before`, and adds Maya and Sam): each reads what the one before it left, and the conversation's id
 // is read from the list once the page has shown its row.
 
@@ -52,12 +52,18 @@ describe('chat: a conversation of people', () => {
     cy.tid('chat-conversation').should('exist');
     cy.get('#th-h').should('contain.text', 'Maya');
     cy.tid('chat-conversation-privacy').should('contain.text', 'Only you and Maya can read this. An Admin cannot.');
-    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', FIRST).within(() => {
-      cy.contains('button', 'Edit message');
-      cy.contains('button', 'Delete message');
+    // The same menu as every other chat (#1345): a right-click, not a button under the message.
+    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', FIRST).and('not.contain.text', 'Edit message').rightclick();
+    cy.get('[role=menu][aria-label="Your message"]').within(() => {
+      cy.contains('[role=menuitem]', 'Edit message');
+      cy.contains('[role=menuitem]', 'Delete message');
     });
-    cy.get(ROW).should('have.length', 1);
-    cy.contains('button', 'Leave conversation').should('exist');
+    cy.get('#th-h').click();
+    cy.get('[role=menu]').should('not.exist');
+    cy.contains('button', 'Edit message').should('not.exist');
+    cy.get(ROW).should('have.length', 1).find('button.ch-more').should('exist');
+    cy.get('.ch-head-top').contains('button', 'Leave conversation').should('exist');
+    cy.get('.ch-body').contains('button', 'Leave conversation').should('not.exist');
   });
 
   it('shows Maya the conversation with an unread count, and reading it clears the count', () => {
@@ -126,7 +132,8 @@ describe('chat: a conversation of people', () => {
   it('takes the conversation out of Ed\'s list when he leaves, and leaves it with the others', () => {
     openChat('Ed');
     cy.get(ROW).should('have.length', 1).find('button.ch-row').click();
-    cy.contains('button', 'Leave conversation').click();
+    cy.get(ROW).find('button.ch-more').click();
+    cy.contains('[role=menuitem]', 'Leave conversation').click();
     cy.get(ROW).should('not.exist');
     call('GET', `/conversations/${convo}/messages?limit=50`).its('status').should('eq', 404);
     openAs(maya);

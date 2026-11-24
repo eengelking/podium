@@ -33,7 +33,7 @@ function setup(readAs: string | null, reading: Reading[], now: number, serverNow
   const conversationMessages = vi.fn(read ?? (async () => ({ ok: true as const, conversation: info(reading), messages: [msg], older: null, total: 1, adminReads: [] })));
   const api = { conversationMessages, readingConversation: vi.fn(async () => ({ ok: true as const })), markRead: vi.fn(async () => ({})) };
   const overview = { me: { name: "Root", admin: true, person: false }, conversations: [info(reading)], channels: [], directs: [] } as unknown as ChatOverview;
-  const props = { api: api as unknown as ChatApi, id: ID, overview, sessions: {}, rev: 0, now, serverNow, landing: new Landing(), readAs, members: false, onMembers: () => {}, onBack: () => {}, onGone: () => {}, onAdd: () => {}, onChanged: async () => {}, onSaid: () => {} };
+  const props = { api: api as unknown as ChatApi, id: ID, overview, sessions: {}, rev: 0, now, serverNow, landing: new Landing(), readAs, members: false, onMembers: () => {}, onBack: () => {}, onGone: () => {}, onAdd: () => {}, onChanged: async () => {}, onSaid: () => {}, onLeave: () => {}, leaving: false, alert: null, draft: "", onDraft: () => {}, onMessagePerson: () => {}, onMessageAgent: () => {}, onStopReading: () => {} };
   return { api, props };
 }
 
