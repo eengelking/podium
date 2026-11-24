@@ -31,7 +31,9 @@ three hooks:
   background work, and a session idle on it reads as waiting for you. Background subagents still show as agent cards.
 - `classic.Notification` (#741): a permission prompt still puts the session on the wall as waiting. The reporter
   reads it from `tool.check` resolving `ask` when no `PermissionRequest` follows within 2 seconds, with responding on
-  or off, and drops the wait if the call ends first. Idle needs nothing, since `turn.complete` marks the session
+  or off, and drops the wait if the call ends first. It does this only while no classic hook has run in the session:
+  where they run, an `ask` with no `PermissionRequest` is a call auto mode let through, and it is no wait (#1351).
+  Idle needs nothing, since `turn.complete` marks the session
   idle. Other notification types (`auth_success`, `elicitation_dialog`) have no other source, and the reporter never
   used them.
 - `classic.PermissionRequest` (#742): the prompt reaches the card from `tool.check`, and the console says the session
