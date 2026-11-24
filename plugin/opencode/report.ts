@@ -167,6 +167,9 @@ function status(root: Root): { status: 'running' | 'waiting' | 'done'; waitReaso
   return { status: 'waiting', waitReason: root.background ? null : 'input', waitNote: null };
 }
 
+/** The session's name: a typed name is redacted as free text, the id it falls back to is only cut (#1352). */
+const nameOf = (typed: string | null, id: string): string => (typed ? clip(typed, 80) : cap(id, 80));
+
 /** A full snapshot of the root plus the events given (at most 100). */
 export function buildReport(root: Root, events: readonly ActivityEvent[], meta: ReportMeta): Report {
   const main = root.sessions.get(root.id)!;
@@ -184,7 +187,8 @@ export function buildReport(root: Root, events: readonly ActivityEvent[], meta: 
     signals: reportSignals(root.signals, (k) => cap(k, 120)),
     session: {
       id: root.id,
-      name: clip(root.storedName || main.title || meta.optionName?.trim() || root.id, 80),
+      // A name a person or OpenCode typed is free text and is redacted; the id it falls back to is an identifier, and the redactor reads its long mixed-case run as a secret (#1352).
+      name: nameOf(root.storedName || main.title || meta.optionName?.trim() || null, root.id),
       ...st,
       endReason: st.status === 'done' ? root.endReason : null,
       resumeId: null,

@@ -26,7 +26,7 @@ The first of these that applies, in priority order:
 6. The repository directory's name.
 7. `session-<first 6 of id>`.
 
-**OpenCode.** The OpenCode reporter names a session from the first of these that applies, clipped to 80 characters: a name set with `/podium name`, the title OpenCode gives the session, the `sessionName` option, then the session id. It does not use a worktree branch, the repository directory or the `session-<6>` form.
+**OpenCode.** The OpenCode reporter names a session from the first of these that applies, clipped to 80 characters: a name set with `/podium name`, the title OpenCode gives the session, the `sessionName` option, then the session id. It does not use a worktree branch, the repository directory or the `session-<6>` form. OpenCode sends no title event when a session is resumed (`opencode -s <id>`), so the reporter keeps the title it was given in OpenCode's plugin storage and reports it again after a resume; a title OpenCode sends since wins over the kept one. The id is an identifier, not free text: it is cut to 80 characters and never redacted, so it cannot read `[redacted]` (#1352).
 
 A `/clear` starts a new session under a new id, and none of the names above that are kept per id carries over to it: a name given with `/podium name` or set in Claude Code is lost, and the new session is named from the next item that applies (#1014).
 

@@ -297,6 +297,14 @@ describe('state: failures and plan', () => {
     expect(buildReport(root, [], meta).session.name).toBe('My task');
   });
 
+  it('never reports a session id as `[redacted]` when it is the name (#1352)', () => {
+    // A real OpenCode id is `ses_` and 26 mixed letters and digits; the free-text redactor reads that as a secret. An id is not free text.
+    const REAL = 'ses_1f3a9c2b7ffeQw8Zr5Lk0Tn4Vx';
+    const s = store(ev('session.created', { sessionID: REAL }, 1));
+    const meta = { now: 3, version: VERSION, engineVersion: null, hostSurface: null };
+    expect(buildReport(s.roots.get(REAL)!, [], meta).session.name).toBe(REAL);
+  });
+
   it('uses the sessionName option when OpenCode has given the session no name, and the name OpenCode gave wins over it (#969)', () => {
     const s = store(ev('session.created', { sessionID: ROOT }, 1));
     const root = s.roots.get(ROOT)!;
@@ -1309,6 +1317,37 @@ describe('Reporter: /podium name (#987)', () => {
     await r.tick();
     expect(bodies.at(-1)!.session.name).toBe('Silverbolt');
     expect(r.rename('ses_nobody', 'x')).toBeNull();
+  });
+  it('keeps the title OpenCode gives a root, and not a child\'s, so a resume can show it (#1352)', () => {
+    const saved: [string, string][] = [];
+    const r = new Reporter({ fetch: collect([]), now: () => 10_000, runIn: () => noGit, log: () => undefined, saveTitle: (id, title) => void saved.push([id, title]) }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(r);
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT, title: 'child' }, 10_001));
+    r.handle(ev('session.renamed', { sessionID: ROOT, title: 'Renamed' }, 10_002));
+    expect(saved).toEqual([[ROOT, 'OpenCode title'], [ROOT, 'Renamed']]);
+  });
+  it('a resumed root, which OpenCode sends no title for, reports the title it had; a title sent since and a typed name win (#1352)', async () => {
+    const bodies: Report[] = [];
+    const make = (loadTitle: () => Promise<string | null>) => new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadTitle }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    const settle = async (r: Reporter) => { await new Promise((res) => setTimeout(res, 0)); await r.tick(); };
+    // No title event: the session starts at its first step, as a resumed one does.
+    const resumed = make(async () => 'Greeting');
+    resumed.handle(step(ROOT, 10_000));
+    await settle(resumed);
+    expect(bodies.at(-1)!.session.name).toBe('Greeting');
+    const sent = make(async () => 'Greeting');
+    sent.handle(ev('session.renamed', { sessionID: ROOT, title: 'Newer' }, 10_000));
+    await settle(sent);
+    expect(bodies.at(-1)!.session.name).toBe('Newer');
+    const typed = make(async () => 'Greeting');
+    typed.handle(step(ROOT, 10_000));
+    typed.rename(ROOT, 'Typed');
+    await settle(typed);
+    expect(bodies.at(-1)!.session.name).toBe('Typed');
+    const none = make(async () => { throw new Error('no storage'); });
+    none.handle(step(ROOT, 10_000));
+    await settle(none);
+    expect(bodies.at(-1)!.session.name).toBe(ROOT);
   });
   it('asks once for a name kept before a reload, and a name typed since wins over it', async () => {
     const asked: string[] = [];
