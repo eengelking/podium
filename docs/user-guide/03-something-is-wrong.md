@@ -7,7 +7,9 @@ order: 3
 
 # Something is wrong
 
-Find what you see, then follow the fix. [docs/gotchas/](../gotchas/README.md) has more.
+Find what you see, then follow the fix. [docs/gotchas/](../gotchas/README.md) has more. A row that names the status line is
+about Claude Code. OpenCode has no status line: its reporter writes the same message once to the console as a `podium-reporter:`
+line, and `/podium` shows it.
 
 | You see | Likely cause and fix |
 |---|---|
@@ -32,7 +34,7 @@ Find what you see, then follow the fix. [docs/gotchas/](../gotchas/README.md) ha
 
 **Asking for help or filing a bug.** Include the output of `/podium` and of `podiumctl status`.
 
-1. Type `/podium` inside the Claude Code session that shows the problem. It is not a shell command like `podiumctl`.
+1. Type `/podium` inside the Claude Code or OpenCode session that shows the problem. It is not a shell command like `podiumctl`.
 2. Paste what it prints, with the output of `podiumctl status`.
 
 The `Connection:` and `Versions:` lines say whether the mod is online, refused or out of step with the server. The `Sign-in:` line says whether it connects with a plain token or a reporter config file. The `Messaging:` line says whether orchestrator messaging is on, and if not, the one reason: the `peers` option is off, the session is not interactive, there is no token with a `userName`, the session has not reported yet, or Podium's flag is off or the reporter uses the admin secret. An `Option problem:` line names a setting that is not `true` or `false`. It does

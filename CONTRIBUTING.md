@@ -426,7 +426,7 @@ for an existing issue first. If you are reporting several problems with one caus
 useful than one per symptom.
 
 For a bug report, paste the output of `/podium` along with `podiumctl status`. Run `/podium` inside the
-Claude Code session that shows the problem (it is a Claude Code command, not a shell one like `podiumctl`).
+Claude Code or OpenCode session that shows the problem (it is a command of the session, not a shell one like `podiumctl`).
 It shows the connection state, the `Versions:` line and the report counts, so we can tell whether the mod is
 connected, refused (HTTP 401) or out of step with the server. It does not print your token, but check what you
 paste and remove any token or other secret before posting.

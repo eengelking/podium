@@ -71,7 +71,7 @@ The first `start` generates a random token and saves it as `PODIUM_TOKEN` in `~/
 
 - `podiumctl token` shows it at any time. `podiumctl token --rotate` makes a new one.
 - This is the **admin secret**. It opens the Admin section (below). On a one-person setup you can also enter
-  it in the mod's `token` option (see [REPORTER.md](REPORTER.md)) and in the `X-Podium-Token` header of the
+  it in the mod's `token` option (or, for OpenCode, as `PODIUM_TOKEN` in `~/.podium/config.env`; see [REPORTER.md](REPORTER.md)) and in the `X-Podium-Token` header of the
   settings hooks ([REPORTER.md](REPORTER.md#sessions-without-the-mod)).
 - To run without auth, `podiumctl config set PODIUM_TOKEN=` (empty on purpose). Admin is switched off then,
   because nothing would protect it.
@@ -157,10 +157,10 @@ compare it with the one in the config.
 person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no copy of the key, so save it then. The
 person puts it in `~/.podium/` (`%USERPROFILE%\.podium` on Windows, where there is no `chmod`), runs `chmod 600` on it, and starts Claude Code or OpenCode on a machine that has `node`. A session with no name of its own takes the file's name, so
 nothing else needs setting. A name the session already has (the `userName` option or `PODIUM_USER`) must be the file's
-name, or the status line says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
+name, or the status line (on OpenCode, a console line) says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
 browser used when you created the person, plus the reporter port, so create people from the address they will reach. A person with files for more than one server chooses between them with a
 context ([REPORTER.md](REPORTER.md#contexts-more-than-one-podium-server)). The
-steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
+steps and the errors the status line (or OpenCode's console line) can show are in [REPORTER.md](REPORTER.md#over-tls).
 
 **4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for
 a server that already had reporters when you turned TLS on, so nothing stops, and a warning line stays until you turn
@@ -175,7 +175,7 @@ the person can still sign in to the console. **Revoke token** (which revokes the
 **When a certificate expires.**
 
 - **A person's certificate** renews itself at 30 days left (half its lifetime for a certificate that lasts under 60 days).
-  There is no grace after it expires: the reporter cannot connect to the reporter port, and its status line says the
+  There is no grace after it expires: the reporter cannot connect to the reporter port, and its status line (on OpenCode, a console line) says the
   certificate expired on a date and that an Admin must generate a new one. Admin > People warns before that happens, with
   a *lapses soon* badge. After an expiry or a revoke, choose **Reissue config** for the person and send them the new file.
 - **The serving certificate** renews itself when 30 days are left (the setting is on Admin > Server > Certificates), checking at every start and once a day. A failed renewal shows in
