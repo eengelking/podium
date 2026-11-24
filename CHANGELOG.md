@@ -150,6 +150,8 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - Chat: typing `@` after a picked address, or after any earlier `@` in the message, opens the list of people and agents again, so one message can address as many of them as you like. Before, only the first `@` in a message opened it (#1343).
 - A Direct Message to a person now looks and works like every other chat. Edit message and Delete message are in the right-click menu, with the keyboard keys, instead of buttons under the message; Leave conversation is at the top beside the avatars and in a new "..." menu on its row in the list; its list scrolls and is padded like the others, and its header, start-of-conversation avatars, sender menu on an avatar, Up in an empty box and kept draft match them (#1345).
 - The standards pages no longer depend on the machine's time zone. The Chat samples built their clock from local-time parts, so `docs/standards/components.html` came out one way on a Mac in Pacific time and another on the CI runner in UTC, and `npm run standards:parity` failed on the release PR. The clock is now built in UTC, the pages are regenerated, and a test fails if a screen builds a date from local-time parts.
+- A message to a Claude Code session that was working in auto mode is handed over within seconds again, and `podium_send` says `Sent to`. The reporter had taken a call that auto mode approved for an open permission prompt, so the card showed a permission wait and the message was held until the subagent or the turn finished (#1351).
+- An OpenCode session that is resumed (`opencode -s <id>`) keeps the title OpenCode gave it on the wall, and a session with no title shows its id, where it showed `[redacted]` (#1352).
 
 ## [1.6.0] - 2026-11-11
 
