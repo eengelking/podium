@@ -1314,18 +1314,21 @@ function startHooksCheck($: Engine): void {
 
 /**
  * tool.check said a prompt is about to show: if no PermissionRequest follows, the hooks don't run here (SPEC 5.3), and
- * the prompt is put on the card from what tool.check saw (#742).
+ * the prompt is put on the card from what tool.check saw (#742). Only on a login whose classic hooks never ran: where
+ * they run, every prompt fires a PermissionRequest, so an `ask` with none is a call auto mode let through, and no
+ * prompt is open (#1351).
  */
-function startPermissionCheck($: Engine, id: string, tool: string, input: unknown): void {
+function startPermissionCheck($: Engine, id: string, tool: string, input: unknown, agentId?: string): void {
   const startedAt = nowMs();
   checks.get(id)?.cancel();
   try {
     const h = $.clock.after(PERMISSION_CHECK_MS, () => {
       checks.delete(id);
-      if (lastPermissionAt >= startedAt || !rt) return;
+      if (lastPermissionAt >= startedAt || classicSeen || !rt) return;
       permissionHooks = false;
       rt.state = { ...rt.state, dirty: true };
-      if (!endedChecks.delete(id)) recordPermission(rt, tool, input);
+      // The loop that asked is named, so its own calls end the wait and a subagent's prompt is not held as the main loop's (#1351).
+      if (!endedChecks.delete(id)) recordPermission(rt, tool, input, agentId);
     });
     checks.set(id, h);
   } catch {
@@ -2352,7 +2355,7 @@ export const register: Register = (on, rawOptions) => {
     safe('tool.check', () => {
       const id = (e as { tool_use_id?: string }).tool_use_id;
       // Not gated on responding (#741): the wait on the card does not depend on Podium answering.
-      if (id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id, String(e.tool), (e as { input?: unknown }).input);
+      if (id && (res as { decision?: string } | undefined)?.decision === 'ask') startPermissionCheck($, id, String(e.tool), (e as { input?: unknown }).input, (e as { agentId?: string }).agentId);
     });
     return res;
   }).catch(($, e, next) => next(e));

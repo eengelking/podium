@@ -132,6 +132,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       problem: link?.problem,
       answering,
       loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
+      loadTitle: async (id) => { const v = await ctx.storage.get(`title:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
+      saveTitle: (id, title) => void ctx.storage.set(`title:${id}`, title).catch(() => undefined),
       windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
       // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
       ...(options.explainFailures ? { explain: (prompt: string) => explainWith((input) => ctx.experimental.generate.text(input), () => ctx.model.list(), prompt) } : {}),
