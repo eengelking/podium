@@ -63,6 +63,10 @@ export interface ReporterDeps {
   log: (line: string) => void;
   /** The name `/podium name` kept for a session (`ctx.storage`), or null; asked once for each root when it appears (#987). */
   loadName?: (rootId: string) => Promise<string | null>;
+  /** The title OpenCode gave a root, kept by `saveTitle` (`ctx.storage`), or null; asked once for each root, like `loadName` (#1352). */
+  loadTitle?: (rootId: string) => Promise<string | null>;
+  /** Keeps a root's title each time OpenCode gives or changes it: a resumed session is sent no title event. Never awaited. */
+  saveTitle?: (rootId: string, title: string) => void;
   /**
    * Whether a TUI is attached, so the session is open and quiet is not the end of it (#984). Absent: quiet roots end after `idleMs`. Where it is given, an Admin
    * callout is held until it is true and counts as shown only when the TUI part says so (`adminShown`, #1051): the TUI part may be gone for up to the attach
@@ -226,6 +230,7 @@ export class Reporter {
     if (root) {
       if (this.launchRoot && !isLaunchId(root.id)) this.retireLaunch(this.deps.now());
       this.queue(root);
+      this.keepTitle(root, ev);
       if (!root.done) {
         this.refreshGit(root, this.deps.now());
         this.remember(root);
@@ -297,9 +302,9 @@ export class Reporter {
 
   /** Asks once for the name a root was given before a reload or restart. A name typed since wins over the one read. */
   private remember(root: Root): void {
-    if (!this.deps.loadName || this.named.has(root.id)) return;
+    if (this.named.has(root.id)) return;
     this.named.add(root.id);
-    void this.deps.loadName(root.id).then(
+    void this.deps.loadName?.(root.id).then(
       (name) => {
         if (name && !root.storedName) {
           root.storedName = name;
@@ -308,6 +313,24 @@ export class Reporter {
       },
       () => undefined,
     );
+    // A resumed session gets no `session.created` or `session.renamed`, so the title OpenCode gave it is the one kept. One sent since wins (#1352).
+    void this.deps.loadTitle?.(root.id).then(
+      (title) => {
+        const main = root.sessions.get(root.id);
+        if (title && main && !main.title) {
+          main.title = title;
+          root.dirty = true;
+        }
+      },
+      () => undefined,
+    );
+  }
+
+  /** Keeps the title OpenCode gives a root (not a child's), so a resume of it can show the title again (#1352). */
+  private keepTitle(root: Root, ev: BusEvent): void {
+    if (ev.type !== 'session.created' && ev.type !== 'session.renamed') return;
+    const title = root.sessions.get(root.id)?.title;
+    if (title && ev.data?.sessionID === root.id) this.deps.saveTitle?.(root.id, title);
   }
 
   /** The sessions this reporter knows, which `ctx.permission.list` is asked about on a reload (it lists one session's requests). */
