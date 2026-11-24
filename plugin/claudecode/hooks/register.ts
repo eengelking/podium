@@ -1285,7 +1285,8 @@ function permissionSeen(r: Runtime, id: string | null): void {
 }
 
 /** A prompt on the card, once: the PermissionRequest hook and the tool.check fallback (#742) may both report the same one. */
-function recordPermission(r: Runtime, tool: string, input: unknown, agentId?: string): void {  const next = permissionRequest(r.state, tool, input, nowMs(), agentId);
+function recordPermission(r: Runtime, tool: string, input: unknown, agentId?: string): void {
+  const next = permissionRequest(r.state, tool, input, nowMs(), agentId);
   if (r.state.waitReason === 'permission' && r.state.waitNote === next.waitNote) return;
   r.state = next;
 }
