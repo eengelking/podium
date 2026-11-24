@@ -355,7 +355,9 @@ keep planning" and messages can.
   If no `classic.PermissionRequest` fires for that call within 2 seconds, the mod drops `plan-approve` and
   `permission` from `accepts` until a `classic.PermissionRequest` does fire, which puts them back.
 - A prompt that auto mode's classifier answers shows no dialog and raises no PermissionRequest, so a missed
-  one is not taken as final.
+  one is not taken as final. Once any `classic.*` hook has run in the session, an `ask` with no PermissionRequest
+  after it is such a call, not a prompt: it records no wait, and a message to the session is handed over at once
+  (#1351).
 - Verified: `tool.check` carries the call's `tool_use_id`, and where the hooks run it resolves to `ask` 3 to
   11 ms before `classic.PermissionRequest` fires, for Bash and for ExitPlanMode alike.
 - **Observed on a Team or Enterprise login (#595, #742):** Claude Code's guard `cc-plugin-sec-default` runs first
