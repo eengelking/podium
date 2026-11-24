@@ -1,1 +1,0 @@
-The atlas shows an agent answering in a Direct Message of people and agents (#1299): the `convo` field on a delivery, the `convo:<id>` address of `podium_send`, the reporter route that posts the answer and the rules the server holds it to.

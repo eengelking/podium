@@ -1,1 +1,0 @@
-The e2e check before a PR now runs only the specs that cover the change first, and runs the whole suite once after they pass, so the half-hour run is no longer used to find problems a focused run finds in minutes.

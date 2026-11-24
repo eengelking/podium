@@ -1,1 +1,0 @@
-A one-line banner above the Chat page (a Direct Message that was concluded, an Admin's reading) is no longer stretched tall. `admin.css` makes the page a grid, and its rows shared the free height; the page is a column again, so the banner is as high as its text and the thread takes the rest (#1340).
