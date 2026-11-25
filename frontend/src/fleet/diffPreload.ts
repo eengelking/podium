@@ -25,7 +25,7 @@ interface Entry {
 }
 
 /** The part of a Files row that changes when the file does. `rev` is the content hash, which moves when the counts do not. */
-export const markOf = (f: ChangedFile): string => [f.status, f.added, f.removed, f.from, f.rev].join("\u0000");
+const markOf = (f: ChangedFile): string => [f.status, f.added, f.removed, f.from, f.rev].join("\u0000");
 
 export class DiffPreloader {
   private readonly entries = new Map<string, Entry>();

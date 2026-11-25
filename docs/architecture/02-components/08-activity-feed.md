@@ -7,7 +7,7 @@ order: 8
 
 # Activity feed
 
-Files: `server/src/fleet/activity.ts`, `featureFlags.ts`, `frontend/src/fleet/useActivityFeed.ts`. Issue #118.
+Files: `server/src/fleet/activity.ts`, `server/src/storage/sqlite/featureFlags.ts`, `frontend/src/fleet/useActivityFeed.ts`. Issue #118.
 The reasoning is in DECISIONS 24 and 25; mod option `activityFeed` arrived in mod 0.13.0. Since #432 the Admin can
 also keep the feed durably; that is the *Activity history* below and DECISIONS 39.
 

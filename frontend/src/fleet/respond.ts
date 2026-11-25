@@ -6,7 +6,7 @@ import { LEVEL_KINDS } from "../../../plugin/core/protocol";
 import type { AskDetail, AskKind, AskSummary, Delivery, QuestionAnswer, RespondKind, RespondMe, SessionView } from "./types";
 
 /** The ask the band and the modal are about: the newest open one, the main loop's first. */
-export function openAsk(s: Pick<SessionView, "asks">): AskSummary | null {
+function openAsk(s: Pick<SessionView, "asks">): AskSummary | null {
   const open = s.asks.filter((a) => a.state !== "closed");
   const pick = (list: AskSummary[]) => list.slice().sort((a, b) => b.openedAt - a.openedAt)[0] ?? null;
   return pick(open.filter((a) => a.agentId === null)) ?? pick(open);
@@ -18,7 +18,7 @@ export function shownAsk(s: Pick<SessionView, "asks">): AskSummary | null {
 }
 
 /** What answering an ask of this kind needs the session to accept; a turn that ended needs `message`. */
-export function neededKinds(kind: AskKind | null): RespondKind[] {
+function neededKinds(kind: AskKind | null): RespondKind[] {
   if (kind === "question") return ["question"];
   if (kind === "plan") return ["plan-approve", "plan-feedback"];
   if (kind === "permission") return ["permission"];
@@ -60,11 +60,29 @@ export function planBackOnly(s: Pick<SessionView, "respond">): boolean {
 /** A name as the server compares it (`nameKey` in server/src/fleet/people.ts): trimmed, spaces folded, any case. */
 export const nameKey = (n: string) => n.trim().replace(/ +/g, " ").toLowerCase();
 
-/** Whether the signed-in person may respond to this session: its owner, or an Admin. A session owned by Admin needs an Admin. */
-export function isMine(s: Pick<SessionView, "owner">, me: RespondMe | null): boolean {
+/** Whether the signed-in person may open this session's asks and read them: its owner, or an Admin (whose read the owner is told of). A session owned by Admin needs an Admin. */
+export function isMine(s: Pick<SessionView, "ownerId">, me: RespondMe | null): boolean {
   if (!me?.signedIn || !me.name) return false;
   if (me.admin) return true;
-  return !!s.owner && s.owner !== "Admin" && nameKey(s.owner) === nameKey(me.name);
+  return ownsSession(s, me);
+}
+
+/**
+ * Whether the signed-in person owns the session, by id (#1284): a name can change, or be taken by a newcomer, so it never decides ownership. A session whose person
+ * was deleted (`ownerId` null) is nobody's, and so is any session for the admin secret (`me.id` null).
+ */
+export function ownsSession(s: Pick<SessionView, "ownerId">, me: Pick<RespondMe, "signedIn" | "id"> | null | undefined): boolean {
+  return !!me?.signedIn && typeof me.id === "number" && typeof s.ownerId === "number" && s.ownerId === me.id;
+}
+
+/**
+ * Whether the signed-in person may answer and send to this session, not only read it (#1251): its owner; or an Admin, for a session with no person as its
+ * owner (owned by Admin, or by no one) or one whose owner has allowed an Admin to respond.
+ */
+export function canRespond(s: Pick<SessionView, "owner" | "ownerId" | "adminRespond">, me: RespondMe | null): boolean {
+  if (!isMine(s, me)) return false;
+  if (!me!.admin) return true;
+  return ownsSession(s, me) || !s.owner || s.owner === "Admin" || s.adminRespond;
 }
 
 /** The Respond button on a band: gone, live, or dimmed with whose session it is (mockup section 1, "Rules for the button"). */
@@ -108,7 +126,7 @@ export function askLead(kind: AskKind | null): string {
 export const PLAN_LABELS = { auto: "Yes, and use auto mode", acceptEdits: "Yes, auto-accept edits", default: "Yes, manually approve edits" } as const;
 
 /** A question's answers as the panel quotes them: each answered question's options (", ") or text, joined with "; ". */
-export function questionAnswers(detail: Pick<AskDetail, "ask">, answers: readonly QuestionAnswer[], harness?: string | null): string {
+function questionAnswers(detail: Pick<AskDetail, "ask">, answers: readonly QuestionAnswer[], harness?: string | null): string {
   return (detail.ask.questions ?? [])
     .map((q, i) => {
       const a = answers[i];

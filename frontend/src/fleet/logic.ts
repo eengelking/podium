@@ -27,7 +27,7 @@ export const STATUS_FILTERS: Record<StatusFilter, string> = {
 };
 
 /** Model order for sorting: alphabetical by family, unknown models last. */
-export const MODEL_ORDER: readonly ModelFamily[] = ["fable", "haiku", "opus", "sonnet", "other"];
+const MODEL_ORDER: readonly ModelFamily[] = ["fable", "haiku", "opus", "sonnet", "other"];
 
 const STATUS_ORDER: Record<SessionView["status"], number> = { running: 0, waiting: 1, stale: 2, done: 3 };
 
@@ -347,11 +347,6 @@ export function sessionAgentSec(s: SessionView, now: number): number {
 export function orchestratorCostUsd(s: SessionView): number | null {
   if (s.costUsd === null) return null;
   return Math.max(0, s.costUsd - s.agents.reduce((n, a) => n + (a.costUsdEst ?? 0), 0));
-}
-
-/** "fork" or the agent type, then the model's short name and the effort: "Explore · Haiku low". */
-export function agentLabel(a: AgentView): string {
-  return `${a.kind === "fork" ? "fork" : a.type} · ${familyName(a.modelFamily, a.model)}${a.effort ? ` ${a.effort}` : ""}`;
 }
 
 /**

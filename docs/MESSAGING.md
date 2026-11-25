@@ -51,7 +51,7 @@ What it is not:
 - Not Claude Code's own `SendMessage`. Podium carries the text itself, through the reporter and the server.
 - Not a way to answer a question, approve a plan or a permission, or run a command in another session. A message is
   only ever a new turn, marked as another agent's text.
-- Not a way to interrupt. A message waits until the receiving orchestrator's turn ends.
+- Not a way to interrupt. A message is handed over within seconds and read at the receiving orchestrator's next step, after the tool call it is on. It never stops a running tool, and the agent decides whether it matters more than what it was doing.
 
 ## How the parts fit
 
@@ -69,7 +69,7 @@ What it is not:
 
 | Part | What it does there |
 |---|---|
-| The server | Holds the **Orchestrator messaging** flag (`peer-messaging`), the limits, the rights between reporters, the open requests and the messages. It checks every send against the right, the limits and the owner, and hands a message over only when the receiver reports itself idle |
+| The server | Holds the **Orchestrator messaging** flag (`peer-messaging`), the limits, the rights between reporters, the open requests and the messages. It checks every send against the right, the limits and the owner, and hands a message over in the receiver's next report, unless a permission prompt is open there |
 | podium-reporter, on each machine | With its `peers` option on, gives the orchestrator four tools (`podium_peers`, `podium_send`, `podium_request_access`, `podium_chat_read`), submits a received message under Podium's opening line, and shows the owner's requests as a toast that `/podium allow\|decline\|deliver <id>` answers |
 | My reporters (`#/me/reporters`) | The owner's page: their reporters, the requests waiting for them, their defaults and stricter limits, and the Grid or Board of who can message whom |
 | Admin | Turns the flag on and sets the limits (Admin > Settings). On Admin > Reporters > a reporter, sees the owner's rights, proposes a right and pauses every link of that reporter at once |
@@ -161,10 +161,10 @@ A change saves at once. If it cannot be saved, the page says so and shows the le
 1. In one session, ask the orchestrator to run `podium_peers`. It lists the orchestrators it can see, each as
    `name@machine` with its system, project, status and whether it can send there. A `Not listed:` line names your
    machines it left out and why.
-2. Ask it to send a short message to one of them with `podium_send`. It answers sent, waiting for the receiver's
-   turn to end, or waiting for your approval.
-3. In the receiving session, a new turn starts once it is idle, under Podium's opening line. The terminal logs
-   `a message from <name> on <machine>, delivered now that this turn has ended.`
+2. Ask it to send a short message to one of them with `podium_send`. It answers sent, waiting for the receiver
+   to answer a permission prompt, or waiting for your approval.
+3. In the receiving session, a new turn starts once its running turn has ended, under Podium's opening line. The terminal logs
+   `a message from <name> on <machine>, delivered.`
 4. Open **Chat**. The conversation between the two orchestrators is a Direct Message in its list. Select it to read it.
 
 ## Rights and approval
@@ -273,25 +273,38 @@ written for the model and for the person reading the transcript.
 | Tool | What it answers |
 |---|---|
 | `podium_peers` | The orchestrators it can see, each with its machine, system, status, project and whether it can send there; a `Not listed:` line for your machines it left out, with the reason (messaging off there, reporter too old, no right to see it, no orchestrator running) |
-| `podium_send(to, text)` | `Sent to …` when the receiver was idle; `Waiting for … It is working, and gets the message when its turn ends`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
+| `podium_send(to, text)` | `Sent to … Podium hands it over within seconds. If … is in the middle of a turn, it reads the message at its next step, after the tool call it is on`; `Waiting for … It is at a permission prompt, and gets the message once that is answered`; `Waiting for Ed to approve it` on a link with approval; `Waiting for Ed. You and … have had N round trips` at the limit; or `Not sent.` with Podium's reason. A paused link adds that it waits until Ed resumes it |
 | `podium_request_access(to, right, reason)` | Asked, allowed or declined, by the owner's default. An asked request's answer arrives later as a notice that starts a turn |
-| `podium_chat_read(channel, before?)` | The last hour of the Podium Chat channel (General or My group) it was called into with an `@`, for context. Read only; a channel it was not called into in that hour is refused (see [The reporter mod](REPORTER.md#messaging-your-other-orchestrators)) |
+| `podium_chat_read(channel?, before?)` | With no channel, lists the channels: General and every public channel, with each one's description, link, opener and message count. With `general`, `group` or a public channel's name, the last hour of the channel it was called into with an `@`, for context, a page at a time (about 30,000 characters, oldest first, ending with the `before` value for the older ones inside the hour); a channel it was not called into in that hour is refused An edited message shows `edited <time>` in its header with its current text, and a message its person deleted is one line, "This message was deleted at <time>.", with no text. Read only (see [The reporter mod](REPORTER.md#messaging-your-other-orchestrators)) |
 
-- `to` is `name@machine`, as `podium_peers` lists it, not case-sensitive. The name is the session's display name, so
-  `/rename` or `/podium name` changes it. When several orchestrators on one machine share a name, `podium_peers`
-  shows each one's short id and `to` is `name@machine#id`; a plain `name@machine` is refused with the ids to use.
-  A message you receive names the sender the same way, so the reply reaches that session (#500).
+- `to` is the agent's id (`#7`), or `name@machine`, or `name@machine#7`, as `podium_peers` lists them; a name is not
+  case-sensitive. Every agent has an id that Podium gives it when it first hears of its session and never gives
+  again (#1284): a new session, a `/clear` included, is a new agent with a new id, whatever name it takes, so an id never
+  reaches a later agent that took an earlier one's name. `podium_peers` always shows the id, and a message you receive
+  names its sender by it, so the reply reaches that agent. The name is the session's display name, so `/rename` or
+  `/podium name` changes it. No two live agents of one person hold the same name: the one that arrives second holds
+  "Name 2" (then "Name 3") while the first is live, and takes its own name back once it is free. A send to an id whose session
+  has ended is refused with "The agent Name (id 7) is no longer available", and a message still held for an agent that ends
+  tells its sender the same. A `name@machine#7` whose name is not the one agent 7 holds is not delivered.
 - Only the orchestrator can call them. Claude Code offers a mod's tools to subagents too, so each tool refuses a
   subagent's call: "Not sent. Only an orchestrator can send. Put the message in your result and ask your orchestrator
   to send it."
 - Before the text leaves the machine, the mod replaces anything that looks like a secret with `[redacted]`, and the
-  tool says how many it replaced. The receiver and Chat see the marker. This is best effort.
+  tool says how many it replaced. Podium then scrubs the text again on the server, with its own credentials and the same patterns Chat uses, so a
+  reporter that did not redact, or could not know Podium's own secrets, still stores none; the tool says how many more it replaced. The receiver and
+  Chat see the marker. This is best effort.
 - The tool waits up to 8 seconds for Podium. When Podium cannot be reached, nothing is sent and the tool says so.
-
+- **Public channels (#1035).** `podium_send` to `channel:<name>` posts in a public channel (`channel:general` and `channel:group` post in General and My group). Every channel takes a post only from an agent it called in with an `@` during the last hour. Everyone signed in to
+  Podium can read a public channel, so an agent posts nothing there that it would not say to all of them. Only the orchestrator's main loop lists, reads or posts. A channel message never interrupts a running turn: the agent sees it when it reads the channel or when its turn ends.
+- **Answering in a Direct Message with several members (#1299).** A message written in such a conversation names it, and its last line gives the address to answer to, `convo:<id>`. `podium_send` to that address posts the answer in the conversation for the people in it, as the agent. The other agents in the conversation are not handed it. Podium takes it only from an agent that is a member and that a person wrote to in the conversation during the last hour. `person:<name>` is for a person's own one-to-one Chat message.
 ### How a message arrives
 
-A message waits until the receiving orchestrator reports itself idle: not during a turn, and not while a permission
-prompt is open. Agents still running in the background do not hold it back. It then starts a new turn, submitted by
+Podium hands a message over within seconds of the receiver's next report, unless a permission prompt is open there.
+Agents still running in the background do not hold it back. A message handed over while the agent was working ends with a
+short note from Podium that says so and lets the agent decide whether to stop for it (#1252). It is read between tool calls
+(#1264): Claude Code adds it as context to the main loop's next tool result, and OpenCode takes it with `steer` at its next
+step. Neither interrupts a tool that is running, so a long tool call finishes first. The agent still decides: a smaller Claude Code model may take a message inside a tool result for an instruction its person did not give, and carry on (DECISIONS 71). Where the turn ends before a tool result
+comes, Claude Code starts a new turn with it instead. A message handed over to an idle agent starts a new turn, submitted by
 the plugin, never as the person's own words. Claude Code shows it as "The podium-reporter plugin sent a message:",
 and Podium's line comes first:
 
@@ -326,7 +339,7 @@ is still allowed, so the opening line and the model's judgment are the guard the
 
 **Traffic** (`#/traffic`), the map and table of which orchestrators message which, was replaced by [Chat](user-guide/04-reading-the-console/16-chat.md)
 in 1.6. The same conversations are Chat's Direct Messages, with Pause link, Remove link and Delete conversation in each one's menu, and `#/traffic`
-opens Chat at once. The top bar's link is Chat. Chat also adds General and My group channels, `@` addressing, and a person writing to another person's
+opens Chat at once. The top bar's link is Chat. Chat also adds channels (General, the public channels a person or an Admin opens, and My group), `@` addressing, and a person writing to another person's
 agent with its owner's approval. The text of a conversation opens only for its owner and an Admin. `GET /api/fleet/peers/traffic` keeps working until
 1.9 ([Deprecations](DEPRECATIONS.md#the-traffic-page)). The tour of the console side is in the user guide, [Chat](user-guide/04-reading-the-console/16-chat.md).
 
@@ -339,6 +352,8 @@ agent with its owner's approval. The text of a conversation opens only for its o
 | Rights, defaults and requests | The database. Closed requests go after the same period; rights and requests about a removed reporter go too | The owner, and an Admin |
 | Admin log rows | `peer_sent`, `peer_delivered`, `peer_approved`, `peer_declined`, `peer_dropped`, `peer_right_*`, `peer_access_requested`, `peer_defaults_changed`, `peer_limits_changed`: who, to whom and whose, never the text | Admin |
 | An Admin reading a person's group or Direct Message (Chat) | A row for each Admin and reading session, and for an Admin's pause, resume, disconnect, reconnect or remove all: who, which conversation and when, never text. The person sees a red banner while it lasts, a line in the conversation for good, and a callout in their reporter. The Admin log gets `chat_admin_read` and `chat_admin_browse` | The person and an Admin; the log, Admin |
+| A message in General or in a public channel (Chat, #1035) | The database, for the Admin's Chat retention days (30 by default). A public channel itself (name, description, link, opener) stays until an Admin removes it. The Admin log gets `channel_opened`, `channel_edited`, `channel_removed` and `channel_sent`-style rows: who and which channel, never text | Everyone signed in, every reporter and every Admin, and an Admin's read raises no notice |
+| A person's edit or delete of their own message (Chat, #1269) | The same rows, changed in place: an edited message keeps its place with the new text and the time of the edit, and a deleted one stays as a line with no text, its mentions and its place kept. A message that waits for another person's approval is changed together with its copy there. The Admin log gets `group_message_edited`, `general_message_edited`, `channel_message_edited`, `chat_message_edited` and the `_deleted` kinds: who and where, never text | Whoever could read the message; only its author changes it, and an Admin cannot |
 | Server log events | `peers.sent`, `peers.delivered` and so on, and `peers.refused` with its reason, never the text | Whoever reads the server's log |
 
 The text never goes in the fleet state, the event stream or a log. Podium's notices to an orchestrator are held in
@@ -358,17 +373,17 @@ Find what you see, then follow the fix. For problems connecting the reporter at 
 
 | You see | Cause | Fix |
 |---|---|---|
-| The session has no `podium_*` tools | The tools appear only once Podium says the session takes part. Any of these stops it: the flag is off, the server's auth is off, the reporter uses the admin secret, `peers` is off on this machine, the session is a `claude -p` run, the reporter is too old, or the session has not reported yet | Check each in [Before you start](#before-you-start). Send the session a prompt so it reports. `/podium` shows the connection, and its `Messaging:` line gives the one cause (see [Why messaging is off](#why-messaging-is-off)) |
+| The session has no `podium_*` tools, or a call is refused with "Orchestrator messaging is off for this session" | The tools appear only once Podium says the session takes part. OpenCode takes them away again when it stops, and Claude Code keeps them and refuses the call with the cause. Any of these stops it: the flag is off, the server's auth is off, the reporter uses the admin secret, `peers` is off on this machine, the session is a `claude -p` run, the reporter is too old, or the session has not reported yet | Check each in [Before you start](#before-you-start). Send the session a prompt so it reports. `/podium` shows the connection, and its `Messaging:` line gives the one cause (see [Why messaging is off](#why-messaging-is-off)) |
 | `podium_send` says "You cannot see an orchestrator called X. Run podium_peers for the list." | No right to see that machine, a typo, or the orchestrator is not live: it ended, or has not had its first prompt. Another person's orchestrator gets the same answer, so a refusal never says who exists | Run `podium_peers`: its `Not listed:` line gives the reason for your other machines. For an orchestrator on the same machine there is no such line; that machine needs the right to itself (the Grid's diagonal). Give the right on My reporters, or send the other session a prompt |
 | `podium_peers` leaves a machine out ("which has messaging off", "whose reporter is too old to message", "which you have no right to see", "with no orchestrator running") | What it says | Turn `peers` on there; update podium-reporter there; give a right on My reporters; start a session there |
 | A machine never appears at all, not even under `Not listed:` | It reports as another person, or with the admin secret. Messaging is only between one person's own reporters | Set that machine's `token` and `userName` to yours. See the wrong-person row below |
 | "Waiting for Ed to approve it" | The link has **Can send, with approval** | Deliver it on My reporters, or `/podium deliver <id>` in your session on the receiving machine. Or raise the right to **Can send** |
 | "Waiting for Ed. You and X have had N round trips, the limit on this link" | The round-trip limit | Approve it the same way; the count starts again. The owner can raise their own limit up to the Admin's, and the Admin can raise theirs |
-| "Waiting for X. It is working, and gets the message when its turn ends" | The receiver is in a turn, or a permission prompt is open there | Nothing. It arrives when that turn ends |
+| "Waiting for X. It is at a permission prompt, and gets the message once that is answered" | A permission prompt is open there | Answer the prompt. The message is handed over at once |
 | The answer says "The link is paused" | The owner paused the link in Chat, or an Admin used Pause all links | **Resume link** in Chat, or **Resume all links** on Admin > Reporters > that reporter |
 | "There have been N messages between … in the last minute" | The messages-per-minute limit | Wait a minute and send again. Nothing was stored |
 | "The message is N characters, over the limit" | The longest-message limit | Send a shorter message, or a file path instead of the file |
-| "There are 2 orchestrators called X" | Two live orchestrators share that name on that machine | Send to `name@machine#id`, with the id `podium_peers` shows (renaming one with `/podium name <text>` or `/rename` also works) |
+| "The agent X (id N) is no longer available" | That agent's session has ended | Run `podium_peers` and send to the one that is there now. A new session that took the name has a new id, and nothing sent to the old id reaches it |
 | "can see … but has no right to send there" | The right is **Can see** | Give **Can send** on My reporters, or have the orchestrator ask with `podium_request_access` |
 | **My reporters** is not in the top bar, or the page shows nothing | Not signed in; signed in with the admin secret, which has no reporters; or the flag is off | Sign in with your own name and token. Ask the Admin to turn on the flag |
 | My reporters shows **Off on the machine** | `peers` is off on that machine, and only that machine can turn it on | In Claude Code there, run `/plugin configure podium-reporter@eengelking-marketplace` and set `peers` on; in the Claude desktop app there, open Settings > Plugins > Podium-Reporter > Settings and turn on `peers` |

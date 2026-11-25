@@ -12,13 +12,19 @@ import { type Request, type RequestHandler, type Response, type Router } from 'e
 import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import type { Identity } from './routes.js';
-import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, nameKey, sourceAddress, LEVEL_WORDS, type PersonRow, type PeerReply, type SessionRow } from '../storage/rows.js';
-import type { PeopleStoreApi, PeerStoreApi } from '../storage/types.js';
+import { ADMIN_OWNER, ADMIN_SECRET_ACTOR, LEVEL_WORDS, type PeerReply } from '../storage/rows.js';
+import type { PeopleStoreApi } from '../storage/types.js';
 import { PEER_ANSWERS, PEER_DROP_WORDS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, type PeerAnswer, type PeerLevel, type PeerResult } from './protocol.js';
 import type { Actor, LiveOrchestrator, MachineName, MessageRow, MessageTrail, PeerRequestRow, Refusal, ReporterRef, RightsTrail } from './peerTypes.js';
 import type { Logger } from '../logging/logger.js';
 import { asyncHandler, type NamedParams } from './asyncHandler.js';
+import { agentGate, refuser, sourceOf } from './routeGate.js';
 import { isPersonId } from './chatTypes.js';
+import { cleanPeerText } from '../storage/peerText.js';
+import { REDACTED, scrubStored } from '../logging/redact.js';
+
+/** How many `[redacted]` marks a text holds: the server's replacements are the marks it has after the scrub less the ones the sender already put in. */
+const marksIn = (t: string): number => t.split(REDACTED).length - 1;
 
 export interface PeerDeps {
   fleet: Fleet;
@@ -39,9 +45,7 @@ export interface BrowserHelpers {
 const MESSAGE_BODY_LIMIT = '128kb';
 const DAY_MS = 86_400_000;
 /** How a sent message waits, as its Admin log row says it. */
-const SENT_WORDS = { approval: 'waiting for approval', sent: 'the receiver is idle', turn: "waiting for the receiver's turn to end" } as const;
-
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
+const SENT_WORDS = { approval: 'waiting for approval', sent: 'handed to the receiver', turn: 'waiting for the receiver to answer a permission prompt' } as const;
 
 /** Authentication on and the Admin's flag. The reporter's `peers` option is the session's own, checked per request. */
 export const peersEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.peers.flagOn();
@@ -64,7 +68,7 @@ function send(res: Response, out: Refusal): void {
  * Writes every right and message event to the Admin log and the server log, never a message's text. Returns the
  * wrapper the routes use so a row names the address of the request that caused it ('server' for a sweep or a report).
  */
-export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
+function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger: Logger): <T>(src: string, fn: () => T) => T {
   // The peer calls run later, under the storage lock, so the address is carried with the call and not in a variable
   // the caller resets as soon as it has started them.
   const sources = new AsyncLocalStorage<string>();
@@ -81,18 +85,14 @@ export function wirePeerLogs(fleet: Fleet, people: PeopleStoreApi | null, logger
   };
 
   fleet.peers.onMessage = (t: MessageTrail) => {
-    // Chat moves the mention a person wrote to another person's agent, and signals both sides (#1034). It never stops the log below.
-    try {
-      fleet.chat.peerTrail(t);
-    } catch (err) {
-      logger.warn('chat.failed', `podium: Chat could not follow a message: ${(err as Error).message}`, { reason: (err as Error).message });
-    }
+    // Chat moves the mention a person wrote to another person's agent, and signals both sides (#1034). It never stops the log below: a failure is Chat's own warning.
+    fleet.chat.peerTrail(t);
     const m = t.message;
     const fields = { owner: m.owner, from_session: m.fromSession, to_session: m.toSession, message_id: short(m.id) };
     if (t.kind === 'sent') {
       const how = t.approvalWhy === 'round-trips' ? 'waiting for approval past the round-trip limit' : SENT_WORDS[t.state];
       row('peer_sent', `Message from ${pair(m)}: sent, ${how} [${short(m.id)}]`, m.owner, { ...fields, state: t.state });
-    } else if (t.kind === 'delivered') row('peer_delivered', `Message from ${pair(m)}: delivered [${short(m.id)}]`, m.owner, fields);
+    } else if (t.kind === 'delivered') row('peer_delivered', `Message from ${pair(m)}: delivered [${short(m.id)}]`, m.owner, { ...fields, waited_ms: Math.max(0, m.stateAt - m.sentAt) }); // how long it waited before the agent took it (#1252)
     else if (t.kind === 'approved') row('peer_approved', `Message from ${pair(m)}: approved [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });
     else if (t.kind === 'declined') row('peer_declined', `Message from ${pair(m)}: declined [${short(m.id)}]`, actorName(t.actor), { ...fields, admin: t.actor.admin });
     else row('peer_dropped', `Message from ${pair(m)}: dropped, ${PEER_DROP_WORDS[t.why] ?? t.why} [${short(m.id)}]`, m.owner, { ...fields, why: t.why });
@@ -145,41 +145,8 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
   const withSource = wirePeerLogs(fleet, d.people, logger);
   const enabled = () => peersEnabled(fleet, d.token);
 
-  const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason });
-  };
-
-  /**
-   * The orchestrator a mod route is about, when messaging is on and a person's token owns its session; otherwise answers and returns null.
-   * `row` is the session as the handler just read it. This is synchronous so that the checks and what the handler does after them
-   * run in one turn, with nothing able to end or delete the session in between.
-   */
-  const modPeer = (req: Request, res: Response, row: SessionRow | undefined): { row: SessionRow; o: LiveOrchestrator; person: PersonRow } | null => {
-    if (!enabled()) {
-      refuse(req, res, 403, 'orchestrator messaging is off');
-      return null;
-    }
-    if (!row || !fleet.isLive(row.id)) {
-      res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
-      return null;
-    }
-    const id = d.identityOf(res);
-    if (id.kind !== 'person') {
-      refuse(req, res, 403, 'a reporter on the admin secret cannot take part');
-      return null;
-    }
-    if (row.owner === null || nameKey(row.owner) !== nameKey(id.person.name)) {
-      refuse(req, res, 403, 'not your session');
-      return null;
-    }
-    const o = fleet.peers.messages.live(row.id);
-    if (o?.peers !== true) {
-      refuse(req, res, 403, "messaging is off on this machine: turn on the reporter's peers option there");
-      return null;
-    }
-    return { row, o, person: id.person };
-  };
+  const refuse = refuser(logger, 'peers.refused', { session: true });
+  const modPeer = agentGate(fleet, d.identityOf, refuse, enabled);
 
   router.get('/sessions/:id/peers', d.requireToken, asyncHandler(async (req, res) => {
     const m = modPeer(req, res, await fleet.db.getSession(req.params.id!));
@@ -195,12 +162,16 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     const text = str(body.text);
     if (to === null || !to.trim() || to.length > PEER_LIMITS.address) return void res.status(400).json({ ok: false, error: 'to must be name@machine', path: '$.to' });
     if (text === null) return void res.status(400).json({ ok: false, error: 'text must be a string', path: '$.text' });
-    const out = await withSource(sourceOf(req), () => fleet.peers.messages.send(m.row.id, to, text));
+    // The reporter redacts before it sends, but it cannot know Podium's own credentials, and an older or other client may not redact at all: the server
+    // scrubs as Chat does (`ChatCore.redact`), once, before the length is judged and before any adapter stores the text (#1329).
+    const clean = scrubStored(cleanPeerText(text), d.token ? [d.token] : [], true);
+    const redactions = marksIn(clean) - marksIn(text);
+    const out = await withSource(sourceOf(req), () => fleet.peers.messages.send(m.row.id, to, clean));
     if (!out.ok) {
       refuse(req, res, out.status, out.error);
       return;
     }
-    res.status(202).json(out);
+    res.status(202).json(redactions > 0 ? { ...out, redactions } : out);
   }));
 
   router.post('/sessions/:id/peers/access', d.requireToken, json, asyncHandler(async (req, res) => {
@@ -211,10 +182,10 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     const reason = str(body.reason) ?? '';
     if (body.right !== 'see' && body.right !== 'send') return void res.status(400).json({ ok: false, error: 'right must be see or send', path: '$.right' });
     if (to === null || !to.trim() || to.length > PEER_LIMITS.address) return void res.status(400).json({ ok: false, error: 'to must be a machine, or name@machine', path: '$.to' });
-    const target = reporterNamed(await fleet.peers.reporters.ofOwner(m.o.owner), to);
+    const target = reporterNamed(await fleet.peers.reporters.ofOwner(m.o.ownerId), to);
     if ('error' in target) return void refuse(req, res, target.status, target.error);
     const out = await withSource(sourceOf(req), () =>
-      fleet.peers.rights.requestAccess({ owner: m.o.owner, fromKey: m.o.reporterKey, toKey: target.key, right: body.right as 'see' | 'send', reason, by: m.o.name, fromSession: m.row.id }),
+      fleet.peers.rights.requestAccess({ ownerId: m.person.id, fromKey: m.o.reporterKey, toKey: target.key, right: body.right as 'see' | 'send', reason, by: m.o.name, fromSession: m.row.id }),
     );
     if (!out.ok) return void refuse(req, res, out.status, out.error);
     if (out.state === 'asked') res.status(202).json({ ok: true, state: 'asked', requestId: out.request.id, to: target.machine });
@@ -229,14 +200,14 @@ export function mountPeerRoutes(router: Router, d: PeerDeps): void {
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
     // The session that sent or asked, and the one a message went to, may not answer: an agent that approves its own request
     // (or one that was written to, approving the writer) is no check by the owner (#1051). A third session of the owner may.
-    const open = (await fleet.peers.rights.openRequests(m.o.owner)).find((r) => r.id === req.params.requestId);
+    const open = (await fleet.peers.rights.openRequests(m.person.id)).find((r) => r.id === req.params.requestId);
     if (open) {
       const msg = open.messageId ? await fleet.peers.messages.message(open.messageId) : null;
       if (open.fromSession === m.row.id || msg?.fromSession === m.row.id || msg?.toSession === m.row.id) {
         return void refuse(req, res, 403, 'the session this request is about cannot answer it: answer it in the console, or in another of your sessions');
       }
     }
-    const { out, paused } = await withSource(sourceOf(req), () => fleet.peers.answerPaused(req.params.requestId!, m.o.owner, answer as PeerAnswer, { name: m.person.name, admin: false }));
+    const { out, paused } = await withSource(sourceOf(req), () => fleet.peers.answerPaused(req.params.requestId!, m.person.id, answer as PeerAnswer, { name: m.person.name, admin: false }));
     if (!out.ok) return void refuse(req, res, out.status, out.error);
     // The level the right now has, which raise() can make higher than the request's, so /podium allow names it (#414).
     const applied = 'applied' in out ? out.applied : null;
@@ -286,13 +257,10 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
   const enabled = () => peersEnabled(fleet, d.token);
   const withSource = <T>(src: string, fn: () => T): T => fleet.peers.withSource(src, fn);
 
-  const refuse = (req: Request, res: Response, status: number, reason: string) => {
-    logger.warn('peers.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req) });
-    res.status(status).json({ ok: false, error: reason });
-  };
+  const refuse = refuser(logger, 'peers.refused');
 
   /** The signed-in person whose reporters a route manages; the admin secret has none. Otherwise answers and returns null. */
-  const owner = async (req: Request, res: Response): Promise<{ name: string; actor: Actor } | null> => {
+  const owner = async (req: Request, res: Response): Promise<{ name: string; personId: number; actor: Actor } | null> => {
     if (!enabled()) {
       refuse(req, res, 403, 'orchestrator messaging is off');
       return null;
@@ -306,7 +274,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
       refuse(req, res, 403, 'the admin secret has no reporters of its own: sign in with your own name and token');
       return null;
     }
-    return { name: v.name, actor: { name: v.actor, admin: false } };
+    return { name: v.name, personId: v.personId, actor: { name: v.actor, admin: false } };
   };
 
   const liveOn = (key: string) =>
@@ -320,14 +288,14 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const me = await owner(req, res);
     if (!me) return;
     const t = now();
-    const v = await fleet.peers.ownerView(me.name, t);
+    const v = await fleet.peers.ownerView(me.personId, t);
     res.json({
       enabled: true,
       owner: me.name,
       // Each reporter's state and last report as Admin > Reporters has them (#415), timed by the server's clock as there.
       serverTime: t,
       serverStartedAt: v.serverStartedAt,
-      reporters: v.reporters.map((r) => ({ ...r, live: liveOn(r.key) })),
+      reporters: await Promise.all(v.reporters.map(async (r) => ({ ...r, live: liveOn(r.key), adminRespond: await fleet.adminAllowedFor(r.key) }))),
       rights: v.rights,
       defaults: v.defaults,
       limits: v.limits,
@@ -341,7 +309,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (!(PEER_LEVELS as readonly unknown[]).includes(b.level)) return void res.status(400).json({ ok: false, error: 'level must be none, see, ask or send', path: '$.level' });
     if (typeof b.from !== 'string' || typeof b.to !== 'string') return void res.status(400).json({ ok: false, error: 'from and to must be reporter keys' });
-    const out = await withSource(sourceOf(req), () => fleet.peers.rights.setRight(me.name, b.from as string, b.to as string, b.level as PeerLevel, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.rights.setRight(me.personId, b.from as string, b.to as string, b.level as PeerLevel, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -352,7 +320,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.a !== 'string' || typeof b.b !== 'string' || typeof b.paused !== 'boolean') return void res.status(400).json({ ok: false, error: 'a and b must be reporter keys, paused a boolean' });
-    const out = await withSource(sourceOf(req), () => fleet.peers.rights.pauseLink(me.name, b.a as string, b.b as string, b.paused as boolean, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.rights.pauseLink(me.personId, b.a as string, b.b as string, b.paused as boolean, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -363,15 +331,29 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const b = (req.body ?? {}) as Record<string, unknown>;
     if (typeof b.a !== 'string' || typeof b.b !== 'string') return void res.status(400).json({ ok: false, error: 'a and b must be reporter keys' });
-    const out = await withSource(sourceOf(req), () => fleet.peers.removeLink(me.name, b.a as string, b.b as string, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.removeLink(me.personId, b.a as string, b.b as string, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
+  }));
+
+  /** The owner gives or takes back an Admin's say to respond to their sessions on one of their reporters (#1251). Off by default. */
+  browser.put('/peers/reporters/:key/admin-respond', asyncHandler(async (req, res) => {
+    const me = await owner(req, res);
+    if (!me) return;
+    const allow = (req.body as { allow?: unknown } | undefined)?.allow;
+    if (typeof allow !== 'boolean') return void res.status(400).json({ ok: false, error: 'allow must be true or false', path: '$.allow' });
+    const key = req.params.key!;
+    const ref = await fleet.peers.reporters.get(key);
+    if (!ref || ref.ownerId === null || ref.ownerId !== me.personId) return void res.status(404).json({ ok: false, error: 'no such reporter' });
+    const out = await withSource(sourceOf(req), () => fleet.setAdminAllowed(key, allow, me.actor));
+    if (!out.ok) return void send(res, out);
+    res.json({ ok: true, adminRespond: allow });
   }));
 
   browser.put('/peers/defaults', asyncHandler(async (req, res) => {
     const me = await owner(req, res);
     if (!me) return;
-    const out = await withSource(sourceOf(req), () => fleet.peers.setDefaults(me.name, (req.body ?? {}) as Record<string, unknown>, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.setDefaults(me.personId, (req.body ?? {}) as Record<string, unknown>, me.actor));
     if (!out.ok) return void send(res, out);
     res.json(out);
   }));
@@ -381,7 +363,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const answer = (req.body as { answer?: unknown } | undefined)?.answer;
     if (!(PEER_ANSWERS as readonly unknown[]).includes(answer)) return void res.status(400).json({ ok: false, error: 'answer must be allow, decline or deliver', path: '$.answer' });
-    const out = await withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, me.name, answer as PeerAnswer, me.actor));
+    const out = await withSource(sourceOf(req), () => fleet.peers.answer(req.params.requestId!, me.personId, answer as PeerAnswer, me.actor));
     if (!out.ok) return void send(res, out);
     res.json({ ok: true, outcome: out.request.outcome });
   }));
@@ -391,7 +373,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!me) return;
     const range = rangeOf(req.query.range, now());
     if (!range) return void res.status(400).json({ ok: false, error: 'range must be live, 24h or 30d' });
-    res.json({ conversations: await fleet.peers.messages.conversations({ ...range, owner: me.name }) });
+    res.json({ conversations: await fleet.peers.messages.conversations({ ...range, ownerId: me.personId }) });
   }));
 
   /** One conversation's messages, with their text: only its owner, or an Admin (the admin secret or an Administrator). */
@@ -401,7 +383,7 @@ export function mountPeerBrowserRoutes(browser: Router, d: PeerDeps, h: BrowserH
     if (!v) return void refuse(req, res, 403, 'sign in to read a conversation');
     const rows = await fleet.peers.messages.conversation(req.params.a!, req.params.b!);
     if (!rows.length) return void res.status(404).json({ ok: false, error: 'no such conversation' });
-    const owns = v.personId !== null && nameKey(rows[0]!.owner) === nameKey(v.name);
+    const owns = v.personId !== null && rows[0]!.ownerId === v.personId;
     if (!v.admin && !owns) return void refuse(req, res, 403, 'only its owner and an Admin can read a conversation');
     // An Admin reads a person's Chat only in Chat, where the read is recorded and the people in it are told (#1051). This route does neither.
     if (!owns && isPersonChat(rows)) return void refuse(req, res, 403, CHAT_ONLY);

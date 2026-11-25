@@ -20,8 +20,9 @@ for an opened session. The frame it shares with the other pages (top bar, info r
 - The browser tab's title is "Podium history". The page has one `h1`, "History", which is visually hidden; an
   opened session's own name is the `h1` instead.
 - The page draws the shared top bar with its page pill reading "History" and no History button
-  ([8.1](08-01-what-the-ui-must-do.md)), then the info row. The info row says "Past sessions. Read-only: built
-  from what the server stored. Cost is an estimate, not a bill." and ends in the Wall options drawer
+  ([8.1](08-01-what-the-ui-must-do.md)), then the info row. The info row says "Past sessions, read-only. They are built
+  from what the server stored. Cost is an estimate, not a bill." (the page's description, with no name before it,
+  [8.1](08-01-what-the-ui-must-do.md)) and ends in the Wall options drawer
   ([8.1](08-01-what-the-ui-must-do.md)), with all four display controls.
 - Below the info row is the day's list. When a session is open, the list gives way to that session (below) and
   comes back on Back.
@@ -114,7 +115,7 @@ for an opened session. The frame it shares with the other pages (top bar, info r
   owner or an Admin), and stored Activity history ([8.1](08-01-what-the-ui-must-do.md)), which only the owner or an
   Admin may read.
 - The top bar's **Sign in** is shown only while at least one thing needs it: responding, file diffs, peer messaging,
-  stored Activity history or session recording is on. With all of them off there is no Sign in and the page does not
+  stored Activity history, session recording or My usage is on. With all of them off there is no Sign in and the page does not
   ask who is signed in. Its dialog's wording follows what is on ([8.1](08-01-what-the-ui-must-do.md)).
 - A viewer who signs in or out sees the day read again, so rows gain or lose the recording line at once.
 

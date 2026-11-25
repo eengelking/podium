@@ -197,7 +197,7 @@ describe("kanban board", () => {
     const sessions = [planned({ id: "m", name: "mine", owner: "Ed E." }, step("1", "pending", "my task")), planned({ id: "o", name: "theirs", owner: "Priya N." }, step("1", "pending", "their task"))];
 
     it("is not offered while nobody is signed in", async () => {
-      board(sessions, { enabled: true, signedIn: false, name: null, admin: false });
+      board(sessions, { enabled: true, signedIn: false, name: null, id: null, admin: false });
       expect(screen.getByText("my task")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "My orchestrators" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Everyone" })).toBeNull();
@@ -205,7 +205,7 @@ describe("kanban board", () => {
     });
 
     it("shows everyone's sessions by default and names the group for a screen reader", async () => {
-      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", id: 1, admin: false });
       expect(await screen.findByRole("group", { name: "Whose sessions" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Everyone" })).toHaveAttribute("aria-pressed", "true");
       expect(screen.getByRole("button", { name: "My orchestrators" })).toHaveAttribute("aria-pressed", "false");
@@ -213,7 +213,7 @@ describe("kanban board", () => {
     });
 
     it("goes back to everyone when Everyone is pressed", async () => {
-      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", id: 1, admin: false });
       fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.getByRole("button", { name: "My orchestrators" })).toHaveAttribute("aria-pressed", "true");
       fireEvent.click(screen.getByRole("button", { name: "Everyone" }));
@@ -222,7 +222,7 @@ describe("kanban board", () => {
     });
 
     it("narrows the board to the signed-in person's sessions, and is remembered", async () => {
-      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", admin: false });
+      board(sessions, { enabled: true, signedIn: true, name: "Ed E.", id: 1, admin: false });
       fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
       expect(screen.getByText("my task")).toBeInTheDocument();
       expect(screen.queryByText("their task")).toBeNull();
@@ -326,7 +326,7 @@ describe("kanban board", () => {
         <FleetView
           board
           state={stateFrom({ sessions, kpis: makeKpis({ live: 2 }), features: { "activity-feed": true, respond: true } })}
-          respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
+          respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", id: 1, admin: false }) } as unknown as RespondApi}
         />,
       );
       fireEvent.click(await screen.findByRole("button", { name: "My orchestrators" }));
@@ -383,7 +383,7 @@ describe("kanban board", () => {
         <FleetView
           board
           state={stateFrom({ sessions, kpis: makeKpis({ live: 2, running: 2, agentsRunning: 6 }), features: { "activity-feed": true, respond: true } })}
-          respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", admin: false }) } as unknown as RespondApi}
+          respondApi={{ me: async () => ({ enabled: true, signedIn: true, name: "Ed E.", id: 1, admin: false }) } as unknown as RespondApi}
         />,
       );
       expect(tile("Subagents live")).toHaveTextContent("forks included");

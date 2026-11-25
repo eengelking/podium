@@ -52,6 +52,33 @@ describe('SseHub', () => {
     expect(hub.size).toBe(19);
   });
 
+  it('ends a client whose queue passes the limit, logs it once and keeps serving the others (#748)', () => {
+    const drops: string[] = [];
+    const hub = new SseHub(100, 1000, (reason) => drops.push(reason));
+    const healthy = sink();
+    let queued = 0;
+    let ended = 0;
+    hub.add({ write: () => void (queued += 400), queued: () => queued, end: () => void ended++ });
+    hub.add({ ...healthy, queued: () => 0 });
+    hub.broadcast('tick', {});
+    expect(hub.size).toBe(2);
+    hub.broadcast('tick', {});
+    expect(hub.size).toBe(1);
+    expect(ended).toBe(1);
+    expect(drops).toHaveLength(1);
+    expect(drops[0]).toMatch(/1200 bytes queued.*limit of 1000/);
+    hub.broadcast('tick', {});
+    expect(events(healthy.chunks)).toEqual(['tick', 'tick', 'tick']);
+    expect(queued).toBe(1200);
+  });
+
+  it('does not drop a client whose queue is under the limit, as when a snapshot is in flight (#748)', () => {
+    const hub = new SseHub(100, 1000);
+    hub.add({ write: () => undefined, queued: () => 999 });
+    hub.broadcast('tick', {});
+    expect(hub.size).toBe(1);
+  });
+
   it('refuses clients past its limit', () => {
     const hub = new SseHub(2);
     expect(hub.add(sink())).not.toBeNull();
@@ -97,6 +124,23 @@ describe('Fleet broadcasts', () => {
     await fleet.tick();
     await fleet.flush();
     expect(events(s.chunks).at(-1)).toBe('tick');
+    fleet.close();
+  });
+
+  it('a tick with no client connected does not compute the KPIs, and one that follows a connect does (#749)', async () => {
+    vi.useFakeTimers();
+    const fleet = new Fleet(openSqliteStorage(':memory:'), { ...DEFAULT_CONFIG, home: '/', dbPath: ':memory:' }, () => 1_791_648_000_000);
+    await fleet.init();
+    await fleet.ingest(fixtureReport());
+    const kpis = vi.spyOn(fleet, 'kpis');
+    await fleet.tick();
+    expect(kpis).not.toHaveBeenCalled();
+    const s = sink();
+    await fleet.attach(s);
+    kpis.mockClear();
+    await fleet.tick();
+    expect(kpis).toHaveBeenCalledTimes(1);
+    expect(events(s.chunks)).toEqual(['snapshot', 'tick']);
     fleet.close();
   });
 

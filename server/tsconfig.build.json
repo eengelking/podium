@@ -1,0 +1,7 @@
+{
+  // The build for server/dist (#756). tsconfig.json type-checks everything, tests included (`npm run build` runs it with --noEmit). This one
+  // emits only what `src/index.ts` reaches, so no test file and no file only a test imports lands in dist or the container image.
+  "extends": "./tsconfig.json",
+  "include": [],
+  "files": ["src/index.ts"]
+}

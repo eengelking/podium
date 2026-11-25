@@ -14,8 +14,8 @@ import type { RespondMe } from "./types";
 const at = (h: number, m: number, s = 0) => new Date(2026, 10, 7, h, m, s).getTime();
 const NOW = at(14, 30);
 const CFG = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Dana", admin: false };
-const ADMIN_ME: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Dana", id: 4, admin: false };
+const ADMIN_ME: RespondMe = { enabled: true, signedIn: true, name: "Root", id: 7, admin: true };
 
 const live = (admin: string, since = NOW - 20_000): AdminReading => ({ admin, since, until: NOW + 25_000 });
 const read = (admin: string, startedAt: number, mins: number): AdminRead => ({ admin, startedAt, lastSeenAt: startedAt + mins * 60_000, kind: "read" });
@@ -64,7 +64,7 @@ afterEach(() => {
 
 describe("the owner's red notice while an Admin replays", () => {
   it("names the Admin, who can open it and when it clears, with an eye and words, and nothing else", async () => {
-    const s = makeSession({ owner: "Dana" });
+    const s = makeSession({ owner: "Dana", ownerId: 4 });
     const { container } = await layer(fakeApi({ reads: { [s.id]: [live("Root")] } }));
     const note = container.querySelector("[data-testid='replay-reading-notice']")!;
     expect(note.textContent).toContain("Root (an Admin) is replaying this recording.");
@@ -75,7 +75,7 @@ describe("the owner's red notice while an Admin replays", () => {
   });
 
   it("has no X and cannot be hidden, even by an old dismissal of the same reading", async () => {
-    const s = makeSession({ owner: "Dana" });
+    const s = makeSession({ owner: "Dana", ownerId: 4 });
     window.localStorage.setItem("podium.replay.dismissed", JSON.stringify([readingKey(s.id, "Root", NOW - 20_000)]));
     const { container } = await layer(fakeApi({ reads: { [s.id]: [live("Root", NOW - 20_000)] } }));
     const note = container.querySelector("[data-testid='replay-reading-notice']")!;
@@ -84,9 +84,9 @@ describe("the owner's red notice while an Admin replays", () => {
   });
 
   it("is seen by the owner only: an Admin who is not the owner, and a person who is not, see nothing", async () => {
-    const s = makeSession({ owner: "Dana" });
+    const s = makeSession({ owner: "Dana", ownerId: 4 });
     const reads = { [s.id]: [live("Root")] };
-    for (const me of [ADMIN_ME, { ...ME, name: "Alex" }]) {
+    for (const me of [ADMIN_ME, { ...ME, name: "Alex", id: 5 }]) {
       const { container, unmount } = await layer(fakeApi({ me, reads, records: [read("Root", at(14, 2), 6)] }));
       expect(container.querySelector(".rec-notes")).toBeNull();
       unmount();
@@ -94,14 +94,14 @@ describe("the owner's red notice while an Admin replays", () => {
   });
 
   it("is seen by an Admin who is the session's owner, with no X either", async () => {
-    const s = makeSession({ owner: "Root" });
+    const s = makeSession({ owner: "Root", ownerId: 7 });
     const { container } = await layer(fakeApi({ me: ADMIN_ME, reads: { [s.id]: [live("Sam")] } }), "Root");
     expect(container.querySelector("[data-testid='replay-reading-notice']")!.textContent).toContain("Sam (an Admin) is replaying this recording.");
     expect(container.querySelector("[data-testid='replay-reading-notice'] button")).toBeNull();
   });
 
   it("is gone once the Admin's reading has ended by the server's clock, and when the Admin has stopped it is not asked again", async () => {
-    const s = makeSession({ owner: "Dana" });
+    const s = makeSession({ owner: "Dana", ownerId: 4 });
     const api = fakeApi({ reads: { [s.id]: [{ admin: "Root", since: NOW - 60_000, until: NOW - 1 }] } });
     const { container } = await layer(api);
     expect(container.querySelector("[data-testid='replay-reading-notice']")).toBeNull();
@@ -130,7 +130,7 @@ describe("the quiet record lines after a replay", () => {
   });
 
   it("does not repeat a replay that is still open as a line", async () => {
-    const s = makeSession({ owner: "Dana" });
+    const s = makeSession({ owner: "Dana", ownerId: 4 });
     const { container } = await layer(fakeApi({ reads: { [s.id]: [live("Root", at(14, 29, 40))] }, records: [read("Root", at(14, 29, 40), 0)] }));
     expect(container.querySelectorAll("[data-testid='replay-record']")).toHaveLength(0);
     expect(container.querySelectorAll("[data-testid='replay-reading-notice']")).toHaveLength(1);
@@ -153,7 +153,7 @@ describe("reading who is replaying", () => {
   });
 
   it("asks nothing and shows nothing when signed out, or when recording is off", async () => {
-    const api = fakeApi({ me: { enabled: true, signedIn: false, name: null, admin: false } });
+    const api = fakeApi({ me: { enabled: true, signedIn: false, name: null, id: null, admin: false } });
     const { container } = await layer(api);
     expect(api.recordingReads).not.toHaveBeenCalled();
     expect(container.querySelector(".rec-notes")).toBeNull();
@@ -162,7 +162,7 @@ describe("reading who is replaying", () => {
 
 describe("the card's second line", () => {
   it("says who is replaying it, on the owner's card only", async () => {
-    const s = makeSession({ owner: "Dana", recording: makeRecording() });
+    const s = makeSession({ owner: "Dana", ownerId: 4, recording: makeRecording() });
     const card = (api: ReturnType<typeof fakeApi>) => (
       <RespondProvider api={api} flagsOn={false} recordingOn>
         <ReplayReadsProvider rev={1}>

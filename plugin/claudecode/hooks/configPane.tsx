@@ -10,7 +10,7 @@ import { changeable, engineValue, paneHeight, paneRows, type Live, type PaneRow 
 
 type Engine = EngineInterface
 
-export const CONFIG_PANE = 'podium-config'
+const CONFIG_PANE = 'podium-config'
 /** How long after the command the pane asks for the keyboard again, once the prompt is back to an empty composer. */
 const FOCUS_RETRY_MS = 150
 /** Bumped by each save, so the pane is drawn again with the engine's new value. */

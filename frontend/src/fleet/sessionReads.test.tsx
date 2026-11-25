@@ -14,9 +14,9 @@ import type { SessionReadKind } from "./respondApi";
 
 const at = (h: number, m: number, s = 0) => new Date(2026, 10, 7, h, m, s).getTime();
 const NOW = at(14, 30);
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Dana", admin: false };
-const ADMIN_ME: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
-const SESSION = { id: "s1", name: "history-paging", owner: "Dana" };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Dana", id: 4, admin: false };
+const ADMIN_ME: RespondMe = { enabled: true, signedIn: true, name: "Root", id: 7, admin: true };
+const SESSION = { id: "s1", name: "history-paging", owner: "Dana", ownerId: 4 };
 
 const live = (admin: string, since = NOW - 20_000): AdminReading => ({ admin, since, until: NOW + 25_000 });
 const read = (admin: string, startedAt: number, kind: AdminRead["kind"] = "read"): AdminRead => ({ admin, startedAt, lastSeenAt: startedAt + 60_000, kind });
@@ -41,7 +41,7 @@ const flush = () =>
     for (let i = 0; i < 8; i++) await Promise.resolve();
   });
 
-async function notes(api: ReturnType<typeof fakeApi>, kind: SessionReadKind = "ask", session: { id: string; name: string; owner: string | null } = SESSION, rev = 1, placement: "band" | "above" = "band") {
+async function notes(api: ReturnType<typeof fakeApi>, kind: SessionReadKind = "ask", session: { id: string; name: string; owner: string | null; ownerId: number | null } = SESSION, rev = 1, placement: "band" | "above" = "band") {
   const view = (r: number) => (
     <RespondProvider api={api} flagsOn>
       <SessionReadsProvider rev={r}>
@@ -105,9 +105,9 @@ describe("the owner's red notice while an Admin reads", () => {
     const readers = { ask: { s1: [live("Root")] } };
     for (const [me, session] of [
       [ADMIN_ME, SESSION],
-      [{ ...ME, name: "Alex" }, SESSION],
-      [ADMIN_ME, { ...SESSION, owner: "Admin" }],
-      [ME, { ...SESSION, owner: null }],
+      [{ ...ME, name: "Alex", id: 5 }, SESSION],
+      [ADMIN_ME, { ...SESSION, owner: "Admin", ownerId: null }],
+      [ME, { ...SESSION, owner: null, ownerId: null }],
     ] as const) {
       const { container, unmount } = await notes(fakeApi({ me, readers, records: [read("Root", at(14, 2))] }), "ask", session);
       expect(container.querySelector(".read-notes")).toBeNull();
@@ -116,7 +116,7 @@ describe("the owner's red notice while an Admin reads", () => {
   });
 
   it("is seen by an Admin who is the session's owner, with no X either", async () => {
-    const { container } = await notes(fakeApi({ me: ADMIN_ME, readers: { ask: { s1: [live("Sam")] } } }), "ask", { ...SESSION, owner: "Root" });
+    const { container } = await notes(fakeApi({ me: ADMIN_ME, readers: { ask: { s1: [live("Sam")] } } }), "ask", { ...SESSION, owner: "Root", ownerId: 7 });
     expect(container.querySelector("[data-testid='read-notice']")!.textContent).toContain("Sam (an Admin) is reading your waiting plan, question or tool request.");
     expect(container.querySelector("[data-testid='read-notice'] button")).toBeNull();
   });
@@ -215,7 +215,7 @@ describe("reading who is reading", () => {
     const a = await notes(gone);
     expect(a.container.querySelector(".read-notes")).toBeNull();
     a.unmount();
-    const out = fakeApi({ me: { enabled: true, signedIn: false, name: null, admin: false } });
+    const out = fakeApi({ me: { enabled: true, signedIn: false, name: null, id: null, admin: false } });
     const b = await notes(out);
     expect(out.sessionReads).not.toHaveBeenCalled();
     expect(b.container.querySelector(".read-notes")).toBeNull();

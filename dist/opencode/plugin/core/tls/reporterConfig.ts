@@ -2,7 +2,7 @@
 // helper (helper.mjs) parses the PEM blocks by role and checks the file's mode, because only Node can tell a CA certificate
 // from a person's and stat a mode. Shared by every reporter; no `node:` import, so a mod sandbox can load it.
 
-export const CONFIG_HEADER = '# podium-reporter-config v1';
+const CONFIG_HEADER = '# podium-reporter-config v1';
 
 export interface ConfigHeaders {
   user: string;

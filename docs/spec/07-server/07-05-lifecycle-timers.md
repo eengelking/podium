@@ -43,7 +43,8 @@ Admin > Settings > Chat ([7.2](07-02-database.md#what-chat-keeps-and-where-1034)
 
 | Condition | Result | Default |
 |---|---|---|
-| Every agent session in a Direct Message has left the live set (ended, dropped or deleted) | The conversation is **hidden**: it leaves the list, and its messages are kept (`hidden_at` set) | at once |
+| An agent session finishes (an ended session, and the old one after `/clear`) or is deleted (#1283) | Every Direct Message it is in is **concluded**: the conversation and its text are deleted, it leaves everyone's list, the people in it are told in the console, and a live agent that remains is told once. After a `/clear` the agent is still running under a new session, so the people and the agent that remains are told it was cleared and not that it ended, and a new Direct Message with it is allowed (#1340). A conversation with two or more people left stays, with the agent marked ended. A conversation between people alone is never concluded | at once |
+| Every agent session in a Direct Message has lost its heartbeat (dropped), or was removed from the wall | The conversation is **hidden**: it leaves the list, and its messages are kept (`hidden_at` set). A report may undo this, so it is not an end | at once |
 | A hidden conversation for the longest resume window of its agents (#1113) | Its messages are purged by the hourly run, and the conversation is gone. The window is what each reporter sent as `resumeWindowDays`: Claude Code's `cleanupPeriodDays`, else 30 days, and 30 days for OpenCode | the reporter's window (1 to 3650 days) |
 | A hidden conversation for `graceHours`, when neither agent has a window (a session stored before the window was reported) | The same purge | 24 hours (1 to 720) |
 | One of the same peers reports again within that time | The conversation is shown again, with its history | n/a |
@@ -54,8 +55,15 @@ Admin > Settings > Chat ([7.2](07-02-database.md#what-chat-keeps-and-where-1034)
   conversation stayed on the list until the Admin's messaging retention ended it, and it was deleted with its sessions. Now
   it leaves the list when the last agent leaves and is deleted when the harness's resume window ends. A window cannot keep chat past `RETAIN_SESSIONS_MS`, because deleting a session deletes its messages. Messaging's own retention
   ([7.7](07-07-hardening.md#orchestrator-messaging-347)) still removes a conversation that has been quiet for that many days.
-- While only some agents of a conversation have left, the conversation stays, the row names which have ended, and a message to
+- While only some agents of a conversation have lost their heartbeat, the conversation stays, the row names which have ended, and a message to
   an ended agent is refused with "has ended, so Podium did not queue the message".
+- **Concluding a Direct Message (#1283)** is final: a finished agent is a different agent from a new session that takes its name, and the new one is never a party to the old
+  conversation. A person's message still waiting for the owner's approval is discarded with the conversation, its request is closed, and the person is told how many messages
+  were not delivered. A new message to the ended agent is refused as `409` "has ended". Concluding twice finds nothing the second time and does nothing. The agent that remains
+  gets a notice in Podium's own words (it starts `A direct message you were in has ended.`, and both reporters turn it into a turn), once per conversation. The people in it are told
+  in the console: a wall notice (a dismissible row, `concluded-direct-messages` in Admin > Settings > Wall notices, on by default; closing one dismisses only that one) and, in an
+  open thread, a banner. That list is kept in memory for 24 hours, at most 20 for a person, and holds names and times, never text. An Admin's record of reading the conversation is
+  not removed with it (`forget` keeps a record a person has not seen), and the Admin log gets one `chat_concluded` row with counts and never text.
 - A conversation is hidden for the person who owns it; hiding it changes nothing about the link or the rights.
 - The hourly run writes one `chat_purged` entry to the Admin log when it removes something, with counts and never text.
 - A held message (a channel that is paused) waits until the channel resumes. If the agent it was for ends first, it is marked

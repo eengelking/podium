@@ -11,9 +11,9 @@ import { trimTrailingSlashes } from './machine.ts';
 import type { RespondLevel } from './protocol.ts';
 
 /** The folder under the home directory that holds the person's own Podium files. */
-export const PODIUM_DIR_NAME = '.podium';
+const PODIUM_DIR_NAME = '.podium';
 /** The settings file in that folder, `KEY=value` lines. */
-export const SETTINGS_FILE = 'config.env';
+const SETTINGS_FILE = 'config.env';
 
 /** The consent options, as the `PODIUM_*` variables that turn them on. Each is off unless set to exactly `true`. */
 export const CONSENT_VARS = {
@@ -23,11 +23,12 @@ export const CONSENT_VARS = {
   fullPrompts: 'PODIUM_FULL_PROMPTS',
   activityFeed: 'PODIUM_ACTIVITY_FEED',
   activityOutput: 'PODIUM_ACTIVITY_OUTPUT',
+  backgroundOutput: 'PODIUM_BACKGROUND_OUTPUT',
   fileDiff: 'PODIUM_FILE_DIFF',
   explainFailures: 'PODIUM_EXPLAIN_FAILURES',
 } as const;
 
-export type ConsentName = keyof typeof CONSENT_VARS;
+type ConsentName = keyof typeof CONSENT_VARS;
 export type Consent = Record<ConsentName, boolean>;
 
 export interface TrustedSettings {
@@ -101,7 +102,7 @@ export function trustedSettings(env: Env, fileText: string | null | undefined): 
 }
 
 /** The level a `PODIUM_RESPOND` value names. A plain `true` is the lowest level. */
-export function respondLevelOf(v: string): RespondLevel {
+function respondLevelOf(v: string): RespondLevel {
   if (v === 'true') return 'questions';
   return v === 'questions' || v === 'questions-and-plans' || v === 'everything' ? v : 'off';
 }

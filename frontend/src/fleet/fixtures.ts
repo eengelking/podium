@@ -57,7 +57,11 @@ export function makeAgent(over: Partial<AgentView> = {}): AgentView {
   };
 }
 
+/** The ids the sample people have (#1284): a session made with one of these names and no `ownerId` of its own is owned by that person. A name not here, and `ownerId: null`, is detached. */
+const SAMPLE_PEOPLE: Record<string, number> = { Ed: 1, "Ed E.": 1, Maya: 2, Priya: 3, "Priya N.": 3, Dana: 4, "Dana K.": 4, Alex: 5, Ann: 6, Root: 7, Boss: 8 };
+
 export function makeSession(over: Partial<SessionView> = {}): SessionView {
+  const ownerId = "ownerId" in over ? over.ownerId! : over.owner ? SAMPLE_PEOPLE[over.owner] ?? null : null;
   return {
     id: "s1",
     name: "api-refactor",
@@ -91,9 +95,11 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     machine: null,
     activityFeed: null,
     activityOutput: null,
+    backgroundOutput: null,
     fileDiff: null,
     fileDiffPreload: null,
     respond: null,
+    adminRespond: false,
     asks: [],
     clearedFrom: null,
     harness: "claude-code",
@@ -131,6 +137,7 @@ export function makeSession(over: Partial<SessionView> = {}): SessionView {
     agents: [],
     series: { tokensPerSec: new Array(60).fill(0), peakContext: new Array(60).fill(0), running: new Array(60).fill(0), blowoutSecondsAgo: [] },
     ...over,
+    ownerId,
   };
 }
 

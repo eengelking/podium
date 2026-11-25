@@ -102,7 +102,7 @@ export interface IgnoreRule {
 }
 /** What to remove in one step: these keys, or every reporter a filter holds (past one page). */
 export type RemoveBody = { keys: string[] } | { match: { q?: string; state?: ReporterState; admin?: boolean } };
-export interface GroupChoice {
+interface GroupChoice {
   id: number;
   name: string;
   builtIn: boolean;
@@ -135,17 +135,14 @@ export interface ModelPricesView {
 export type {
   ActivityHistoryPolicy,
   ActivityHistoryPreview,
-  ActivityHistoryPreviewBody,
   ActivityHistorySettings,
   ActivityHistoryState,
   ActivityHistoryUnit,
-  LastPurge,
   StoredActivityList,
   StoredDeleteBody,
   StoredDeleteResult,
   StoredFilter,
   StoredSessionRow,
-  StoredTotals,
 } from "../../../../server/src/fleet/activityHistoryTypes";
 
 export class AdminError extends Error {

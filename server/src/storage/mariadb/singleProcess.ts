@@ -5,7 +5,6 @@
 import * as mariadb from 'mariadb';
 import { SESSION_SQL, connectionConfig, mariaLabel, parseTarget, singleProcessLockName } from './conn.js';
 
-export { mariaLabel };
 
 export interface SingleProcessLock { release(): Promise<void> }
 

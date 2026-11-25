@@ -18,7 +18,7 @@ const DENIED = new Set([
 const PERSON_TOKEN = /pdm_[0-9a-f]{12}_[0-9a-f]{16,}/gi;
 
 /** Longest string value kept, in characters. */
-export const MAX_VALUE = 500;
+const MAX_VALUE = 500;
 
 /** A secret shorter than this is not scrubbed: it would match ordinary text, and an empty one means auth is off. */
 const MIN_SECRET = 8;
@@ -44,6 +44,16 @@ const SECRET_ASSIGNMENT = new RegExp(`${SECRET_HEAD}("(?:[^"\\\\]|\\\\.)*"|'[^']
 /** The head of a quoted secret value, up to and including its opening quote, and the whole quoted value from that quote (#1064). */
 const SECRET_QUOTE_OPEN = new RegExp(`${SECRET_HEAD}(?=["'])`, 'gi');
 const QUOTED_VALUE = /"(?:[^"\\]|\\.)*"|'[^']*'/y;
+
+/** The closing marks an unquoted secret value may have taken with it: a backtick, or a full stop, `!`, `?` or `:` that ends a sentence (#1271). */
+const TAIL_MARKS = '`.!?:';
+
+/** The run of closing marks at the end of an unquoted value. A loop, not a regex: `[..]+$` backtracks from every start (S8786). */
+function unquotedTail(value: string): string {
+  let at = value.length;
+  while (at > 0 && TAIL_MARKS.includes(value[at - 1])) at--;
+  return value.slice(at);
+}
 
 /** URL userinfo: the `user:pass@` in `https://user:pass@host/`. */
 const URL_USERINFO = /\b([a-z][a-z0-9+.-]*:\/\/)[^\s/:@]+:[^\s/@]+@/gi;
@@ -97,8 +107,12 @@ const PASSES: readonly Pass[] = [
   [
     SECRET_ASSIGNMENT,
     (m) => {
+      // An unquoted value runs to a space or one of `&,;"'}])`, so it can take the backtick or full stop that closes the sentence or
+      // span it sits in. Those end the value, they are not part of it, and stay in the text (#1271).
+      const tail = m[3][0] === '"' || m[3][0] === "'" ? '' : unquotedTail(m[3]);
+      // Harmlessness is judged on the whole value as before, so `password=123456.` stays redacted (the full stop could be part of it).
       const bare = m[3].replace(/^["']|["']$/g, '');
-      return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}`;
+      return HARMLESS_VALUE.test(bare) ? m[0] : `${m[1]}${m[2]}${REDACTED}${tail}`;
     },
     quoteUnclosed,
   ],
@@ -194,7 +208,7 @@ function scrubPatternsWindowed(value: string): string {
 }
 
 /** True for a field name the logger refuses whatever its value. */
-export function deniedField(name: string): boolean {
+function deniedField(name: string): boolean {
   const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split(/[_.-]+/);
   return words.some((w) => DENIED.has(w));
 }

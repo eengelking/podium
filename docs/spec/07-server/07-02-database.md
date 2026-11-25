@@ -89,6 +89,8 @@ CREATE TABLE samples (                                                     -- on
 );
 ```
 
+Migration 43 (#755; PostgreSQL and MariaDB main step 19) adds the index `samples_t` on `samples(t)`, because the fleet-wide token and cost queries and the hourly retention delete read `samples` by time alone.
+
 Migration 6 adds the tables for the Admin section (7.7). A token is never stored: only its SHA-256 (migration 17, #277, dropped the last four characters it used to keep).
 
 ```sql
@@ -326,6 +328,36 @@ Migration 17 (#277) drops `people.token_last4`, the last four characters of a pe
 ALTER TABLE people DROP COLUMN token_last4;
 ```
 
+## The messaging and Chat tables as they are now (#1296)
+
+The sections below follow the order the migrations came in, so a table is printed first as the migration that made it left it and changed in a later paragraph. This is each of them after the last migration (SQLite 61, PostgreSQL and MariaDB step 36), read from the schema. PostgreSQL and MariaDB carry the same columns, keys and indexes; only SQLite lays three tables out without a `rowid` ([Physical layout](../../architecture/02-components/19-storage.md#physical-layout)).
+
+```
+agent_ids              (id PK autoincrement, session_id UNIQUE)
+peer_rights            (from_key, to_key, owner, level, paused, set_at, paused_by, paused_by_admin, owner_id)           PK (from_key, to_key)
+peer_owner_settings    (owner_id, trust, on_request, new_send, limits_json)                                              PK owner_id
+peer_requests          (id, owner, kind, from_key, to_key, level, reason, by, from_session, message_id, created_at, closed_at, outcome, seq, owner_id)
+                         PK id;  indexes (created_at, seq), (seq)
+peer_messages          (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at,
+                        why, approved, seq, author, hidden_at, edited_at, deleted_at, author_id, from_agent, to_agent, owner_id)
+                         PK id;  indexes (sent_at, seq), (seq), (link, sent_at), (from_session), (to_session, state), (hidden_at), (owner_id, sent_at, seq)
+group_messages         (id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, edited_at, deleted_at, author_id, owner_id)
+                         PK id;  indexes (owner_id, created_at, seq), (created_at), (seq)
+public_messages        (id, author_kind, author_ref, author_name, text, created_at, issue, project, milestone, reply_to, mentions_json, seq, channel, edited_at, deleted_at, author_id)
+                         PK id;  indexes (created_at, seq), (channel, created_at, seq), (seq)
+public_channels        (name, description, link_kind, link_ref, link_key UNIQUE, created_by_name, created_at, updated_at, created_by_id)    PK name
+chat_read_state        (person_id, thread, unread, mentions)                                                              PK (person_id, thread);  index (thread)
+chat_admin_reads       (thread, admin_key, admin, started_at, last_seen_at, kind, people, detail)                                 PK (thread, admin_key, started_at);  index (last_seen_at)
+chat_admin_owed        (person_id, thread, admin_key, started_at)                                                         PK all four;  index (thread, admin_key, started_at)
+conversations          (id, created_at, members_key)                                                                      PK id;  index (members_key)
+conversation_members   (conversation_id, member_kind, member_ref, member_name, added_by, joined_at, left_at)               PK (conversation_id, member_kind, member_ref);  index (member_kind, member_ref)
+conversation_messages  (id, conversation_id, author_kind, author_ref, author_name, author_id, text, created_at, reply_to, seq, edited_at, deleted_at, handed_at)
+                         PK id;  indexes (conversation_id, created_at, seq), (created_at), (seq)
+conversation_deliveries (message_id, member_kind, member_ref, member_name, named, state, state_at)                         PK (message_id, member_kind, member_ref)
+```
+
+`owner_id` and `person_id` are `people.id`, with no foreign key. A person's rows are found by it and never by a name.
+
 ## What orchestrator messaging keeps, and where (#347)
 
 Migration 20 adds four tables and two reporter columns. Unlike responding, it keeps a message's text, so a person can
@@ -338,7 +370,7 @@ ALTER TABLE reporters ADD COLUMN reporter_name TEXT NOT NULL DEFAULT 'podium-rep
 CREATE TABLE peer_rights (from_key TEXT, to_key TEXT, owner TEXT, level TEXT, paused INTEGER, set_at INTEGER, PRIMARY KEY (from_key, to_key));
   -- one direction between two of one owner's reporters (the same reporter twice included); level none | see | ask | send.
   -- A `none` row exists only to hold a pause, or a removal under Trust my own reporters
-CREATE TABLE peer_owner_settings (owner_lower TEXT PRIMARY KEY, trust INTEGER, on_request TEXT, new_send TEXT, limits_json TEXT);
+CREATE TABLE peer_owner_settings (owner_lower TEXT PRIMARY KEY, trust INTEGER, on_request TEXT, new_send TEXT, limits_json TEXT);   -- keyed by owner_id since migration 61, below
   -- My reporters > Defaults: Trust my own reporters, the answer to an orchestrator's request, a new right to send, stricter limits
 CREATE TABLE peer_requests (id TEXT PRIMARY KEY, owner TEXT, kind TEXT, from_key TEXT, to_key TEXT, level TEXT, reason TEXT, by TEXT,
   from_session TEXT, message_id TEXT, created_at INTEGER, closed_at INTEGER, outcome TEXT);
@@ -360,7 +392,7 @@ CREATE TABLE peer_messages (id TEXT PRIMARY KEY, owner TEXT, link TEXT, from_key
 
 Chat has three tables, one for each audience, so that a missed filter can never send one audience's text to another. A
 conversation between agents, or between a person and one agent, is `peer_messages` above. The group channel is
-`group_messages` and General is `public_messages`. **`peer_messages` is never copied into, merged with or returned together with the
+`group_messages` and General is `public_messages`, which since migration 45 (#1035, below) also holds the public channels' messages, keyed by channel. **`peer_messages` is never copied into, merged with or returned together with the
 other two**: each has its own read and write path in the storage interface, and a test holds the server's code to it.
 
 Migration 31 (PostgreSQL and MariaDB main step 7; migration 32 is PostgreSQL and MariaDB main step 8) adds the following. Every adapter carries the same
@@ -375,7 +407,7 @@ CREATE TABLE group_messages (
   text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, issue TEXT, project TEXT, milestone TEXT, reply_to TEXT,
   mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
 );
-CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);
+CREATE INDEX group_messages_channel ON group_messages(owner, group_id, created_at, seq);   -- dropped by migration 54, with owner and group_id
 CREATE INDEX group_messages_created ON group_messages(created_at);
 CREATE TABLE public_messages (   -- the same row as group_messages, without owner and group_id: the table is the audience
   id TEXT PRIMARY KEY, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
@@ -383,7 +415,7 @@ CREATE TABLE public_messages (   -- the same row as group_messages, without owne
   mentions_json TEXT NOT NULL DEFAULT '[]', seq INTEGER NOT NULL
 );
 CREATE INDEX public_messages_channel ON public_messages(created_at, seq);
-CREATE TABLE chat_read_state (   -- one person's counts in one thread, kept on the server so the stream can carry counts and no text
+CREATE TABLE chat_read_state (   -- one person's counts in one thread, kept on the server so the stream can carry counts and no text. Changed by migration 55: keyed by (person_id, thread), no person, last_read or updated_at
   person TEXT NOT NULL, thread TEXT NOT NULL, last_read TEXT, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL, PRIMARY KEY (person, thread)
 );
@@ -407,17 +439,208 @@ CREATE TABLE chat_admin_reads (   -- one row per Admin and thread and reading se
   PRIMARY KEY (thread, admin_key, started_at)
 );
 CREATE INDEX chat_admin_reads_seen ON chat_admin_reads(last_seen_at);
-ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', or (#1078, on an `act:<name>` thread, no migration) 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted' or 'reporter_removed'
+ALTER TABLE chat_admin_reads ADD COLUMN kind TEXT NOT NULL DEFAULT 'read';   -- migration 34: 'read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', or (#1078, on an `act:<name>` thread, no migration) 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted', 'reporter_removed' or (#1251) 'respond_refused', or (#1328, with its words in `detail`) 'links_paused', 'links_resumed', 'link_removed', 'channel_edited' or 'channel_removed'
 ```
 
 Migration 35 (#1051; PostgreSQL and MariaDB main step 11) keeps a record until each person it names has seen it:
 
 ```sql
 ALTER TABLE chat_admin_reads ADD COLUMN people TEXT NOT NULL DEFAULT '[]';   -- the people the record is owed to: a JSON list of folded names
-ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';     -- the ones of those who have seen it: a JSON list of folded names
+ALTER TABLE chat_admin_reads ADD COLUMN seen TEXT NOT NULL DEFAULT '[]';     -- the ones of those who have seen it: a JSON list of folded names. Dropped by migration 58
 ```
 
 A row made before migration 35 owes nobody, so retention treats it as before. General's rows owe nobody either.
+
+Migration 44 (#1061; PostgreSQL and MariaDB main step 20) finds a person's unseen records without reading every record. `chat_admin_owed` holds one row for each person a record is owed to and has not seen it, and it is the only place that says so: `chat_admin_reads.seen` is no longer written, and `people` stays as the list the record was made with.
+
+```sql
+CREATE TABLE chat_admin_owed (   -- changed by migration 57: person_id replaces person_key in the key
+  person_key TEXT NOT NULL,       -- the person, folded
+  thread TEXT NOT NULL, admin_key TEXT NOT NULL, started_at INTEGER NOT NULL,   -- the record (chat_admin_reads' key)
+  PRIMARY KEY (person_key, thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
+```
+
+A person's overview reads their rows by the key's first column. A row is added when a record is written for the person, and removed when the person sees the thread, when the person is deleted, and 90 days after the record was last read (the record is then no longer owed to anyone who had not seen it, and retention removes it). The records an older database holds are filled into the table once, from `people` and `seen`, because a JSON list cannot be split the same way on every database (the store did this at its first use, and migration 57 does it now).
+
+Migration 45 (#1035; PostgreSQL and MariaDB main step 21) adds public channels beside General. The audience is still the table ([DECISIONS 61](../../decisions/61-chat-keeps-each-audience-in-its-own-table-and-a-person-may-write-to.md), amended by [69](../../decisions/69-public-channels-are-a-catalogue-inside-the-public-audience.md)): a public channel's messages stay in `public_messages`, now keyed by channel, and there is no `visibility` column. General is the built-in key `general` and is not a row of `public_channels`.
+
+```sql
+ALTER TABLE public_messages ADD COLUMN channel TEXT NOT NULL DEFAULT 'general';   -- every message already there is General's
+CREATE INDEX public_messages_in_channel ON public_messages(channel, created_at, seq);
+CREATE TABLE public_channels (   -- the channels beside General: a catalogue, never any message text
+  name TEXT PRIMARY KEY,         -- the channel's key and id: a lowercase slug, ^[a-z0-9][a-z0-9-]{0,39}$, never changed. `general` and `group` are reserved
+  description TEXT NOT NULL DEFAULT '',   -- at most 280 characters
+  link_kind TEXT, link_ref TEXT, -- 'issue', 'milestone' or 'project' and its reference (at most 100 characters), or NULL for a channel about any other topic
+  link_key TEXT UNIQUE,          -- the folded `<kind>:<reference>` (an issue's `#12` and `12` are one), so one link has one channel; NULL for no link, which never collides
+  created_by TEXT NOT NULL,      -- the opener's folded name; '' once that person is deleted, so a new person of the same name does not inherit it
+  created_by_name TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
+```
+
+At most 50 channels are kept beside General, and the limit is checked in the same step as the insert so two at once cannot pass it. A name is folded to lowercase before it is checked and compared without case.
+Deleting a person clears `created_by_id` (migration 51) of the channels they opened, and `created_by_name` stays as the text shown, and leaves the channels and their messages. Removing a channel deletes it and every message in it in one step, then the pause and disconnect flags, the read counts and the Admin's records that belonged to it.
+A page of a public channel orders by `created_at, seq` like every other. The retention days apply to a public channel's messages as they do to General's.
+
+Migration 46 (#1269; PostgreSQL and MariaDB main step 22) lets a person edit and delete their own Chat messages. The same three columns go on `group_messages`, `public_messages` and `peer_messages`:
+
+```sql
+ALTER TABLE group_messages ADD COLUMN edited_at INTEGER;    -- when the text last changed; NULL if it never did
+ALTER TABLE group_messages ADD COLUMN deleted_at INTEGER;   -- when the author deleted it; NULL while it shows
+ALTER TABLE group_messages ADD COLUMN author_id INTEGER;    -- the writer's people.id; NULL for an agent's or a reporter's message
+-- the same three columns on public_messages and peer_messages
+```
+
+`author_id` has no foreign key, so a message kept after its person is deleted names nobody and no one can match it. Who may change a message is decided by this id and never by the name. The migration gives each message already stored the id of the person whose current name matches its author, and a message whose author has no current person keeps NULL and cannot be changed. A deleted message stays as a tombstone: its row keeps its id, place, author and links, its `text` is `''`, its mentions are `[]` and `deleted_at` is set, so a page and its cursor do not move. A message is locked, and neither edited nor deleted, once Podium has sent it to an agent: in a channel, when any mention of an agent is `waiting`, `working` or `done`; in a Direct Message, when its state is `queued`, `handed` or `delivered`, or when its owner has approved it and it is `ready` for the agent to fetch. A mention of a person never locks. A mention that waits for another person's approval records `copyId`, the id of its Direct Message copy, inside `mentions_json`, so a change reaches the copy too. A message to two agents in a conversation is two rows, and a change is made to both in one step.
+
+Migration 47 (#1278; PostgreSQL and MariaDB main step 23) adds the conversations of people, a fourth audience beside General, My group and `peer_messages` ([DECISIONS 74](../../decisions/74-a-direct-message-is-a-conversation-of-two-or-more-people-and-an-admin-cannot-read-one-without-an-agent-in-it.md)). It is never copied into, merged with or returned together with any of them:
+
+```sql
+CREATE TABLE conversations (id TEXT PRIMARY KEY, created_by INTEGER, created_at INTEGER NOT NULL, members_key TEXT NOT NULL);
+  -- members_key: a hash of the sorted kind:ref of the members who are in it now, so the conversation of a set of members is found (an index, not a unique key)
+CREATE TABLE conversation_members (conversation_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL, added_by INTEGER,
+  joined_at INTEGER NOT NULL, left_at INTEGER, PRIMARY KEY (conversation_id, member_kind, member_ref));
+  -- member_kind person | agent; member_ref the person's people.id or the agent's session id
+CREATE TABLE conversation_messages (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, author_kind TEXT NOT NULL, author_ref TEXT NOT NULL, author_name TEXT NOT NULL,
+  text TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, reply_to TEXT, seq INTEGER NOT NULL, edited_at INTEGER, deleted_at INTEGER, author_id INTEGER, handed_at INTEGER);
+  -- handed_at: when Podium handed it to an agent of the conversation; a handed message can no longer be edited or deleted
+CREATE INDEX conversations_members ON conversations(members_key);
+CREATE INDEX conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
+CREATE INDEX conversation_members_ref ON conversation_members(member_kind, member_ref);
+```
+
+A person's counts for a conversation are kept like a channel's, under the thread `convo:<id>`, and so are an Admin's records of a conversation with an agent in it. A page orders by `created_at, seq` like every other. A conversation has no Admin read, so it has no `chat_admin_reads` row while no agent is a member. The retention days apply to its messages as they do to a channel's. Deleting a person removes their membership and a conversation left with no person is deleted with its messages.
+
+Migration 53 (#1282; PostgreSQL and MariaDB main step 29) keeps who a message of a conversation was for and what became of it for each agent it was handed to:
+
+```sql
+CREATE TABLE conversation_deliveries (conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL,
+  named INTEGER NOT NULL, state TEXT, state_at INTEGER, PRIMARY KEY (conversation_id, message_id, member_kind, member_ref));
+  -- named: 1 for a member the writer addressed with an @, 0 for an agent that took a message sent to everyone
+  -- state: an agent's queued, delivered or dropped (it moves once, from queued); NULL for a person, who is told by the unread count
+```
+
+A message with no row was sent to everyone before this existed, or had no agent to hand it to, and keeps no delivery line. A message's rows are written in the step that stores the message, and are removed with it by retention and with its conversation.
+
+Migration 54 (#1296; PostgreSQL and MariaDB main step 30) keeps each fact of the chat and peer tables in one place. The columns and indexes below are gone, because nothing read them or they held what another column holds:
+
+```sql
+DROP INDEX group_messages_channel;                      -- built on owner and group_id; no query used it
+ALTER TABLE group_messages DROP COLUMN owner;           -- the id's key (#<people.id>) beside owner_id
+ALTER TABLE group_messages DROP COLUMN group_id;        -- the same value again
+ALTER TABLE public_channels DROP COLUMN created_by;     -- always '' beside created_by_id and created_by_name
+ALTER TABLE peer_messages DROP COLUMN handed;           -- what `state` says
+DROP INDEX peer_requests_owner;                         -- no query used it
+ALTER TABLE conversations DROP COLUMN created_by;       -- the other members' added_by records who opened it
+ALTER TABLE group_messages DROP COLUMN updated_at;      -- and on public_messages and conversation_messages
+```
+
+`updated_at` of a message is the newest of its `created_at`, `edited_at`, `deleted_at` and the `stateAt` of its mentions, because a post, an edit, a delete and a mention changing state are the only things that stamp a message. The store works it out when it reads the message, and the field `updatedAt` of the routes carries that value.
+
+What the upgrade costs and frees: a new database gets the full saving, and an existing one stops growing into the dropped columns at once. SQLite's file does not shrink at the migration and can grow while `group_messages` is made again (about that table's size plus its indexes, so the disk needs that much free space plus the WAL); the freed pages go to the free list and new rows reuse them, and it shrinks only after a `VACUUM`, and the app never vacuums the main database. On PostgreSQL the `DROP COLUMN`s only change the catalog, and the space comes back on `VACUUM FULL`. On MariaDB each `ALTER TABLE` rebuilds its table, and step 30 does that once for each table.
+
+Migration 55 (#1296; PostgreSQL and MariaDB main step 31) keeps a person's counts in a thread by the person's id and the thread alone:
+
+```sql
+CREATE TABLE chat_read_state (person_id INTEGER NOT NULL, thread TEXT NOT NULL, unread INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (person_id, thread));
+CREATE INDEX chat_read_state_thread ON chat_read_state(thread);
+```
+
+The name key `person`, the second index on the same two columns (`chat_read_state_person`), `last_read` and `updated_at` are gone. Nothing read the last-read cursor and no route returned it, so the maintainer approved dropping it: `POST /chat/read` still checks `upTo` and no longer keeps it. A row at zero says what no row says, so reading a thread deletes the row, and the upgrade drops the rows at zero and the rows of no person (`person_id` NULL, which nothing could read or clear); every count that is not zero is kept.
+
+Migrations 56 to 58 (#1296; PostgreSQL and MariaDB main steps 32 to 34) keep a delivery by its message, and an Admin record's owed rows by the person's id:
+
+```sql
+CREATE TABLE conversation_deliveries (message_id TEXT NOT NULL, member_kind TEXT NOT NULL, member_ref TEXT NOT NULL, member_name TEXT NOT NULL,
+  named INTEGER NOT NULL, state TEXT, state_at INTEGER, PRIMARY KEY (message_id, member_kind, member_ref));   -- 56: conversation_id is gone
+CREATE TABLE chat_admin_owed (person_id INTEGER NOT NULL, thread TEXT NOT NULL, admin_key TEXT NOT NULL, started_at INTEGER NOT NULL,
+  PRIMARY KEY (person_id, thread, admin_key, started_at));                                                   -- 57: person_key and chat_admin_owed_person are gone
+CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
+ALTER TABLE chat_admin_reads DROP COLUMN seen;                                                               -- 58
+ALTER TABLE chat_admin_reads ADD COLUMN detail TEXT NOT NULL DEFAULT '';                                  -- 62 (#1328): the words after the Admin's name for a stop on a person's links or a public channel they opened; a reporter or a channel name, never any message text
+```
+
+A delivery's conversation was its message's conversation said again, and a key that began with it left the retention delete no way in but a scan of every delivery. A conversation's deliveries are now those of its messages, and a store call that names a message in another conversation finds nothing, as before. `chat_admin_owed.person_key` was the older name key and said the id again, and its person index duplicated the key's first columns; a row that names no person (`person_id` NULL) is not kept, because nothing can see it and step 51 had already removed such rows. `chat_admin_reads.seen` held `[]` for every record made since `chat_admin_owed` was made, because a record is seen when its owed row is deleted, so the owed table was filled once from the lists an older record holds (step 57, in code, as the store did before) and the column goes after it (step 58). `people` stays: deleting a person decides from it whether a record other people had seen is kept, and no Admin notice, record line or Admin log row changes.
+
+Migrations 56, 57 and 59 also lay three SQLite tables out without a `rowid` (`conversation_deliveries`, `chat_admin_owed`, `chat_read_state`), as the Activity history's `loops` table already was. That is how SQLite stores a row, not a table, column, index or key, so PostgreSQL and MariaDB have no step for it: MariaDB's InnoDB keeps a row once in its primary key, and PostgreSQL keeps a key beside its row and has no layout that stores it once. Each is declared in `server/src/storage/sqlite/contractAdapter.ts` with the contract case that holds the data the same, and `adapters.test.ts` reads each adapter's layouts back from its database ([DECISIONS 78](../../decisions/78-an-adapter-may-differ-in-physical-layout-when-the-difference-is-declared-and-checked.md)). On 100,000 messages with two deliveries each (200,000 delivery rows) the table and its key went from 59.1 MB to 24.1 MB; per 100,000 rows `chat_admin_owed` went from 22.3 MB to 14.4 MB and `chat_read_state` from 15.5 MB to 9.9 MB.
+
+Migration 60 (#1296; PostgreSQL and MariaDB main step 35) adds six indexes, because two reads scanned a table:
+
+```sql
+CREATE INDEX peer_messages_counter ON peer_messages(seq);               -- and group_messages, public_messages, conversation_messages and peer_requests, each `<table>_counter`
+CREATE INDEX peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
+```
+
+Every insert into those five tables numbers its row with `SELECT COALESCE(MAX(seq), 0) + 1` over the table, and no index began with `seq`, so each insert read a whole index (5 to 8 ms at 300,000 rows on SQLite, 15 to 41 ms on PostgreSQL and 28 to 33 ms on MariaDB, and growing with the table). With an index on `seq` the database reads its last entry, and an insert costs the same at any size (under 0.2 ms on SQLite). `peer_messages` was read by `owner_id` with no index on it (`conversations`, `ownerConversations` and the lookup of an ended agent's name), which scanned every person's messages. The index is `(owner_id, sent_at, seq)`, the order those reads sort in, and not `owner_id` alone, because on MariaDB an index on `owner_id` alone loses to the `seq` index for the lookup of an agent that has no message (it sorts and stops at the first match): at 300,000 messages of 50 owners that lookup took about 1,050 ms with the narrow index and takes about 4.7 ms with this one. On PostgreSQL the wider index buys nothing once the table has statistics, which autovacuum keeps (a narrow index and this one both answer in about 2 ms); before the first `ANALYZE` the narrow index loses there too (22 ms against 1.6 ms). It costs about 33 bytes a row more than the narrow one on PostgreSQL (41 against 7), and it is one definition because every adapter has to have the same index and MariaDB needs this one. With 50 owners `conversations` went from 34 to 10.5 ms on SQLite, from 31 to 11 ms on PostgreSQL and from 591 to 17 ms on MariaDB, and `ownerConversations` from 40 to 11 ms on SQLite and 31 to 11 ms on PostgreSQL. On MariaDB `ownerConversations` still scans the table when each person holds a fiftieth of it, because its `OR` makes the planner choose a scan, and an index of any shape did not change that; with 500 owners it reads the index (479 to 2.6 ms). When one person holds a fifth of the table no index helps, and the table is read in full.
+
+The indexes cost space on every insert too, measured on 300,000 `peer_messages` with 28-character ids. Each `seq` index takes about 12 bytes a row on SQLite, 23 on PostgreSQL and 51 on MariaDB, and `peer_messages_owner` takes 21, 41 and 69 (an InnoDB index entry carries the row's primary key, so MariaDB's figure grows with the id's length; PostgreSQL stores a repeated owner once, which a narrow index would use to cost 7). That is 2.1, 4.1 and 6.9 MB for 100,000 messages for the owner index.
+
+A step that builds an index needs the table read once. On PostgreSQL `CREATE INDEX` blocks writes to the table while it builds, about 0.1 s for each million rows, and on MariaDB it builds online. The server serves nothing until the migration steps finish, which took 0.3 s on SQLite, 0.6 s on PostgreSQL and 1.1 s on MariaDB for 100,000 messages with 200,000 deliveries, steps 56 to 60 and 32 to 35 together.
+
+What the upgrade costs: SQLite migrations 56, 57 and 59 each make their table again and copy its rows, so the file can grow by about the size of the biggest table (the deliveries) plus the WAL while they run, and it shrinks only after a `VACUUM`, which the app never runs on the main database. Migration 60 reads each of its tables once to build an index and adds the space above. On PostgreSQL steps 32 and 33 rewrite their tables' keys and indexes and the column drops only change the catalog, and step 35 builds six indexes. On MariaDB each `ALTER TABLE` in steps 32 to 34 rebuilds its table, once for each table, and step 35 builds six indexes.
+
+Migration 61 (#1296; PostgreSQL and MariaDB main step 36) keys an owner's defaults by the person's id and nothing else:
+
+```sql
+CREATE TABLE peer_owner_settings (owner_id INTEGER PRIMARY KEY, trust INTEGER NOT NULL DEFAULT 0, on_request TEXT NOT NULL DEFAULT 'ask', new_send TEXT NOT NULL DEFAULT 'ask', limits_json TEXT);
+```
+
+`owner_lower`, the key, held the folded name until migration 50 and the person's id as text after it, so the id was stored three times: in the key, in `owner_id` and in `peer_owner_settings_owner_id`. Every read, the write and the delete of a person already went by `owner_id`, and nothing read the key. A row with no `owner_id` is dropped, because nothing can read it and the step that gave the rows their ids had already dropped every one that was not provably a person's. The rows of an `owner_id` that more than one row holds are dropped too, so that person has the server's defaults: no code writes two, and nothing says which one is theirs.
+
+What the upgrade costs: the table has one row for each person, so the step is fast. For 1,000 rows it took 1.3 ms on SQLite, 2 ms on PostgreSQL and 7 ms on MariaDB. SQLite makes the table again and copies its rows, and after a `VACUUM` the table and its indexes went from 94 KB to 53 KB (a database of 10 people, from 12 KB to 4 KB); the file does not shrink by itself. PostgreSQL drops the column and the index and builds the key, and its table with its indexes went from 221 KB to 172 KB. MariaDB does the key, the index and the column in one `ALTER TABLE`, which rebuilds the table once, and it went from 180 KB to 98 KB. A step that stopped half way on MariaDB runs again: its delete reads only `owner_id`, and its `ALTER TABLE` finds the key, the index and the column as it left them.
+
+Migration 48 (#1284; PostgreSQL and MariaDB main step 24) gives every agent an id the server assigns and never reuses:
+
+```sql
+CREATE TABLE agent_ids (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL UNIQUE);
+  -- the key is an auto-increment: a number is never handed out twice, even after its session is deleted
+ALTER TABLE peer_messages ADD COLUMN from_agent INTEGER;   -- the agent that wrote it; NULL for a person's end
+ALTER TABLE peer_messages ADD COLUMN to_agent INTEGER;     -- the agent it was aimed at; NULL for a person's end
+```
+
+One session has one id, and a new session (a `/clear` makes one) gets a new id whatever name it takes, so an id never reaches a later agent that took an earlier one's name. `agent_ids` has no foreign key and its rows are never removed. The sessions that exist are given ids in the order they started, and each stored message the ids of its two sessions; a message whose session is gone keeps NULL, so it is never matched to a newcomer. No two live agents of one owner hold the same name: the later one is shown as "Name 2" and takes its own name back once it is free ([7.1](07-01-endpoints.md)).
+
+Migration 49 (#1284; PostgreSQL and MariaDB main step 25) binds a session and a reporter to a person by id, never by name ([DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md) gives the rule and its two limits):
+
+```sql
+ALTER TABLE sessions ADD COLUMN owner_id INTEGER;    -- the owner's people.id; NULL for the admin secret's sessions and for one whose person was deleted
+ALTER TABLE reporters ADD COLUMN owner_id INTEGER;   -- the same for a reporter
+```
+
+`owner_id` has no foreign key, and a `people.id` is never reused, so a session or reporter kept after its person is deleted names nobody and a new person who takes the name owns none of it. `owner` stays as the display text. Who owns a session or a reporter (who may answer it, delete it, read its asks, activity and recording as its owner, or sees it in My reporters) is decided by `owner_id` and never by `owner`; a row with no `owner_id` is nobody's, and only an Admin reaches it. A report from a person's token writes that person's id, and a session already owned by another id, or by nobody, is refused (`OwnerConflict`). The migration gives each row already stored the id of the person whose folded name matches its `owner` (`fillOwnerIds`, in code because SQL cannot fold a name as `nameKey` does) and leaves the others without one; deleting a person sets `owner_id` to NULL on their sessions and reporters in the same step. A person is only given the rows written after they existed (`people.created_at` is not after the row's `started_at` or `first_seen_at`), because an older server kept a deleted person's sessions and reporters as name text and a newcomer who took the name must not be handed them; such a row stays without an id.
+
+Migration 50 (#1284; PostgreSQL and MariaDB main step 26) binds the peer-messaging tables to a person the same way:
+
+```sql
+ALTER TABLE peer_rights ADD COLUMN owner_id INTEGER;          -- the owner's people.id; NULL for a row whose owner matched no person
+ALTER TABLE peer_requests ADD COLUMN owner_id INTEGER;        -- the same
+ALTER TABLE peer_messages ADD COLUMN owner_id INTEGER;        -- the same
+ALTER TABLE peer_owner_settings ADD COLUMN owner_id INTEGER;  -- the owner's defaults are found by it
+```
+
+The rights, requests, messages and owner defaults of a person are found by `owner_id`, never by `owner`, which stays as display text. A person's end of a link is `person:<people.id>`; the migration rewrites each stored `person:<name>` (in `from_key`, `to_key`, `from_session`, `to_session` and the link names) to `person:<id>` for a row written when the person existed (the row's `set_at`, `created_at` or `sent_at` is not before `people.created_at`), and to `person:gone:<name>` for an older row or when no person has the name, a key no live person's can equal (`fillPeerOwnerIds`, with the pure part in `storage/peerOwnerIds.ts`). `peer_owner_settings` kept the folded name as its primary key `owner_lower` and has no time column, so a row cannot be dated; the step wrote the id as text in that key (migration 61 keys the table by `owner_id` and drops `owner_lower`), and a row is kept only when it is provably the person's own: the name matches a person, that person owns a row written since they were made (in `sessions`, `reporters`, `peer_rights`, `peer_requests` or `peer_messages`, by `owner_id`), and no row of that name is older than the person, which would show that an earlier person held the name. Every other row is dropped and the person has the server's defaults, so a newcomer who takes a deleted person's name gets none of what the earlier person set, and a person with nothing of their own written yet starts from the defaults (`keepOwnerSettings`, #1292). A row gets its `owner_id` only when its person existed when it was written (`people.created_at` is not after its `set_at`, `created_at` or `sent_at`), so a newcomer who takes a deleted person's name is not handed that person's rights, requests or messages. The key rewrite reads every `person:<text>` as a name, an all-digit name included (a person called "42" is `person:<their id>`, never the person with id 42) and one that begins `gone:` included (a person called `gone:x` is `person:<their id>`, and an unmatched name `gone:y` is `person:gone:gone:y`, so a `gone:` name never collides with a key already rewritten), so it must run once on name-keyed data: it writes a mark in `settings` (`upgrade.peer_person_ids_done`) in the same transaction as the rewrite and does nothing when the mark is there, and, because no key is in the new form on the first run, it needs no exemption for one. That makes it safe when MariaDB, whose step is not one transaction with its version row, runs it again after a crash. Deleting a person removes their peer rows, their end of every link and their defaults by id. A reporter row that changes hands (a report for its key from another person's id, or from a person claiming a row with no id) first loses its links, rights, requests and session links, so a newcomer who takes a deleted person's name inherits none of them. The agent-facing address `person:<name>` still works: `replyToPerson` finds the person among those who wrote to that very session.
+
+Migration 51 (#1284; PostgreSQL and MariaDB main step 27) binds Chat to a person by id, never by name, as migration 49 does for sessions and reporters:
+
+```sql
+ALTER TABLE group_messages ADD COLUMN owner_id INTEGER;       -- the group's person (people.id); NULL for a group whose name matched no person
+ALTER TABLE chat_read_state ADD COLUMN person_id INTEGER;     -- whose counts these are
+ALTER TABLE chat_admin_owed ADD COLUMN person_id INTEGER;     -- who is owed an Admin record
+ALTER TABLE public_channels ADD COLUMN created_by_id INTEGER; -- who opened the channel; NULL once that person is deleted
+```
+
+None has a foreign key, and a `people.id` is never reused, so a person who takes a deleted person's name finds none of that person's group channel, read counts, owed Admin records or opened channels. The columns that held a name beside them (`group_messages.owner` and `.group_id`, `chat_read_state.person`, `chat_admin_owed.person_key`, `public_channels.created_by`) are dropped by migrations 54 to 57. The `people` and `seen` lists of an Admin record hold ids (`seen` until migration 58), and so do the person parts of the names `group:`, `list:` and `act:` (a thread) and the person end of a `dm:` thread (`person:<id>`, or `person:gone:<name>` for a name no person holds, as migration 50 writes it) and of the flag scopes `group:`, `public:person:` and `channel:<name>:person:` in `settings`. An Admin's record is kept under `#<id>` for an Admin who signed in as a person, and under the folded name for the admin secret. The step gives each row already stored the id of the person whose folded name it holds (`fillChatPersonIds`, in code because SQL cannot fold a name as `nameKey` does) and only when that person existed when the row was written: a row older than the person, or whose name matches no person, is left to nobody. The same check clears an author id that migration 46 gave a message older than the person it names. Every name in a thread name or flag scope is read as a name, an all-digit one included, as in migration 50, so the step runs once: it writes a mark in `settings` (`upgrade.chat_person_ids_done`) in the same transaction as its rewrite (on MariaDB the whole step is one transaction now) and does nothing when the mark is there. Deleting a person removes the group channel, counts, owed records and flags found by their id, and sets `created_by_id` to NULL on the channels they opened.
+
+Migration 52 (#1284; PostgreSQL and MariaDB main step 28) binds the daily rows that name a person (`usage_daily`, `failures_daily`, `person_sessions_daily`, `skills_daily` and `person_places_daily`) to the person by id too:
+
+```sql
+-- on each of the five tables, shown for usage_daily
+owner_id INTEGER NOT NULL DEFAULT 0,                 -- the owner's people.id; 0 is no person (the admin secret, or a person who was deleted)
+PRIMARY KEY (day, owner_id, owner, model, project)   -- the key gains owner_id; the other four tables gain it the same way, before owner
+```
+
+`owner_id` has no foreign key, like the one on `sessions`. It is part of the key so that a person who was deleted and a new person of the same name keep their rows of one day apart, and it is `0` and not NULL because a key column cannot be NULL. `owner` stays as the display text. A row is a person's by its `owner_id`: My usage and the group a session is counted in go by the id, so a deleted person's spend is in the fleet's totals and in no person's or group's figures, and a new person of the same name has none of it. SQLite cannot change a key, so migration 52 makes each table again and copies its rows; PostgreSQL and MariaDB add the column and replace the key. Rows already stored are given the id of the person their owner name matches, only when the row's `day` is not before the day the person was made (a day before it is an earlier holder of the name, and a newcomer is not given that person's spend), and a row that matches nobody, or fails that check, keeps `0` and loses its `group_name`; deleting a person takes `group_name` off their rows the same way. The hourly rebuild writes each day's rows from the stored sessions with the session's `owner_id`, and `group_name` from the person that id names.
 
 Migration 36 (#1113; PostgreSQL and MariaDB main step 12) keeps how long a closed session can be resumed:
 
@@ -429,36 +652,37 @@ It is read from the report's `resumeWindowDays` ([6.2](../06-reporter-protocol/0
 
 A reading is one row for the reads of one thread by one Admin less than 30 minutes apart; `last_seen_at` moves on each read or ping. The other kinds
 are one row for each stop (an Admin's remove all messages, pause or resume), never a session. A look at a person's list of conversations is a reading of the
-thread `list:<person>`. A row is protected until every person in `people` is in `seen`; after that it goes by retention. A person has seen a row when Podium sent it to their console: they loaded the
+thread `list:<id>` (the person's `people.id`, #1284). A row is protected until every person in `people` is in `seen`; after that it goes by retention. A person has seen a row when Podium sent it to their console: they loaded the
 group or conversation it is about, or, for a look at their list, their own overview. The row of a conversation they can no longer open is not seen on a thread,
 so their own overview lists it (`goneReads`: the newest 20, with the Admin, the time, what it was and the other party's name, never any text) and marks it seen
 when it loads, after which it goes by retention. Until then neither the hourly retention (which removes rows last seen before the channels' retention days, and those of a conversation that no
 longer exists), the purge of a hidden conversation, nor Delete conversation removes it; once it is seen, they do. Remove all messages never removes
 any. An Admin's stop is recorded before it happens, so a stop that cannot be recorded does not happen. Deleting a person removes their group, read counts,
-Direct Messages (the ones they own and the ones with their `person:<name>` end), links, requests and owner defaults, and the Admin records owed only to them (they
+Direct Messages (the ones they own and the ones with their `person:<id>` end), links, requests and owner defaults, and the Admin records owed only to them (they
 can never be seen); a record owed to others as well stays for them, without the deleted person. A record that names nobody is not theirs. Sessions, spend, the
-Admin log and General keep their name as text.
+Admin log and General keep their name as text, but a session and a day's spend keep no person: their `owner_id` is NULL or `0` (migrations 49 and 52), so a new person who takes the name owns none of them (#1284, [DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md)).
 
-- **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General). `<scope>` is
+- **Ids.** A channel message's id is `grp_<scope>_<24 hex>` (group) or `pub_<scope>_<24 hex>` (General and a public channel). `<scope>` is
   the server's 8 hex digits, made once and kept in `settings` as `chat_scope`, so ids from two servers differ and can be carried
   unchanged later. A direct message keeps its `dlv_` style id.
 - **Author.** `author_kind` is `person`, `orchestrator`, `subagent` or `reporter`; `author_ref` is the person's name, the session id
-  or the reporter key. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
+  or the reporter key. `author_id` is a person's `people.id` (migration 46), the only thing that says a person may change a message. `issue`, `project` and `milestone` are optional links. Neither channel table has a `visibility`
   column: the table is the audience. `peer_messages.author` is how a person is a peer in a direct message: a person's message
-  has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<name, folded>` in
-  `from_session` or `to_session`, and in `from_key` or `to_key` for the link. An agent's answer to such a person is an `agent` message with `to_session`
-  and `to_key` `person:<key>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
+  has the person's name as its sender and no machine. A person's end of a conversation across owners is `person:<people.id>` in
+  `from_session` or `to_session`, and in `from_key` or `to_key` for the link (#1284: never the name). An agent's answer to such a person is an `agent` message with `to_session`
+  and `to_key` `person:<id>`, `state` `delivered`, no approval and nothing handed to a reporter. The hourly retention never counts a
   `person:` end as a missing session, so neither a person's message nor an answer to one is dropped as an orphan.
-- **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt }` ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
+- **Mentions.** `mentions_json` is a JSON array of `{ sessionId, peerKey, typed, state, why, stateAt, copyId? }` (`copyId` since migration 46) ([7.1](07-01-endpoints.md#routes-for-chat-1034)).
 - **Order.** A page orders by `created_at, seq` in every adapter (`seq` is the insertion number, so a tie is decided the same
   way everywhere), and a page back starts strictly before its cursor, so a message deleted between two page reads cannot break it.
-- **Direct messages.** A conversation is hidden, not deleted, when its agents leave (`hidden_at`); see [7.5](07-05-lifecycle-timers.md). How long it is kept follows the harness's resume window, which `sessions.resume_window_days` holds (NULL when no report has said).
+- **Direct messages.** A conversation is concluded and deleted when an agent in it finishes or is deleted (#1283), and hidden, not deleted, when its agents only lose their heartbeat (`hidden_at`); see [7.5](07-05-lifecycle-timers.md). Concluding changes no table. How long it is kept follows the harness's resume window, which `sessions.resume_window_days` holds (NULL when no report has said).
 - **Settings rows**, all in `settings`: `chat.retainDays` (days a channel keeps its messages, default 30, 1 to 365),
   `chat.graceHours` (hours a hidden conversation is kept when none of its agents has a resume window, default 24, 1 to 720), `chat.maxChars` (the longest channel message, message to another person's agent,
   or message to one's own agent from Chat, default 4,000, 1 to 20,000) and `chat.perMinute` (posts or messages a minute for one author, default 6, 1
   to 600). A value outside its range is ignored on read and refused on write. `chat.flag.<scope>` holds a channel's flags as
-  letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<name>`
-  (General, one person's agents) or `group:<owner>`. A scope with neither flag has no row. The flag `feature.chat-everyone`
+  letters (`p` paused, `d` disconnected), with the scope `public:global` (General, paused for everyone), `public:person:<id>`
+  (General, one person's agents; the person's `people.id` since #1284) or `group:<id>`; a public channel besides General has its own, `channel:<name>:global` and `channel:<name>:person:<id>`, so pausing one never touches General or another channel,
+  and removing a channel resets them. A scope with neither flag has no row. The flag `feature.chat-everyone`
   is '0' or '1' like the other features, and is off by default.
 - A message's text is never in the state, the stream, the Admin log or the server log.
 
@@ -510,7 +734,7 @@ The sweeper runs this hourly:
 - Admin log rows older than 90 days are deleted, except that the newest 100 rows are always kept, so a quiet
   server keeps some history (#303).
 - Chat (#1034): a channel message older than the Admin's `retainDays` (30 days unless the Admin sets another) is deleted from
-  General and every group, and the messages of a Direct Message hidden for longer than the longest resume window of its agents (#1113, 30 days unless
+  General, every public channel (#1035; the channel itself stays, however old) and every group, and the messages of a Direct Message hidden for longer than the longest resume window of its agents (#1113, 30 days unless
   the harness says another) are deleted, or longer than `graceHours` (24 unless set) when neither agent has a window ([7.5](07-05-lifecycle-timers.md)). A Direct Message with a live agent is still removed by the messaging rule below.
 - Orchestrator messages on a link whose newest message is older than the Admin's period (30 days unless the Admin
   sets another) are deleted, as are the messages of a session the server no longer holds and closed requests past the

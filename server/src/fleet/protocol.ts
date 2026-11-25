@@ -7,7 +7,7 @@ import { parseBuild } from './parseBuild.js';
 import { stripFormat } from '../storage/peerText.js';
 import { resumeWindowDays } from '../../../plugin/core/resumeWindow.js';
 import { CLAUDE_REPORTER_NAME, KNOWN_REPORTER_NAMES, LEGACY_REPORTER_NAME, OPENCODE_REPORTER_NAME, canonicalReporterName } from './reporterNames.js';
-import { CAPABILITY_KEYS, ToolStat, TIME_BUCKETS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, PEER_DROP_WORDS, acceptsFor, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskClose, AskCloseOutcome, AskKind, AskOption, AskQuestion, BackgroundKind, backgroundSummary, BackgroundTask, BackgroundWait, ChangedFile, ContextFill, CostSource, Delivery, DELIVERY_KINDS, DELIVERY_RESULTS, DeliveryKind, DeliveryResult, DiffRequest, Effort, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FileDiffStatus, FilesReport, FileStatus, GitInfo, idleOnBackground, LEVEL_KINDS, LoopReport, MachineInfo, MAIN_LOOP, ModelUsage, PEER_ANSWERS, PEER_LEVELS, PEER_LIMITS, PEER_RESULTS, PeerAnswer, PeerDelivery, PeerLevel, PeerParty, PeerRequest, PeerRequestKind, PeerResult, Plan, PLAN_MODES, PlanMode, PlanStep, PODIUM_COMMANDS, PodiumCommand, QuestionAnswer, RateLimit, RECORDING_DEFAULTS, RECORDING_KINDS, RECORDING_LIMITS, RECORDING_RANGES, RECORDING_STATES, RecordingAdminRow, RecordingBatch, RecordingBatchReply, RecordingConsent, RecordingEntry, RecordingGrant, RecordingKind, RecordingLimit, RecordingLoopInfo, RecordingPage, RecordingRow, RecordingSettings, RecordingStartRequest, RecordingState, RecordingView, Report, ReporterName, ReportReply, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, RespondKind, RespondLevel, RespondLimit, SessionReport, TokenCounts, UsageTokens } from '../../../plugin/core/protocol.js';
+import { CAPABILITY_KEYS, ToolStat, TIME_BUCKETS, KnownEffort, ReportVersion, Capabilities, HarnessInfo, ActivityEntry, ActivityEvent, ActivityKind, AgentReport, AgentStatus, Ask, AskKind, BackgroundItem, BackgroundWait, ContextFill, CostSource, Delivery, DeliveryResult, EventKind, Failure, FailureClass, FILE_DIFF_STATUSES, FileDiffReply, FilesReport, FileStatus, GitInfo, LEVEL_KINDS, LoopReport, MachineInfo, ModelUsage, PEER_LIMITS, Plan, PlanStep, RECORDING_LIMITS, RecordingBatch, RecordingEntry, RecordingKind, RecordingStartRequest, RecordingView, Report, ReporterName, RESPOND_KINDS, RESPOND_LEVELS, RESPOND_LIMIT_NAMES, RESPOND_LIMITS, RespondInfo, SessionReport, TokenCounts } from '../../../plugin/core/protocol.js';
 export * from '../../../plugin/core/protocol.js';
 
 /** A plan step as the server stores and serves it. `doneSeq` is added by the server (#454), never sent by a reporter: 1 for the first step seen to finish, 2 for the next. Absent on a step not done, or done when the plan was first seen. */
@@ -160,6 +160,8 @@ export interface SessionView {
   hideAt: number | null;
   /** Who the server decided this session belongs to, from the token: a person's name, `Admin` for the admin secret, null when auth is off or the session predates tokens. */
   owner: string | null;
+  /** The owner's `people.id` (#1284): who owns the session, which the console compares, never the name. null for Admin, no owner, and a session whose person was deleted (detached). */
+  ownerId: number | null;
   /** The group the owner is in, from Admin; null for Admin, no owner, or a person with no group. */
   ownerGroup: string | null;
   /** The machine the session runs on, as the reporter sent it; null when it sent none (no userName, or older than 0.9.0). */
@@ -171,12 +173,16 @@ export interface SessionView {
   activityFeed: boolean | null;
   /** Whether the reporter's activityOutput option is on (#431); null as for `activityFeed`. Held in memory. */
   activityOutput: boolean | null;
+  /** Whether the reporter's backgroundOutput option is on (#897); null as for `activityFeed`: an older reporter sends no background items. Held in memory. */
+  backgroundOutput: boolean | null;
   /** Whether the reporter's fileDiff option is on (#319); null as for `activityFeed`. Held in memory. */
   fileDiff: boolean | null;
   /** Whether the reporter's fileDiffPreload option is on (#631); null as for `fileDiff`. Held in memory. */
   fileDiffPreload: boolean | null;
   /** Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory). */
   respond: RespondInfo | null;
+  /** Whether the owner has allowed an Admin to respond to this session (#1251). False until they do; always false for a session with no reporter Podium knows. */
+  adminRespond: boolean;
   /** The session's asks, open or closed in the last 10 minutes, without their content (served only to the owner or an Admin). */
   asks: AskSummary[];
   /** The harness that runs the session; `claude-code` for a session from before it was stored (#851). */
@@ -214,7 +220,7 @@ export interface AskSummary {
 export type AskOutcome = 'podium' | 'terminal' | 'closed' | 'ended';
 
 /** One delivery as the modal reads it back: what was sent, by whom, and what became of it. */
-export interface DeliveryView extends Delivery {
+interface DeliveryView extends Delivery {
   result: DeliveryResult | null;
   /** Whether the signed-in person sent it. */
   mine: boolean;
@@ -238,6 +244,8 @@ export interface RespondMe {
   signedIn: boolean;
   /** The signed-in person's name, or `Admin`. */
   name: string | null;
+  /** The signed-in person's `people.id` (#1284); null for the admin secret and when nobody is signed in. Ownership is compared by this, not by `name`. */
+  id: number | null;
   /** The admin secret, or a person in Administrators. */
   admin: boolean;
   /** The Admin's My usage setting is on (#726), so the top bar offers the page. Absent from an older server, which means off. */
@@ -407,6 +415,10 @@ export const LIMITS = {
   activityDetail: 20_100,
   /** Characters of commands and output over the whole report (#431), apart from `activityChars`. Under the 512 KB body limit with the summaries and full text. */
   activityDetailChars: 200_000,
+  /** Background items (#897): the most one loop sends, the longest label, and the characters of commands and output over one report. */
+  backgroundItems: 60,
+  backgroundLabel: 80,
+  backgroundDetailChars: 200_000,
 } as const;
 
 /** Room past a respond limit for the reporter's "[cut off at N characters]" marker. */
@@ -783,6 +795,7 @@ function agent(v: unknown, path: string, version: ReportVersion): AgentReport {
     ...(o.promptText === undefined || o.promptText === null ? {} : { promptText: text(o.promptText, `${path}.promptText`, LIMITS.fullText) }),
     ...(o.answerText === undefined || o.answerText === null ? {} : { answerText: text(o.answerText, `${path}.answerText`, LIMITS.fullText) }),
     ...activity(o.activity, `${path}.activity`),
+    ...backgroundItems(o.backgroundItems, `${path}.backgroundItems`),
     failure: failure(o.failure, `${path}.failure`),
   };
 }
@@ -973,6 +986,8 @@ function session(v: unknown, path: string, version: ReportVersion, harnessId: st
     ...(bg ? { background: bg } : {}),
     ...(o.activityFeed === undefined || o.activityFeed === null ? {} : { activityFeed: bool(o.activityFeed, `${path}.activityFeed`) }),
     ...(o.activityOutput === undefined || o.activityOutput === null ? {} : { activityOutput: bool(o.activityOutput, `${path}.activityOutput`) }),
+    ...(o.backgroundOutput === undefined || o.backgroundOutput === null ? {} : { backgroundOutput: bool(o.backgroundOutput, `${path}.backgroundOutput`) }),
+    ...backgroundItems(o.backgroundItems, `${path}.backgroundItems`),
     ...(o.fileDiff === undefined || o.fileDiff === null ? {} : { fileDiff: bool(o.fileDiff, `${path}.fileDiff`) }),
     ...(o.fileDiffPreload === undefined || o.fileDiffPreload === null ? {} : { fileDiffPreload: bool(o.fileDiffPreload, `${path}.fileDiffPreload`) }),
     ...activity(o.activity, `${path}.activity`),
@@ -1173,6 +1188,72 @@ function withinActivityBudget(r: Report): void {
   for (const a of r.agents) if (a.activity) trim(a.activity);
 }
 
+/**
+ * A loop's background shells and monitors (#897). Absent stays absent; an empty list is a loop with none. Each item is cut to its
+ * limits, a longer list is rejected, and a field this server does not know is dropped.
+ */
+function backgroundItems(v: unknown, path: string): { backgroundItems?: BackgroundItem[] } {
+  if (v === undefined || v === null) return {};
+  return {
+    backgroundItems: arr(v, path, LIMITS.backgroundItems).map((e, i) => {
+      const p = `${path}[${i}]`;
+      const o = obj(e, p);
+      const item: BackgroundItem = {
+        id: str(o.id, `${p}.id`, LIMITS.id),
+        kind: oneOf(o.kind, `${p}.kind`, BACKGROUND_ITEM_KINDS),
+        state: oneOf(o.state, `${p}.state`, BACKGROUND_ITEM_STATES),
+        startedAt: whole(o.startedAt, `${p}.startedAt`),
+        startedKnown: bool(o.startedKnown, `${p}.startedKnown`),
+        label: str(o.label, `${p}.label`, LIMITS.backgroundLabel),
+      };
+      if (o.ownerId !== undefined && o.ownerId !== null) item.ownerId = str(o.ownerId, `${p}.ownerId`, LIMITS.id);
+      if (o.exitCode !== undefined && o.exitCode !== null) item.exitCode = whole(o.exitCode, `${p}.exitCode`);
+      if (o.lastOutputAt !== undefined && o.lastOutputAt !== null) item.lastOutputAt = whole(o.lastOutputAt, `${p}.lastOutputAt`);
+      if (o.endedAt !== undefined && o.endedAt !== null) item.endedAt = whole(o.endedAt, `${p}.endedAt`);
+      if (o.command !== undefined && o.command !== null) item.command = text(o.command, `${p}.command`, LIMITS.activityDetail);
+      if (o.output !== undefined && o.output !== null) item.output = text(o.output, `${p}.output`, LIMITS.activityDetail);
+      if (o.commandCut !== undefined && o.commandCut !== null && bool(o.commandCut, `${p}.commandCut`)) item.commandCut = true;
+      if (o.outputCut !== undefined && o.outputCut !== null && bool(o.outputCut, `${p}.outputCut`)) item.outputCut = true;
+      return item;
+    }),
+  };
+}
+
+const BACKGROUND_ITEM_KINDS = ['shell', 'monitor'] as const;
+const BACKGROUND_ITEM_STATES = ['running', 'exited'] as const;
+
+/**
+ * Keeps a report's background items within their budget (#897). The whole command and the output belong to the `backgroundOutput`
+ * option: without it they are dropped, whatever a reporter sent. With it, the two share LIMITS.backgroundDetailChars over the
+ * report, the orchestrator first and each loop from its newest item back; an item that does not fit loses its output, then its
+ * command, and keeps its state and times.
+ */
+function withinBackgroundBudget(r: Report): void {
+  const on = r.session.backgroundOutput === true;
+  let room: number = LIMITS.backgroundDetailChars;
+  const chars = (i: BackgroundItem) => (i.command?.length ?? 0) + (i.output?.length ?? 0);
+  const trim = (list: BackgroundItem[]) => {
+    for (let n = list.length - 1; n >= 0; n--) {
+      const i = list[n]!;
+      if (!on) {
+        for (const k of DETAIL_FIELDS) delete i[k];
+        continue;
+      }
+      if (chars(i) <= room) {
+        room -= chars(i);
+        continue;
+      }
+      for (const k of OUTPUT_ONLY_FIELDS) delete i[k];
+      if (chars(i) <= room) room -= chars(i);
+      else for (const k of DETAIL_FIELDS) delete i[k];
+    }
+  };
+  if (r.session.backgroundItems) trim(r.session.backgroundItems);
+  for (const a of r.agents) if (a.backgroundItems) trim(a.backgroundItems);
+}
+const DETAIL_FIELDS = ['command', 'commandCut', 'output', 'outputCut'] as const;
+const OUTPUT_ONLY_FIELDS = ['output', 'outputCut'] as const;
+
 const BACKGROUND_KINDS = ['shell', 'agent', 'monitor', 'workflow', 'wakeup', 'other'] as const;
 
 /** What a session idle between turns still waits on (#119). An empty list is no background work at all. */
@@ -1247,6 +1328,7 @@ export function validateReport(body: unknown): ValidateResult {
     const signals = signalsOrUndefined(o.signals, '$.signals', LIMITS.signalNames);
     if (signals !== undefined) report.signals = signals;
     withinActivityBudget(report);
+    withinBackgroundBudget(report);
     return { ok: true, report };
   } catch (err) {
     if (err instanceof Invalid) return { ok: false, error: err.message, path: err.path };

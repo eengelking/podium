@@ -59,7 +59,7 @@ export const SYSTEM_ICON: Record<SystemKind, ReactNode> = {
 };
 
 /** An access level: its icon and its one label. */
-export function AccessLevel({ level }: { level: PeerLevel }) {
+function AccessLevel({ level }: { level: PeerLevel }) {
   return (
     // lv-<level>, not the bare level: `.none` and `.ask` are already other components' classes.
     <span className={`pm-lv lv-${level}`}>
@@ -85,7 +85,7 @@ export function SystemTag({ os }: { os: string | null }) {
 }
 
 /** An Admin's proposal that waits for the owner: a clock and the words, in the warning ink. */
-export function ProposedTag({ level, waitingFor }: { level: PeerLevel; waitingFor: string }) {
+function ProposedTag({ level, waitingFor }: { level: PeerLevel; waitingFor: string }) {
   return (
     <span className="pm-pend">
       <svg {...svg} strokeWidth={1.5}>
@@ -219,7 +219,7 @@ const levelOptions = (prefix = "", disabled: readonly PeerLevel[] = []) =>
 const disabledFor = (d: ViewProps["disabledLevels"], from: string, to: string): readonly PeerLevel[] => (typeof d === "function" ? d(from, to) : (d ?? []));
 
 export const gridCellId = (a: string, b: string) => `g-${idPart(a)}-${idPart(b)}`;
-export const moveId = (key: string) => `mv-${idPart(key)}`;
+const moveId = (key: string) => `mv-${idPart(key)}`;
 
 /** Every pair at once. Each cell is a select named "A to B"; the diagonal is between orchestrators on one machine. */
 export function RightsGrid({ model, waitingFor, shown, onSet, showLive = true, disabledLevels }: ViewProps) {

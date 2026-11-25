@@ -60,4 +60,28 @@ describe("Tip", () => {
     expect(trigger).toHaveClass("tip", "kind");
     expect(trigger).toHaveStyle({ color: "rgb(255, 0, 0)" });
   });
+
+  it("bare: wraps a control without a tab stop of its own, opens when the control is focused or pointed at, and gives the control the tip's id", () => {
+    render(
+      <Tip bare text="Create a channel">
+        {(id) => (
+          <button type="button" aria-label="New channel" aria-describedby={id}>
+            +
+          </button>
+        )}
+      </Tip>,
+    );
+    const btn = screen.getByRole("button", { name: "New channel" });
+    const wrap = btn.parentElement as HTMLElement;
+    const tip = screen.getByRole("tooltip", { hidden: true });
+    expect(wrap).not.toHaveAttribute("tabindex");
+    expect(wrap).not.toHaveAttribute("aria-describedby");
+    expect(btn).toHaveAccessibleDescription("Create a channel");
+    fireEvent.focus(btn);
+    expect(tip).toBeVisible();
+    fireEvent.blur(btn);
+    expect(tip).not.toBeVisible();
+    fireEvent.mouseEnter(wrap);
+    expect(tip).toBeVisible();
+  });
 });

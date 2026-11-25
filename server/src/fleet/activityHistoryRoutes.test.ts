@@ -69,14 +69,14 @@ describe('signing in with respond off', () => {
     const { app, ed } = await setup();
     const res = await request(app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: ed.token });
     expect(res.status).toBe(403);
-    expect((await request(app).get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false });
+    expect((await request(app).get('/api/fleet/respond/me')).body).toMatchObject({ enabled: false, signedIn: false, id: null });
   });
 
   it('works when a keep policy is on, though the respond flag is off', async () => {
     const { app, ed, fleet } = await setup({ policy: 'all' });
     expect(fleet.respondFlagsOn()).toBe(false);
     const a = await signedIn(app, 'Ed', ed.token);
-    expect((await a.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: true, signedIn: true, name: 'Ed' });
+    expect((await a.get('/api/fleet/respond/me')).body).toMatchObject({ enabled: true, signedIn: true, name: 'Ed', id: ed.person.id });
   });
 
   it('does not make the respond routes work: answering still needs the flags', async () => {
@@ -213,7 +213,7 @@ describe('the history note on the live activity reply', () => {
     await fleet.activityHistorySettings.set({ policy: 'default' });
     const res = await a.get(LIVE);
     expect(res.status).toBe(200);
-    expect(Object.keys(res.body).sort()).toEqual(['enabled', 'entries', 'live', 'serverTime', 'since']);
+    expect(Object.keys(res.body).sort()).toEqual(['background', 'enabled', 'entries', 'live', 'serverTime', 'since']);
     expect(res.body).not.toHaveProperty('history');
   });
 

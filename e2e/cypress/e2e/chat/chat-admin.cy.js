@@ -4,7 +4,7 @@
 // it, and an Admin's pause, disconnect and Remove all messages in a group. The callout shown to the person in the terminal is the reporter's and is not in the console (docs/e2e/COVERAGE.md).
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
 // An Admin's "reading" is made through the API the way the Admin's open page makes it (a read of the thread and its 15-second ping), because only one browser is open at a time.
-// The page decides a reading has ended by the server's clock it was given and its own clock, so the spec waits the 30 seconds out, in a retrying query (it does not move the clock).
+// The page decides a reading has ended by the server's clock at its last read (it hides one only once a read made after its end has landed), so the spec waits the 30 seconds out, in a retrying query (it does not move the clock).
 import { seeded } from '../../../support/commands';
 
 const GROUP = 'c:group';
@@ -100,22 +100,22 @@ describe('chat: an Admin reads a person\'s conversations', () => {
     cy.tid('chat-read-as').should('have.value', '');
   });
 
-  it('opens a person\'s My group read only: red banner, no message box, the reason, and their messages', () => {
+  it('opens a person\'s My group read only: red banner, a message box that is off, the reason, and their messages', () => {
     asAdminReading();
     cy.chatRow(GROUP).should('contain.text', 'read only');
     cy.chatRow(GROUP).find('button.ch-row').click();
     cy.tid('chat-ro-banner').should('contain.text', 'Reading Ed\'s conversation as an Admin. You cannot send here.').and('contain.text', 'Ed is told while you read');
-    cy.tid('chat-box').should('not.exist');
-    cy.tid('chat-ro-note').should('contain.text', 'You are reading as an Admin, so there is no message box.');
+    cy.tid('chat-box').should('be.disabled').and('have.attr', 'placeholder', 'An Admin cannot send here');
+    cy.tid('chat-ro-note').should('contain.text', 'You are reading as an Admin, so nothing can be sent here.');
     cy.tid('chat-thread').should('contain.text', 'group note for the Admin').and('contain.text', 'agent says hi');
     cy.get('#th-h').should('have.text', 'My group');
   });
 
-  it('refuses an Admin\'s message into a person\'s My group, with no box to write in, and leaves the group as it was', () => {
+  it('refuses an Admin\'s message into a person\'s My group, with the box off, and leaves the group as it was', () => {
     const REFUSED = 'An Admin can read and stop a person\'s group but cannot write in it.';
     asAdminReading();
     cy.chatRow(GROUP).find('button.ch-row').click();
-    cy.tid('chat-box').should('not.exist');
+    cy.tid('chat-box').should('be.disabled');
     // Read once on purpose: a thread shows its messages only after one load, whole (#1137).
     cy.tid('chat-thread').find('[data-testid=chat-message]').its('length').then((before) => {
       cy.request({ method: 'POST', url: `${API}/channels/group/messages?owner=Ed`, headers: H, body: { text: 'an Admin writes in Ed\'s group', owner: 'Ed' }, failOnStatusCode: false, log: false }).then((r) => {
@@ -131,7 +131,7 @@ describe('chat: an Admin reads a person\'s conversations', () => {
     asAdminReading();
     cy.chatRow(DM).find('button.ch-row').click();
     cy.tid('chat-ro-banner').should('contain.text', 'Reading Ed\'s conversation as an Admin.');
-    cy.tid('chat-box').should('not.exist');
+    cy.tid('chat-box').should('be.disabled');
     cy.tid('chat-ro-note').should('exist');
     cy.tid('chat-message').should('have.length', 4);
     cy.tid('chat-thread').should('contain.text', 'Please run the unit tests on this branch.');

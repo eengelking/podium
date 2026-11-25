@@ -16,9 +16,9 @@ import type { Screen } from "./screens";
 
 const T0 = 2_000_000;
 const MIN = 60_000;
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
-const ANN_ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Ann", admin: true };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
+const ANN_ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Ann", id: 5, admin: true };
 const flush = () => act(async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); });
 
 function respondApi(me: RespondMe): RespondApi {
@@ -28,6 +28,7 @@ const quietFeed = () => vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, js
 
 // ---- My reporters -----------------------------------------------------------------------------------------------
 const rep = (key: string, machine: string, over: Partial<PeerReporter> = {}): PeerReporter => ({
+  adminRespond: false,
   key, machine, owner: "Ed", adminSecret: false, os: "macOS 26.1", peers: true, version: "1.2.0", reporterName: "podium-reporter", state: "reporting", lastSeenAt: T0 - 40_000, compat: "ok", live: [], ...over,
 });
 const PROPOSAL: PeerRequestView = { id: "prq_p", kind: "proposal", at: T0 - 5 * MIN, from: { machine: "build-pi", name: null }, to: { machine: "ed-mbp", name: null }, fromKey: "k3", toKey: "k1", level: "ask", by: "Admin", reason: null, text: null, messageId: null };
@@ -83,7 +84,7 @@ function mine({ read, api, me = ED, flag = true, view, after }: Opts = {}): Scre
     make: () => {
       quietFeed();
       if (view) localStorage.setItem(VIEW_KEY, JSON.stringify(view));
-      const state = stateFrom({ sessions: [makeSession({ id: "s-mac", name: "claude-dashboard", lastSeenAt: T0 - 40_000, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": flag } });
+      const state = stateFrom({ sessions: [makeSession({ id: "s-mac", name: "claude-dashboard", lastSeenAt: T0 - 40_000, owner: "Ed", ownerId: 1 })], features: { "activity-feed": true, "peer-messaging": flag } });
       return <FleetView myReporters state={state} respondApi={respondApi(me)} peersApi={peersApi(peersRead(read), api)} />;
     },
     act: async () => {
@@ -102,7 +103,7 @@ const NOTES = end("s-notes", "infra-notes", "ed-mbp", "k1");
 const TESTER = end("s-tester", "Tester", "ci-runner-01", "k2");
 const ARM = end("s-arm", "arm64-check", "build-pi", "k3");
 const link = (a: TrafficEnd, b: TrafficEnd, over: Partial<TrafficLink> = {}): TrafficLink => ({
-  link: `${a.reporterKey}|${b.reporterKey}`, a, b, owner: "Ed", messages: 2, lastAt: T0 - MIN, state: "active", aToB: true, bToA: true, roundTrips: { used: 2, cap: 10 }, ...over,
+  link: `${a.reporterKey}|${b.reporterKey}`, a, b, owner: "Ed", ownerId: 1, messages: 2, lastAt: T0 - MIN, state: "active", aToB: true, bToA: true, roundTrips: { used: 2, cap: 10 }, ...over,
 });
 const LINKS = (): TrafficLink[] => [
   link(DEV, TESTER, { messages: 5 }),
@@ -153,8 +154,8 @@ function traffic({ links = LINKS(), me = ED, unreadable = false, rereadFails = f
     make: () => {
       quietFeed();
       const sessions = [
-        makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-        makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
+        makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+        makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
       ];
       const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": true } });
       return <FleetView traffic state={state} respondApi={respondApi(me)} peersApi={peersApi(peersRead())} trafficApi={trafficApi(links, unreadable, rereadFails)} />;
@@ -188,7 +189,7 @@ function diff(reply: () => Promise<FileDiffReply>, wait = true): Screen {
   return {
     make: () => (
       <RespondProvider api={api} flagsOn={false} diffOn>
-        <FilesList report={REPORT} hint={null} session={makeSession({ id: "sess-ed", owner: "Ed", status: "running", fileDiff: true })} />
+        <FilesList report={REPORT} hint={null} session={makeSession({ id: "sess-ed", owner: "Ed", ownerId: 1, status: "running", fileDiff: true })} />
       </RespondProvider>
     ),
     act: async () => {

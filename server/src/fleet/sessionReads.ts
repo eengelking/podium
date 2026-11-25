@@ -23,8 +23,6 @@ const KINDS: Record<SessionReadKind, KindDef> = {
   live: { phrase: (name) => `is watching the live activity of an agent in ${name}`, loop: true },
 };
 
-export const SESSION_READ_KINDS = Object.keys(KINDS) as SessionReadKind[];
-
 export const isSessionReadKind = (v: unknown): v is SessionReadKind => typeof v === 'string' && Object.hasOwn(KINDS, v);
 
 /** A loop is an agent's id (up to the protocol's 200 characters, of any kind) or the orchestrator's; the thread is split on its last colon, so it holds none. */

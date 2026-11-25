@@ -7,6 +7,9 @@ import type { Transport } from '../core/transport.ts';
 import { decisionRecord, formAnswer, framedMessage, permissionReply, podiumAsk, rejectMessage } from './answer.ts';
 import { loopKey, type Ask, type Root } from './state.ts';
 
+/** How OpenCode takes a prompt while a turn runs: `queue` after the turn, `steer` at its next step, after the tool in progress (#1264). */
+export type PromptDelivery = 'queue' | 'steer';
+
 /** The calls into OpenCode. Each rejects when OpenCode did not take it. */
 export interface Host {
   /** `message` goes with a rejection only: the reason OpenCode gives the model. */
@@ -15,7 +18,7 @@ export interface Host {
   formChannel(): 'tui' | 'http' | null;
   formReply(sessionId: string, formId: string, answer: Record<string, string | string[]>): Promise<void>;
   /** Sends a message as a prompt, queued behind the turn that runs; `id` is Podium's delivery id, so one sent twice is one message. */
-  prompt(sessionId: string, id: string, text: string): Promise<void>;
+  prompt(sessionId: string, id: string, text: string, delivery?: PromptDelivery): Promise<void>;
   compact(sessionId: string, id: string): Promise<void>;
 }
 

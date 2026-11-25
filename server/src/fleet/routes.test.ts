@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import express from 'express';
 import http from 'node:http';
-import type { AddressInfo } from 'node:net';
+import net, { type AddressInfo } from 'node:net';
 import request from 'supertest';
 import { openSqliteStorage } from '../storage/sqlite/index.js';
 import { DEFAULT_CONFIG, Fleet } from './fleet.js';
@@ -129,6 +129,30 @@ describe('reads', () => {
     expect(res.body.kpis.live).toBe(1);
     expect(res.body.events).toHaveLength(3);
     expect(res.body.clearedToday).toBe(0);
+  });
+
+  it('GET /state is gzipped for a client that accepts it, and plain otherwise (#745)', async () => {
+    const { app } = await setup();
+    await request(app).post('/api/fleet/report').send(fixtureReport());
+    const plain = await request(app).get('/api/fleet/state').set('Accept-Encoding', 'identity');
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    const packed = await request(app).get('/api/fleet/state').set('Accept-Encoding', 'gzip');
+    expect(packed.headers['content-encoding']).toBe('gzip');
+    expect(packed.headers['vary']).toMatch(/Accept-Encoding/i);
+    expect(packed.body.sessions).toEqual(plain.body.sessions); // supertest inflates it, so the same sessions arrive (serverTime moves between two calls)
+  });
+
+  it('GET /state stays plain when the router is built with compression off (#745)', async () => {
+    const storage = openSqliteStorage(':memory:');
+    const fleet = new Fleet(storage, { ...DEFAULT_CONFIG, home: '/Users/dev', dbPath: ':memory:' });
+    await fleet.init();
+    closers.push(() => fleet.close());
+    const app = express();
+    app.use('/api/fleet', createFleetRouter(fleet, { people: storage.people, compression: false }));
+    await request(app).post('/api/fleet/report').send(fixtureReport());
+    const res = await request(app).get('/api/fleet/state').set('Accept-Encoding', 'gzip');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-encoding']).toBeUndefined();
   });
 
   it('GET /sessions/:id returns a view, 404 when unknown', async () => {
@@ -348,7 +372,7 @@ describe('the activity feed (#118)', () => {
   });
 
   it('keeps nothing for a loop nobody watches, and never puts entries in the session view', async () => {
-    const { app, fleet, viewer } = await setupSignedIn();
+    const { app, fleet } = await setupSignedIn();
     const r = live([{ at: Date.now(), kind: 'tool', text: 'Read a' }]);
     await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
     expect(fleet.activity.size).toBe(0);
@@ -392,7 +416,7 @@ describe('the activity feed (#118)', () => {
     const r = live();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', TOK).send(r);
     expect((await viewer.get(url(r, r.agents[0]!.id))).body).toMatchObject({ enabled: true, live: true });
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true, 'activity-history': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': true, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'background-output': false, 'update-check': true, 'activity-history': false });
   });
 
   it('with the Admin flag off: no lease, enabled: false, nothing watched, nothing kept; back on resumes', async () => {
@@ -409,7 +433,7 @@ describe('the activity feed (#118)', () => {
     // Turning it off drops every lease and entry at once.
     await fleet.features.setFeature('activity-feed', false);
     expect(fleet.activity.size).toBe(0);
-    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'update-check': true, 'activity-history': false });
+    expect((await request(app).get('/api/fleet/state')).body.features).toEqual({ 'activity-feed': false, 'activity-output': false, respond: false, 'file-diff': false, 'peer-messaging': false, 'chat-everyone': false, 'session-recording': false, 'my-usage': false, 'background-output': false, 'update-check': true, 'activity-history': false });
 
     const off = await viewer.get(url(r, aid));
     expect(off.status).toBe(200);
@@ -440,7 +464,7 @@ describe('the activity feed (#118)', () => {
     await fleet.flush();
     const all = seen.join('');
     expect(all).toContain('event: snapshot');
-    expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"chat-everyone":false,"session-recording":false,"my-usage":false,"update-check":true,"activity-history":false}');
+    expect(all).toContain('"features":{"activity-feed":false,"activity-output":false,"respond":false,"file-diff":false,"peer-messaging":false,"chat-everyone":false,"session-recording":false,"my-usage":false,"background-output":false,"update-check":true,"activity-history":false}');
   });
 
   it('a session that is deleted takes its feed with it', async () => {
@@ -468,7 +492,7 @@ describe('DELETE /sessions/:id', () => {
 
 describe('POST /sessions/:id/drop', () => {
   it('removes a stale session without a token; 409 while it is not stale; 404 when unknown', async () => {
-    const { app, fleet, storage } = await setup('t');
+    const { app, storage } = await setup('t');
     const r = fixtureReport();
     await request(app).post('/api/fleet/report').set('X-Podium-Token', 't').send(r);
     expect((await request(app).post(`/api/fleet/sessions/${r.session.id}/drop`)).status).toBe(409);
@@ -486,6 +510,38 @@ describe('POST /sessions/:id/drop', () => {
 });
 
 describe('GET /stream', () => {
+  it('ends a client that stops reading and keeps one that reads, over a real socket (#748)', async () => {
+    const { app, fleet } = await setup();
+    (fleet.hub as unknown as { maxQueuedBytes: number }).maxQueuedBytes = 1024 * 1024;
+    const reasons: string[] = [];
+    fleet.hub.onSlowClient = (r) => reasons.push(r);
+    const server = app.listen(0, '127.0.0.1');
+    closers.push(() => server.close());
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    const { port } = server.address() as AddressInfo;
+    // A reader, and a socket that sends the request and never reads.
+    let readBytes = 0;
+    const reader = http.get({ host: '127.0.0.1', port, path: '/api/fleet/stream' }, (res) => res.on('data', (c: Buffer) => (readBytes += c.length)));
+    const stalled = net.connect(port, '127.0.0.1', () => stalled.write('GET /api/fleet/stream HTTP/1.1\r\nHost: x\r\n\r\n'));
+    stalled.pause();
+    stalled.on('error', () => {});
+    closers.push(() => { reader.destroy(); stalled.destroy(); });
+    for (let i = 0; i < 500 && fleet.hub.size < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    expect(fleet.hub.size).toBe(2);
+    const pad = 'x'.repeat(256 * 1024);
+    for (let i = 0; i < 200 && fleet.hub.size === 2; i++) {
+      fleet.hub.broadcast('tick', { pad });
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(fleet.hub.size).toBe(1);
+    expect(reasons).toHaveLength(1);
+    const before = readBytes;
+    fleet.hub.broadcast('tick', { pad: 'y' });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(readBytes).toBeGreaterThan(before);
+    expect(fleet.hub.size).toBe(1);
+  });
+
   it('streams a snapshot, then session and activity messages, with SSE headers', async () => {
     const { app, fleet } = await setup();
     const server = app.listen(0, '127.0.0.1');
@@ -494,7 +550,7 @@ describe('GET /stream', () => {
     const { port } = server.address() as AddressInfo;
     const received: string[] = [];
     const { headers, done } = await new Promise<{ headers: http.IncomingHttpHeaders; done: Promise<void> }>((resolve, reject) => {
-      const req = http.get({ host: '127.0.0.1', port, path: '/api/fleet/stream' }, (res) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/api/fleet/stream', headers: { 'Accept-Encoding': 'gzip' } }, (res) => {
         res.setEncoding('utf8');
         const done = new Promise<void>((fin) => {
           res.on('data', (c: string) => {
@@ -512,6 +568,7 @@ describe('GET /stream', () => {
     });
     expect(headers['content-type']).toMatch(/^text\/event-stream/);
     expect(headers['cache-control']).toMatch(/no-cache/);
+    expect(headers['content-encoding']).toBeUndefined(); // the stream is never compressed, whatever the client accepts (#745, SPEC 7.6)
     // wait for the snapshot, then report
     while (!received.join('').includes('event: snapshot')) await new Promise((r) => setTimeout(r, 10));
     expect(fleet.hub.size).toBe(1);
@@ -639,7 +696,7 @@ describe('the update notice (#499)', () => {
 describe('wall notices', () => {
   it('closes a known notice without a token, rejects an unknown one, and carries the switches in the state body', async () => {
     const { app, fleet } = await setup('t');
-    expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true }, showBackgroundSessions: false, cardTitleMachine: false, update: null });
+    expect((await request(app).get('/api/fleet/state')).body.wall).toEqual({ notices: { 'background-sessions': true, 'concluded-direct-messages': true }, showBackgroundSessions: false, cardTitleMachine: false, update: null });
     expect((await request(app).post('/api/fleet/notices/nope/close')).status).toBe(400);
     expect((await request(app).post('/api/fleet/notices/background-sessions/close')).status).toBe(200);
     expect((await request(app).get('/api/fleet/state')).body.wall.notices['background-sessions']).toBe(false);

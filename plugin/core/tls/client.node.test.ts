@@ -24,7 +24,6 @@ const tmp = (): string => {
   return d;
 };
 const DAY = 86_400_000;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const POSIX = process.platform !== "win32";
 
 const work = tmp();

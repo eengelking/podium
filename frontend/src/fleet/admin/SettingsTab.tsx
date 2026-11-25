@@ -10,9 +10,10 @@ import { RecordingLimits, RecordingsTable, RecordingWarning, type RecordingState
 /** The id of the session recording feature flag (#353). */
 const RECORDING_FLAG = "session-recording";
 const OUTPUT_FLAG = "activity-output";
+const BACKGROUND_FLAG = "background-output";
 
 /** The warning under the Bash output flag (#431, mockup/podium-feed-expand-admin.html): what output holds, and who can read it. Shown while the switch is on. */
-export function OutputWarning() {
+function OutputWarning() {
   return (
     <div className="warnbar" role="note">
       <WarnIcon />
@@ -88,7 +89,7 @@ export function SettingsTab({ api, onLocked }: { api: AdminApi; onLocked: () => 
             ? (data.features ?? []).flatMap((f) => [
                 row(`feature-${f.id}`, f.name, f.id === "respond" ? `${f.description} ${plainHttpCaution()}`.trim() : f.id === RECORDING_FLAG && data.recording?.authOn === false ? `${f.description} This server has no sign-in, so nothing can be recorded.` : f.description, f.on, () => put({ features: { [f.id]: !f.on } }), f.id),
                 ...(f.id === RECORDING_FLAG && f.on ? [<RecordingWarning key={`${f.id}-warn`} />] : []),
-                ...(f.id === OUTPUT_FLAG && f.on ? [<OutputWarning key={`${f.id}-warn`} />] : []),
+                ...((f.id === OUTPUT_FLAG || f.id === BACKGROUND_FLAG) && f.on ? [<OutputWarning key={`${f.id}-warn`} />] : []),
               ])
             : row("feature-loading", "Feature flags", "", undefined, () => {})}
         </Panel>

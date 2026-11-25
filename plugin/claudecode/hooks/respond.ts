@@ -203,7 +203,7 @@ export function planApproval(toolInput: unknown, mode: PlanMode) {
 }
 
 /** What the reporter says when Podium denies a tool without a reason. */
-export const DENIED_FROM_PODIUM = 'Denied from Podium.';
+const DENIED_FROM_PODIUM = 'Denied from Podium.';
 
 /** A tool's decision from Podium: allow once, or deny with the reason. Never `updatedPermissions`, never `interrupt`. */
 export function toolDecision(d: Delivery): { decision: { behavior: 'allow' } | { behavior: 'deny'; message: string } } {

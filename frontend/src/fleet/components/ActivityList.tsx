@@ -9,7 +9,7 @@ import { backgroundEventLead, idleOnBackground, parseBackgroundEvent, parseWaitE
 
 export const PAGE = 12;
 
-export function hintFor(e: ActivityView, live: SessionView | undefined): string {
+function hintFor(e: ActivityView, live: SessionView | undefined): string {
   if (!live) return "Session ended";
   if (e.kind === "fail") return "Show root cause";
   if (e.kind === "blow") return "Show context history";
@@ -18,7 +18,7 @@ export function hintFor(e: ActivityView, live: SessionView | undefined): string 
 }
 
 /** For a launch by another agent (not the orchestrator): that agent's task, so the feed names the real parent (#101). */
-export function launchedBy(e: ActivityView, live: SessionView | undefined): string | null {
+function launchedBy(e: ActivityView, live: SessionView | undefined): string | null {
   if (e.kind !== "spawn" || !e.agentId || !live) return null;
   const a = live.agents.find((x) => x.id === e.agentId);
   return a ? (parentOf(live.agents, a)?.description ?? null) : null;

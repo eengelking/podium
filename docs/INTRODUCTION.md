@@ -8,7 +8,7 @@ group: Getting started
 
 Podium is a live fleet console for Claude Code and OpenCode. Every session on one machine shows up in one browser tab.
 
-For each session it shows the model, effort and plan, the agents it launched, what they cost, how full their context windows are, why anything failed, and which git branch it works in. It is for someone who runs several Claude Code sessions or agents at once and wants to see what they are doing and costing without watching each terminal.
+For each session it shows the model, effort and plan, the agents it launched, what they cost, how full their context windows are, why anything failed, and which git branch it works in. It is for someone who runs several Claude Code or OpenCode sessions or agents at once and wants to see what they are doing and costing without watching each terminal.
 
 ## What Podium does
 

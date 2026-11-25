@@ -6,7 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import "../fleet.css";
 import "./admin.css";
 import { StreamTopBar } from "../components/StreamTopBar";
-import { WallOptions } from "../components/WallOptions";
+import { PageBanner } from "../components/PageBanner";
+import { PAGE_INFO } from "../pageInfo";
 import { useTheme } from "../useTheme";
 import { useShortcuts } from "../useShortcuts";
 import type { UseFleetOptions } from "../useFleet";
@@ -215,13 +216,8 @@ export function AdminView({ base = "/api/admin", fleetOptions, respondApi, peers
   return (
     <div ref={root} className="podium">
       <div className="app" style={{ gridTemplateRows: "auto auto 1fr" }}>
-        <StreamTopBar page="Admin" fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
-        <div className="banner has-picker" role="region" aria-label="Display settings">
-          <span>
-            <b>Admin.</b> Tokens, groups, reporters and settings for this server.
-          </span>
-          <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} />
-        </div>
+        <StreamTopBar page={PAGE_INFO.admin.name} fleetOptions={fleetOptions} respondApi={respondApi} peersApi={peersApi} />
+        <PageBanner name={PAGE_INFO.admin.name} description={PAGE_INFO.admin.description} wall={{ theme, shortcuts, onShortcuts: setShortcuts }} />
         <main className="adminv" aria-label="Admin">
           {status === "checking" && (
             <div className="solo">

@@ -82,7 +82,10 @@ describe('history', () => {
 
     it('says a session that is not stored could not be loaded', () => {
       cy.visit(`/#/history?day=${today()}&page=1&size=50&open=e2e-s-nothing`);
-      cy.contains('.none', 'Could not load that session (not found).');
+      // The session is asked for after the page loads and the reply can be slow when many suites share one machine (#1211): wait for the console's
+      // live connection like cy.openConsole does, and give the reply the same 15 s, so the 'Loading the session…' state is waited out, not asserted on.
+      cy.get('[data-testid="connection-pill"]', { timeout: 15000 }).should('have.attr', 'data-state', 'live');
+      cy.contains('.none', 'Could not load that session (not found).', { timeout: 15000 });
     });
 
     it('draws the same top bar, with Fleet and Board, and no Hide top bar or wall mode', () => {

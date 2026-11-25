@@ -1,7 +1,7 @@
 // What an answer from Podium turns into for OpenCode (#858). Pure: no OpenCode API, no network. The asks Podium is shown (redacted
 // and cut), the reply OpenCode takes for a permission, the answer object for a question form, and the text of a message.
 import { clip, redact } from '../core/failures.ts';
-import { withChatHint } from '../core/peers.ts';
+import { podiumPrompt, withChatHint } from '../core/peers.ts';
 import { RESPOND_LIMITS, tooManyOptions, type Ask as PodiumAsk, type AskQuestion, type Delivery, type QuestionAnswer } from '../core/protocol.ts';
 import type { Ask, FormField, Root } from './state.ts';
 
@@ -11,7 +11,7 @@ export type PermissionReply = 'once' | 'reject';
 export const permissionReply = (kind: Delivery['kind']): PermissionReply | null => (kind === 'allow-once' ? 'once' : kind === 'deny' || kind === 'reply' ? 'reject' : null);
 
 /** What the reporter says when Podium denies a tool without a reason. The same words as the Claude Code reporter. */
-export const DENIED_FROM_PODIUM = 'Denied from Podium.';
+const DENIED_FROM_PODIUM = 'Denied from Podium.';
 
 /** The message that goes with a rejection: the reason or reply typed in Podium, or `DENIED_FROM_PODIUM` when there is none. Never sent with `once`. */
 export const rejectMessage = (d: Pick<Delivery, 'text'>): string => (d.text ?? '').trim().slice(0, RESPOND_LIMITS.answer) || DENIED_FROM_PODIUM;
@@ -68,16 +68,17 @@ export function formAnswer(fields: readonly FormField[], answers: readonly Quest
   return Object.keys(out).length ? out : null;
 }
 
-/** A short summary of an answer for the recording and the transcript: the values joined with "; ". */
-export const answerSummary = (answer: Record<string, string | string[]>): string => clip(Object.values(answer).map((v) => (Array.isArray(v) ? v.join(', ') : v)).join('; '), RESPOND_LIMITS.answer);
-
 /**
  * The text a message reaches the model as. OpenCode hands a prompt over as an ordinary user message with no marker, so the
  * label is in the text: the model is told who wrote it and that it came through Podium, not from the person at the terminal.
  */
-export function framedMessage(d: Pick<Delivery, 'by' | 'text' | 'chat' | 'channel'>): string {
-  // The owner's own Chat message ends with where to answer, so the answer lands in the thread, and an @ in a channel with where to read around it (#1034).
-  return withChatHint(`[Message from ${clip(d.by, 80)} via Podium, not typed at this terminal]\n\n${(d.text ?? '').slice(0, RESPOND_LIMITS.message)}`, d);
+export function framedMessage(d: Pick<Delivery, 'kind' | 'by' | 'text' | 'chat' | 'channel' | 'via' | 'admin' | 'owner'>): string {
+  const text = (d.text ?? '').slice(0, RESPOND_LIMITS.message);
+  // The sender, the text quoted and closed, and where to answer, the same frame in every harness (#1251, #1034).
+  const framed = podiumPrompt({ ...d, kind: 'message', text });
+  if (framed) return framed;
+  // From a server that does not say where the message was written: the label it had.
+  return withChatHint(`[Message from ${clip(d.by, 80)} via Podium, not typed at this terminal]\n\n${text}`, d);
 }
 
 /**

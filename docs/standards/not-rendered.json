@@ -67,6 +67,11 @@
       "kind": "measured"
     },
     {
+      "class": "full",
+      "reason": "Set on the page banner's text only when its first sentence is wider than the room the banner allows, which the browser measures and a sample has no layout to measure. The banner then takes the whole row instead of cutting the sentence.",
+      "kind": "measured"
+    },
+    {
       "class": "dismissed",
       "reason": "Set on a copy cell's tip for a moment after a click, to hide it.",
       "kind": "pointer"

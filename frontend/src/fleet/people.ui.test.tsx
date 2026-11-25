@@ -11,7 +11,8 @@ import type { OwnerSpend, RespondMe, SessionView } from "./types";
 beforeEach(() => window.localStorage.clear());
 afterEach(cleanup);
 
-const S = (id: string, owner: string | null, over: Partial<SessionView> = {}) => makeSession({ id, name: `${id}-proj`, owner, ...over });
+const IDS: Record<string, number> = { "Ed E.": 1, "Priya N.": 2, "Dana K.": 3 };
+const S = (id: string, owner: string | null, over: Partial<SessionView> = {}) => makeSession({ id, name: `${id}-proj`, owner, ownerId: owner ? IDS[owner] ?? null : null, ...over });
 const fleet: SessionView[] = [
   S("ed1", "Ed E.", { ownerGroup: "Frontend", machine: { name: "eds-mbp", id: "aaaa0001" } }),
   S("ed2", "Ed E.", { ownerGroup: "Frontend", machine: { name: "build-01", id: "bbbb0002" }, status: "waiting" }),
@@ -27,8 +28,8 @@ const spend: OwnerSpend[] = [
   { owner: "Admin", group: null, costUsd: 1 },
   { owner: null, group: null, costUsd: 1 },
 ];
-const signedOut: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
-const signedInAs = (name: string, admin = false): RespondMe => ({ enabled: true, signedIn: true, name, admin });
+const signedOut: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
+const signedInAs = (name: string, admin = false): RespondMe => ({ enabled: true, signedIn: true, name, id: IDS[name] ?? null, admin });
 // Who is signed in comes from the browser's respond sign-in (#245); a fake API stands in for the server.
 const view = (sessions = fleet, me: RespondMe = signedOut) =>
   render(

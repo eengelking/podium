@@ -12,6 +12,9 @@ import { createRespondBridge } from './respondBridge.js';
 import { CLOSED_KEEP_MS, RespondStore, commandOf, parseAnswer, questionSummary } from './respond.js';
 import { DELIVERY_RESULTS, MAIN_LOOP, RESPOND_LIMITS, timeBucket, type Ask, type Report, type RespondKind } from './protocol.js';
 import { fixtureReport } from './testing.js';
+import { PEER_MESSAGING } from '../storage/features.js';
+import { ownsOutright } from './respondRoutes.js';
+import type { SessionRow } from '../storage/rows.js';
 
 const closers: (() => void)[] = [];
 afterEach(() => {
@@ -397,6 +400,39 @@ describe('RespondStore', () => {
     expect(s.discard(b.delivery.id, 'Alex', true)).toBe('handed-over');
     expect(s.discard('dlv_nope', 'Ed', true)).toBe('unknown');
   });
+
+  it('tells people apart by id, never by name, for mine and for discarding (#1284)', () => {
+    const { s, sid } = store();
+    s.announce(sid, QUESTION);
+    const a = s.answer(sid, 'toolu_q', 'Ed', { kind: 'reply', text: 'x' }, 7);
+    if (!a.ok) throw new Error('refused');
+    // A newcomer with the same name and a different id sees nothing of it as theirs and cannot discard it.
+    expect(s.detail(sid, 'toolu_q', 'Ed', 0, 9)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Ed', false, 9)).toBe('forbidden');
+    // The admin secret (no id) with the same name is not the person either.
+    expect(s.detail(sid, 'toolu_q', 'Ed', 0, null)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Ed', false, null)).toBe('forbidden');
+    // The owner, even under a new name, still is.
+    expect(s.detail(sid, 'toolu_q', 'Edward', 0, 7)?.delivery).toMatchObject({ mine: true });
+    // An Admin may discard, as before.
+    expect(s.discard(a.delivery.id, 'Alex', true, 9)).toBe('ok');
+    // A message works the same way.
+    const m = s.message(sid, 'Ed', { text: 'hi' }, false, null, undefined, 7);
+    if (!m.ok) throw new Error('refused');
+    expect(s.discard(m.delivery.id, 'Ed', false, 9)).toBe('forbidden');
+    expect(s.discard(m.delivery.id, 'Ed', false, 7)).toBe('ok');
+  });
+
+  it('matches a delivery of the admin secret on the admin account, with no id', () => {
+    const { s, sid } = store();
+    s.announce(sid, QUESTION);
+    const a = s.answer(sid, 'toolu_q', 'Admin', { kind: 'reply', text: 'x' }, null);
+    if (!a.ok) throw new Error('refused');
+    expect(s.detail(sid, 'toolu_q', 'admin', 0, null)?.delivery).toMatchObject({ mine: true });
+    expect(s.detail(sid, 'toolu_q', 'Admin', 0, 3)?.delivery).toMatchObject({ mine: false });
+    expect(s.discard(a.delivery.id, 'Admin', false, 3)).toBe('forbidden');
+    expect(s.discard(a.delivery.id, 'admin', false, null)).toBe('ok');
+  });
 });
 
 // ---- routes ---------------------------------------------------------------------------------
@@ -413,7 +449,7 @@ async function setup(opts: { secret?: string | null; respond?: boolean; onSignIn
   const lockout = new Lockout(fleet.now);
   const respondBridge = createRespondBridge();
   const app = express();
-  app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
+  app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters: storage.reporters, lockout, respondBridge, onSignIn: opts.onSignIn, ...(opts.logger ? { logger: opts.logger } : { log: () => {} }) }));
   app.use('/api/admin', createAdminRouter({ secret, storage, people, features: fleet.features, lockout, respondBridge, log: () => {} }));
   closers.push(() => fleet.close());
   if (opts.respond !== false) await fleet.features.setFeature('respond', true);
@@ -450,7 +486,7 @@ describe('the plain-HTTP note on sign-in (#306)', () => {
 describe('the switches', () => {
   it('is off with authentication off, and with either Admin flag off: the routes refuse and the reply says so', async () => {
     const off = await setup({ secret: null });
-    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, admin: false, myUsage: false });
+    expect((await request(off.app).get('/api/fleet/respond/me')).body).toEqual({ enabled: false, signedIn: false, name: null, id: null, admin: false, myUsage: false });
     expect((await request(off.app).post('/api/fleet/respond/sign-in').set(H).send({ name: 'Ed', token: off.ed.token })).status).toBe(403);
     const r = await request(off.app).post('/api/fleet/report').send(report('Ed'));
     expect(r.body).toMatchObject({ respond: false, deliveries: [] });
@@ -478,9 +514,9 @@ describe('signing in', () => {
   it('takes a person’s name (any case) with their token, and the name Admin with the admin secret', async () => {
     const { app, ed, people } = await setup();
     const agent = await signedIn(app, 'ed', ed.token);
-    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', admin: false, myUsage: false });
+    expect((await agent.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Ed', id: ed.person.id, admin: false, myUsage: false });
     const admin = await signedIn(app, 'Admin', SECRET);
-    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', admin: true, myUsage: false });
+    expect((await admin.get('/api/fleet/respond/me')).body).toEqual({ enabled: true, signedIn: true, name: 'Admin', id: null, admin: true, myUsage: false });
     expect((await people.listLog({ page: 1, pageSize: 50 })).rows.filter((r) => r.kind === 'respond_sign_in').map((r) => r.actor)).toEqual(['Admin secret', 'Ed']);
   });
 
@@ -833,8 +869,9 @@ describe('answering, end to end', () => {
     expect((await edB.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_q/answer').set(H).send({ kind: 'reply', text: 'hi' })).status).toBe(202);
     const admin = await signedIn(app, 'Admin', SECRET);
     const second = await admin.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_q/answer').set(H).send({ kind: 'reply', text: 'me too' });
-    expect(second.status).toBe(409);
-    expect(second.body).toMatchObject({ error: 'answered', by: 'Ed' });
+    // An Admin who is not the owner needs the owner's allow, so the answer is refused before it is asked whether it was taken (#1251).
+    expect(second.status).toBe(403);
+    expect(second.body.error).toContain('Ed has not allowed');
     await request(app).post('/api/fleet/sessions/sess-ed/asks/toolu_t/close').set('X-Podium-Token', ed.token).send({ outcome: 'terminal', answer: 'allowed', at: T0 });
     const late = await edB.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'deny' });
     expect(late.status).toBe(410);
@@ -871,6 +908,91 @@ describe('answering, end to end', () => {
     expect((await alexB.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).status).toBe(403);
     const admin = await signedIn(app, 'Admin', SECRET);
     expect((await admin.get('/api/fleet/respond/sessions/sess-ed/asks/toolu_p')).body.ask.plan.text).toBe('# Plan\n\n1. Page it');
+  });
+});
+
+describe("an Admin acts on another person's session only when its owner allowed it (#1251)", () => {
+  /** The session's reporter is known to Podium by its machine, which is what the owner's allow is kept against. */
+  const onMachine = (r: Report): Report => ({ ...r, machine: { name: 'ed-mbp', id: 'm-ed', os: 'macOS 27.0.1' } });
+  /** The owner's route for the allow, for the reporter the session reports through. */
+  const allowRoute = async (owner: ReturnType<typeof request.agent>) => {
+    const key = (await owner.get('/api/fleet/respond/peers')).body.reporters[0].key as string;
+    return `/api/fleet/respond/peers/reporters/${encodeURIComponent(key)}/admin-respond`;
+  };
+  const send = (b: ReturnType<typeof request.agent>, text = 'do it') => b.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text });
+
+  it('refuses an Admin a message, a command and an answer until the owner allows, then takes them, and stops when the owner takes it back', async () => {
+    const { app, fleet, ed, alex } = await setup();
+    await fleet.features.setFeature(PEER_MESSAGING, true);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed', 'sess-ed', [TOOL])));
+    const admin = await signedIn(app, 'Admin', SECRET);
+    const refused = await send(admin);
+    expect(refused.status).toBe(403);
+    expect(refused.body).toMatchObject({ ok: false, owner: 'Ed' });
+    expect(refused.body.error).toContain('Ed has not allowed');
+    expect((await send(admin, '/clear')).status).toBe(403);
+    expect((await admin.post('/api/fleet/respond/sessions/sess-ed/asks/toolu_t/answer').set(H).send({ kind: 'allow-once' })).status).toBe(403);
+    const edB = await signedIn(app, 'Ed', ed.token);
+    const route = await allowRoute(edB);
+    // Only the reporter's owner gives or takes back the allow: an Admin has no reporters of their own, and another person's reporter is not found.
+    expect((await admin.put(route).set(H).send({ allow: true })).status).toBe(403);
+    expect((await (await signedIn(app, 'Alex', alex.token)).put(route).set(H).send({ allow: true })).status).toBe(404);
+    expect((await edB.put(route).set(H).send({ allow: true })).body).toEqual({ ok: true, adminRespond: true });
+    expect((await send(admin, 'from the Admin')).status).toBe(202);
+    // The reporter is told who sent it and that the owner allowed it, so it frames the text and names the Admin to the model (#1251).
+    const reply = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed', 'sess-ed', [TOOL])));
+    expect(reply.body.deliveries).toEqual([expect.objectContaining({ kind: 'message', text: 'from the Admin', by: 'Admin', via: 'console', admin: true, owner: 'Ed' })]);
+    // The owner's own message from the session page carries where it came from and no Admin mark.
+    expect((await edB.post('/api/fleet/respond/sessions/sess-ed/messages').set(H).send({ text: 'mine' })).status).toBe(202);
+    const own = await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed', 'sess-ed', [TOOL])));
+    expect(own.body.deliveries.find((x: { text?: string }) => x.text === 'mine')).toMatchObject({ by: 'Ed', via: 'console' });
+    expect(own.body.deliveries.find((x: { text?: string }) => x.text === 'mine')).not.toHaveProperty('admin');
+    expect((await edB.get('/api/fleet/respond/peers')).body.reporters[0].adminRespond).toBe(true);
+    // A link paused another way, with no call to the owner's route, stops the Admin at once: what lets an Admin act is read from the store each time.
+    expect((await fleet.peers.setPersonLink('person:admin', (await edB.get('/api/fleet/respond/peers')).body.reporters[0].key, 'pause', { name: 'Root', admin: true })).ok).toBe(true);
+    const paused = await send(admin);
+    expect(paused.status).toBe(403);
+    expect(paused.body.code).toBe('admin-not-allowed');
+    expect((await edB.put(route).set(H).send({ allow: false })).body).toEqual({ ok: true, adminRespond: false });
+    expect((await send(admin)).status).toBe(403);
+  });
+
+  it('treats a session owned by Admin or by no one as an Admin\'s, and a person\'s as theirs alone', () => {
+    const row = (owner: string | null, owner_id: number | null = null) => ({ owner, owner_id }) as SessionRow;
+    expect(ownsOutright({ personId: 9, admin: true }, row('Ed', 1))).toBe(false);
+    expect(ownsOutright({ personId: 1, admin: false }, row('Ed', 1))).toBe(true);
+    expect(ownsOutright({ personId: 9, admin: true }, row('Admin'))).toBe(true);
+    expect(ownsOutright({ personId: 9, admin: true }, row(null))).toBe(true);
+    expect(ownsOutright({ personId: 1, admin: false }, row(null))).toBe(false);
+    // A session whose person was deleted keeps the name but is nobody's, even for a new person who takes it (#1284); an Admin's own consent route is still open.
+    expect(ownsOutright({ personId: 2, admin: false }, row('Ed'))).toBe(false);
+    expect(ownsOutright({ personId: 2, admin: true }, row('Ed'))).toBe(false);
+  });
+
+  it('says in the session view whether the owner has allowed an Admin, and in the owner\'s own list of reporters', async () => {
+    const { app, fleet, ed } = await setup();
+    await fleet.features.setFeature(PEER_MESSAGING, true);
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed')));
+    expect((await fleet.view('sess-ed'))?.adminRespond).toBe(false);
+    const edB = await signedIn(app, 'Ed', ed.token);
+    const route = await allowRoute(edB);
+    await edB.put(route).set(H).send({ allow: true });
+    expect((await fleet.view('sess-ed'))?.adminRespond).toBe(true);
+    await edB.put(route).set(H).send({ allow: false });
+    expect((await fleet.view('sess-ed'))?.adminRespond).toBe(false);
+    // Taking back what was never given is the state asked for, and a body that is not a boolean is refused.
+    expect((await edB.put(route).set(H).send({ allow: false })).status).toBe(200);
+    expect((await edB.put(route).set(H).send({ allow: 'yes' })).status).toBe(400);
+  });
+
+  it('never logs the refused text, and records the attempt', async () => {
+    const { app, ed, people } = await setup();
+    await request(app).post('/api/fleet/report').set('X-Podium-Token', ed.token).send(onMachine(report('Ed')));
+    const admin = await signedIn(app, 'Admin', SECRET);
+    await send(admin, 'secret words');
+    const rows = (await people.listLog({ page: 1, pageSize: 50 })).rows;
+    expect(rows.find((r) => r.kind === 'respond_refused')).toMatchObject({ actor: 'Admin secret' });
+    expect(JSON.stringify(rows)).not.toContain('secret words');
   });
 });
 

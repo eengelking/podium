@@ -1,7 +1,7 @@
 // The fleet service: owns the live set, turns ingests and timer sweeps into SSE messages, and
 // answers the read endpoints. Storage is the async `Storage` (#313); rules are in ingest.ts and derive.ts. The clock is
 // injected so the lifecycle tests can move time without waiting.
-import { ROLLUP_KEEP_MS, nameKey, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
+import { ROLLUP_KEEP_MS, SAME_USAGE, ACTIVITY_FEED, ACTIVITY_OUTPUT, BACKGROUND_OUTPUT, FILE_DIFF, PEER_MESSAGING, RESPOND, SESSION_RECORDING, UPDATE_CHECK, type AgentRow, type BlowoutRow, type CostOf, type RetentionPolicy, type SampleRow, type SessionRow, type SessionMeta } from '../storage/rows.js';
 import { costFn, writeRollups } from './rollups.js';
 import type { ActivityHistoryApi, FleetStore, PeerStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { activityView, computeKpis, family, isUnused, repriced, sessionStatus, sessionView, shortenHome, staleAfterFor, startOfDay, type DeriveConfig } from './derive.js';
@@ -20,7 +20,8 @@ import { isNewer, UpdateCheck } from './updateCheck.js';
 import { DiffBroker } from './fileDiffs.js';
 import { RespondStore } from './respond.js';
 import { ChatService } from './chat.js';
-import { AdminActs } from './adminActs.js';
+import { ADMIN_PERSON_KEY, type Actor, type Refusal } from './peerTypes.js';
+import { AdminActs, type AdminRef } from './adminActs.js';
 import { isPersonId, type ChatHost, type ChatSignal } from './chatTypes.js';
 import { MAIN_LOOP } from './protocol.js';
 import { checkReporter } from './compat.js';
@@ -93,7 +94,7 @@ const SWEEP_IDS_LOGGED = 10;
 const MAX_REPORTERS = 1000;
 
 /** How many events /state returns and the UI keeps. */
-export const STATE_EVENTS = 150;
+const STATE_EVENTS = 150;
 
 interface LiveEntry {
   /** Reported since this server process started. */
@@ -130,6 +131,9 @@ function loopsOfAgents(agents: readonly AgentRow[]): { loop: string; name: strin
   return [{ loop: MAIN_LOOP, name: 'Orchestrator' }, ...agents.map((a) => ({ loop: a.id, name: a.name ?? a.type }))];
 }
 
+/** How long a session view may show an owner's allow for an Admin without reading it again (#1251). */
+const ADMIN_ALLOW_TTL_MS = 10_000;
+
 export class Fleet {
   readonly hub = new SseHub();
   /** The wall's notice switches and background-session setting; a change reaches open browsers at once. */
@@ -162,6 +166,8 @@ export class Fleet {
   readonly updates: UpdateCheck;
   /** Runs each read-then-write sequence on a session one at a time, and a sweep or retention alone (#313). */
   private readonly serial = new Serializer();
+  /** An owner's allow for an Admin to respond, by reporter key, so a session view does not read the store each time (#1251). Dropped when the owner changes it and after `ADMIN_ALLOW_TTL_MS`, so a link paused or removed another way shows within seconds. What lets an Admin act never reads it (`fresh`). */
+  private readonly adminAllow = new Map<string, { on: boolean; at: number }>();
   /** Every SSE message goes out through this chain, in the order it was asked for, so a slow read never reorders them (#313). */
   private out: Promise<void> = Promise.resolve();
   /** The Podium-entry writes to the stored activity (an answer, a note, a take-back) go out through this chain, in the order they were asked for, so an entry's update never overtakes its add. */
@@ -176,6 +182,8 @@ export class Fleet {
   private readonly startedAt: number;
   private readonly clockSkew = new Map<string, number>();
   private costMinuteCache: { at: number; rows: { m: number; v: number }[] } | null = null;
+  /** Today's spend as the two-second tick last read it, reused for 5 s (#749). A snapshot or `/api/fleet/state` always reads it fresh. */
+  private spendCache: { at: number; day: number; epoch: number; spend: { total: number; byOwner: { owner: string | null; group: string | null; costUsd: number }[] } } | null = null;
   /** When each reporter (owner, machine, kind) last reported, for `reporter.connected` (#140). */
   private readonly reporters = new Map<string, number>();
 
@@ -193,12 +201,15 @@ export class Fleet {
     history: { authOn?: boolean; secret?: string | null } = {},
   ) {
     this.startedAt = now();
+    this.hub.onSlowClient = (reason) => this.logger.warn('stream.slow_client_ended', `podium: ended a stream client that was not reading: ${reason}`, { reason });
     this.features = new LiveFeatureFlags(storage.featureFlags, (id, on) => {
       this.settingsEpoch++;
       if (id === ACTIVITY_FEED && !on) this.activity.clear();
       if (id === FILE_DIFF && !on) this.diffs.clear();
       // Output going off drops every output held on a lease (#431). The commands, the leases and the history are untouched.
       if (id === ACTIVITY_OUTPUT && !on) this.activity.dropOutput();
+      // The same for a background item's command and output (#897): its list, its state and its times stay.
+      if (id === BACKGROUND_OUTPUT && !on) this.activity.dropBackgroundDetail();
       // Responding needs both flags: either going off drops every ask and answer the server holds.
       if ((id === ACTIVITY_FEED || id === RESPOND) && !on) this.respond.clear();
       // Messaging going off drops every message still waiting; the rights stay.
@@ -248,6 +259,7 @@ export class Fleet {
       () => this.features.featureOn(ACTIVITY_FEED),
       () => [],
       () => this.features.featureOn(ACTIVITY_OUTPUT),
+      () => this.features.featureOn(BACKGROUND_OUTPUT),
     );
     this.respond = new RespondStore(
       now,
@@ -290,20 +302,20 @@ export class Fleet {
       isLive: (id) => this.live.has(id),
       sessionOf: async (id) => {
         const row = await this.db.getSession(id);
-        return row ? { name: row.name, owner: row.owner } : null;
+        return row ? { name: row.name, owner: row.owner, ownerId: row.owner_id, ended: row.status === 'done' } : null;
       },
       liveIds: () => [...this.live.keys()],
       secrets: () => (history.secret ? [history.secret] : []),
       // The stream goes to every open console, so it carries a change counter and a coarse scope only: no name, count or id (#1034).
-      signal: (s: ChatSignal & { rev: number }) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
+      signal: (s: ChatSignal) => void this.emit(() => ['chat', { rev: s.rev, scope: s.scope }]),
       warn: (what, err) => this.logger.warn('chat.failed', `podium: ${what}: ${(err as Error).message}`, { reason: (err as Error).message }),
     };
     this.chat = new ChatService(host, storage.chat({ now }));
     const reads = this.chat.adminReads;
     this.adminActs = new AdminActs({
-      mark: (thread, admin, kind, people) => reads.record(thread, admin, kind, people),
+      mark: (thread, admin, kind, people) => reads.record(thread, admin.name, admin.id, kind, people),
       tell: (sessionId, text) => reads.tell(sessionId, text),
-      sessionsOf: (owner) => reads.sessionsOf(owner),
+      sessionsOf: (ownerId) => reads.sessionsOf(ownerId),
       sessionOf: (id) => host.sessionOf(id),
     });
     this.wall = new LiveWallSettings(storage.wallSettings, () => {
@@ -443,13 +455,13 @@ export class Fleet {
   // ---- ingest ---------------------------------------------------------------------------------
 
   /** Stores one report and brings the live set, the feeds and the consoles up to date. Reports for one session are handled one at a time. */
-  ingest(report: Report, owner: string | null = null): Promise<IngestResult> {
-    return this.serial.run(report.session.id, () => this.ingestNow(report, owner));
+  ingest(report: Report, owner: string | null = null, ownerId: number | null = null): Promise<IngestResult> {
+    return this.serial.run(report.session.id, () => this.ingestNow(report, owner, ownerId));
   }
 
   /** `ingest` for a caller that already holds the session's turn. */
-  private async ingestNow(report: Report, owner: string | null): Promise<IngestResult> {
-    const res = await ingestReport(this.storage, report, this.now(), owner);
+  private async ingestNow(report: Report, owner: string | null, ownerId: number | null): Promise<IngestResult> {
+    const res = await ingestReport(this.storage, report, this.now(), owner, ownerId);
     this.clockSkew.set(res.sessionId, res.clockSkewMs);
     this.activity.ingest(report, res.clockSkewMs);
     // The stored session, read once: the Stored activity table and a recording's carry-over start from it, and so does the live set below.
@@ -556,20 +568,20 @@ export class Fleet {
   }
 
   /** A classic settings-hook payload (T5.1): merged with what is stored, then ingested as a report. */
-  ingestHook(payload: unknown, owner: string | null = null): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
+  ingestHook(payload: unknown, owner: string | null = null, ownerId: number | null = null): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
     // What a hook is merged with is read and the report written under the session's one turn, so two hooks cannot both start from the same stored state.
     const sid = hookSessionId(payload);
-    return sid ? this.serial.run(sid, () => this.ingestHookNow(payload, owner, sid)) : this.ingestHookNow(payload, owner, '');
+    return sid ? this.serial.run(sid, () => this.ingestHookNow(payload, owner, ownerId, sid)) : this.ingestHookNow(payload, owner, ownerId, '');
   }
 
-  private async ingestHookNow(payload: unknown, owner: string | null, sid: string): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
+  private async ingestHookNow(payload: unknown, owner: string | null, ownerId: number | null, sid: string): Promise<{ ok: true; sessionId: string } | { ok: false; error: string; path: string }> {
     const stored = sid ? { session: await this.db.getSession(sid), agents: await this.db.getAgents(sid) } : { agents: [] };
     const res = hookToReport(payload, stored, this.now());
     if (!res.ok) return res;
     if ('ignored' in res) return { ok: true, sessionId: res.sessionId };
     const v = validateReport(res.report);
     if (!v.ok) return v;
-    await this.ingestNow(v.report, owner);
+    await this.ingestNow(v.report, owner, ownerId);
     return { ok: true, sessionId: v.report.session.id };
   }
 
@@ -594,6 +606,31 @@ export class Fleet {
 
   // ---- reads ----------------------------------------------------------------------------------
 
+  /** Whether the owner of this reporter has allowed an Admin to respond to its sessions: an open link from the Admin to it. False for no reporter (#1251). */
+  async adminAllowedFor(reporterKey: string | undefined, fresh = false): Promise<boolean> {
+    if (!reporterKey) return false;
+    const known = fresh ? undefined : this.adminAllow.get(reporterKey);
+    if (known && this.now() - known.at < ADMIN_ALLOW_TTL_MS) return known.on;
+    const link = await this.peers.rights.personLink(ADMIN_PERSON_KEY, reporterKey);
+    const on = link !== null && link.level === 'send' && !link.paused;
+    this.adminAllow.set(reporterKey, { on, at: this.now() });
+    return on;
+  }
+
+  /** The same, for a live session, by the reporter that reports it. */
+  adminAllowedForSession(sessionId: string, fresh = false): Promise<boolean> {
+    return this.adminAllowedFor(this.peers.messages.live(sessionId)?.reporterKey, fresh);
+  }
+
+  /** The owner gives or takes back the allow for one of their reporters. Taking back what was never given is the state asked for. */
+  async setAdminAllowed(reporterKey: string, allow: boolean, actor: Actor): Promise<{ ok: true } | Refusal> {
+    const out = await this.peers.setPersonLink(ADMIN_PERSON_KEY, reporterKey, allow ? 'allow' : 'remove', actor);
+    if (!out.ok && !(out.status === 404 && !allow)) return out;
+    // Read again from the store next time, not assumed from what was asked.
+    this.adminAllow.delete(reporterKey);
+    return { ok: true };
+  }
+
   /** One session's view, live or historical. */
   view(id: string): Promise<SessionView | undefined> {
     // One transaction, so the session, its agents and its samples are read as of one moment even while a report is being stored.
@@ -610,7 +647,7 @@ export class Fleet {
     const blowouts = pre?.blowouts ?? (await this.db.getBlowouts(row.id));
     const compactions = pre?.compactions ?? (await this.db.countAutoCompactions(row.id));
     const samples = pre?.samples ?? (await this.db.samplesSince(row.id, Math.floor(now / 1000) - 61));
-    const ownerGroup = pre ? pre.ownerGroup : await this.db.groupOfOwner(row.owner);
+    const ownerGroup = pre ? pre.ownerGroup : await this.db.groupOfOwner(row.owner_id);
     const entry = this.live.get(row.id);
     return sessionView(
       {
@@ -626,9 +663,11 @@ export class Fleet {
         pricing: this.prices.pricing(),
         activityFeed: this.activity.feedOn(row.id),
         activityOutput: this.activity.outputOptionOn(row.id),
+        backgroundOutput: this.activity.backgroundOptionOn(row.id),
         fileDiff: this.diffs.optionOn(row.id),
         fileDiffPreload: this.diffs.preloadOn(row.id),
         respond: this.respond.info(row.id),
+        adminRespond: await this.adminAllowedForSession(row.id),
         asks: this.respond.summaries(row.id),
         recording: pre ? pre.recording : await this.recordings.view(row.id),
       },
@@ -661,7 +700,7 @@ export class Fleet {
       const blowouts = await this.db.getBlowoutsOf(ids);
       const compactions = await this.db.countAutoCompactionsOf(ids);
       const samples = await this.db.samplesSinceOf(ids, Math.floor(now / 1000) - 61);
-      const groups = await this.db.groupsOfOwners(shown.map((r) => r.owner));
+      const groups = await this.db.groupsOfOwners(shown.map((r) => r.owner_id));
       const recordings = await this.recordings.viewMany(ids.map((sessionId) => ({ sessionId, loops: loopsOfAgents(agentsOf.get(sessionId) ?? []) })));
       const out: SessionView[] = [];
       for (const row of shown) {
@@ -672,7 +711,7 @@ export class Fleet {
             blowouts: blowouts.get(row.id) ?? [],
             compactions: compactions.get(row.id) ?? 0,
             samples: samples.get(row.id) ?? [],
-            ownerGroup: groups.get(row.owner) ?? null,
+            ownerGroup: groups.get(row.owner_id) ?? null,
             recording: recordings.get(row.id) ?? null,
           }),
         );
@@ -681,7 +720,8 @@ export class Fleet {
     });
   }
 
-  async kpis(views?: readonly SessionView[]): Promise<Kpis> {
+  /** `cached` lets today's spend be up to 5 s old (the tick); without it the spend is read now (a snapshot, a state read). */
+  async kpis(views?: readonly SessionView[], cached = false): Promise<Kpis> {
     const live = views ?? (await this.liveViews());
     const now = this.now();
     const nowSec = Math.floor(now / 1000);
@@ -694,7 +734,17 @@ export class Fleet {
       // A price change while this was reading cleared the cache; these rows used the old prices, so they serve this call only.
       if (epoch === this.priceEpoch) this.costMinuteCache = cache;
     }
-    const spend = await this.db.spendTotals(startOfDay(now), cost);
+    const day = startOfDay(now);
+    let spend: Awaited<ReturnType<typeof this.db.spendTotals>>;
+    const held = this.spendCache;
+    if (cached && held && held.day === day && held.epoch === this.priceEpoch && now >= held.at && now - held.at <= 5000) {
+      spend = held.spend;
+    } else {
+      const epoch = this.priceEpoch;
+      spend = await this.db.spendTotals(day, cost);
+      // A price change while this was reading made `spend` use the old prices, so it serves this call only.
+      if (epoch === this.priceEpoch) this.spendCache = { at: now, day, epoch, spend };
+    }
     return computeKpis(
       {
         views: live,
@@ -873,12 +923,12 @@ export class Fleet {
    * Puts the reporting orchestrator in the peer directory, in the session's own turn and only if the session is still there: a delete or an end
    * that ran after this report was stored, or a done report that followed it, is not undone by a note that arrives late (#313).
    */
-  noteOrchestrator(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void> {
+  noteOrchestrator(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void> {
     return this.serial.run(sessionId, async () => {
       if (!this.live.has(sessionId)) return;
       const row = await this.db.getSession(sessionId);
       if (!row || (row.status === 'done' && report.session.status !== 'done')) return;
-      await this.peers.note(sessionId, reporterKey, owner, report);
+      await this.peers.note(sessionId, reporterKey, owner, ownerId, report);
       await this.chatSafely('a session reported', () => this.chat.sessionSeen(sessionId, owner));
     });
   }
@@ -899,19 +949,19 @@ export class Fleet {
 
   /**
    * The Delete route (#1051): looks the session up first, so an id that is no session (a `person:` id included) changes
-   * nothing, and lets only the session's owner delete it. `asOwner` is the caller's name, or undefined for the admin
-   * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's.
+   * nothing, and lets only the session's owner delete it. `asOwnerId` is the caller's `people.id` (#1284), or undefined for the admin
+   * secret and for a server with no sign-in, which may delete any session. A session with no owner is anyone's; one whose person was deleted (a name but no id) is nobody's, so only the admin secret deletes it.
    */
-  deleteSessionAs(id: string, asOwner: string | undefined, byAdmin?: string): Promise<'deleted' | 'unknown' | 'forbidden'> {
-    return this.serial.run(id, () => this.deleteNow(id, { asOwner, byAdmin }));
+  deleteSessionAs(id: string, asOwnerId: number | undefined, byAdmin?: AdminRef): Promise<'deleted' | 'unknown' | 'forbidden'> {
+    return this.serial.run(id, () => this.deleteNow(id, { asOwnerId, byAdmin }));
   }
 
-  /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwner` must own it. */
-  private async deleteNow(id: string, check: { asOwner: string | undefined; byAdmin?: string } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
+  /** `check` null deletes whatever is left of the id with no lookup (the server's own cleanup); otherwise the row must exist and `check.asOwnerId` must own it. */
+  private async deleteNow(id: string, check: { asOwnerId: number | undefined; byAdmin?: AdminRef } | null): Promise<'deleted' | 'unknown' | 'forbidden'> {
     const row = await this.db.getSession(id);
     if (check) {
       if (!row) return 'unknown';
-      if (check.asOwner !== undefined && row.owner && nameKey(row.owner) !== nameKey(check.asOwner)) return 'forbidden';
+      if (check.asOwnerId !== undefined && row.owner && row.owner_id !== check.asOwnerId) return 'forbidden';
     }
     const owner = row?.owner ?? null;
     // An Admin deleting a person's session tells the person first, so a failure to record it stops the delete (#1078).
@@ -928,7 +978,7 @@ export class Fleet {
     this.respond.dropSession(id);
     // `person:<name>` is how Chat names a person's end, never a session; deleting by it would wipe that person's conversations (#1051).
     if (!isPersonId(id.toLowerCase())) await this.peers.deleted([id]);
-    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner));
+    await this.chatSafely('a session being deleted', () => this.chat.sessionLeft(id, owner, row?.owner_id ?? null, true));
     const t = this.pending.get(id);
     if (t) clearTimeout(t);
     this.pending.delete(id);
@@ -974,7 +1024,8 @@ export class Fleet {
     this.respond.endSession(row.id);
     this.respond.dropSession(row.id);
     await this.peers.ended(row.id);
-    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner));
+    // A finished session ends for good (and a /clear is the old one finishing); a lost heartbeat may be undone by a report, so it only hides (#1283).
+    await this.chatSafely('a session leaving', () => this.chat.sessionLeft(row.id, row.owner, row.owner_id, reason === 'done', reason === 'done' && row.end_reason === 'clear'));
     const t = this.pending.get(row.id);
     if (t) clearTimeout(t);
     this.pending.delete(row.id);
@@ -1000,7 +1051,8 @@ export class Fleet {
 
   /** Once a second: stale transitions, drops, lingering done sessions, carry-forward samples. */
   sweep(): Promise<void> {
-    return this.serial.exclusive(() => this.sweepNow());
+    // Every session the sweep ends is one change to Chat's lists, so the consoles hear of the sweep once (#1296).
+    return this.serial.exclusive(() => this.chat.batch(() => this.sweepNow()));
   }
 
   private async sweepNow(): Promise<void> {
@@ -1009,8 +1061,34 @@ export class Fleet {
     this.respond.expire();
     const nowSec = Math.floor(now / 1000);
     const removed = { done: [] as string[], dropped: [] as string[] };
-    for (const [id, entry] of [...this.live]) {
-      const row = await this.db.getSession(id);
+    // One read for every live session's row and one for the latest sample of those that get a copy, then the copies are
+    // written in one transaction: a statement or a commit per session each second was the sweep's whole cost (#750).
+    const ids = [...this.live.keys()];
+    const rows = new Map((await this.db.getSessions(ids)).map((r) => [r.id, r]));
+    const statuses = new Map<string, ReturnType<typeof sessionStatus>>();
+    for (const [id, entry] of this.live) {
+      const row = rows.get(id);
+      if (row && row.status !== 'done') statuses.set(id, sessionStatus(row, entry.heard, now, staleAfterFor(row, this.derive)));
+    }
+    const live = ids.filter((id) => statuses.has(id) && statuses.get(id) !== 'stale');
+    const latest = await this.db.latestSamplesOf(live);
+    const copies: SampleRow[] = [];
+    for (const id of live) {
+      const last = latest.get(id);
+      if (last && last.t < nowSec) {
+        // The copy repeats the usage as "same as before", except at the start of a minute, which needs it in full (#270).
+        const usage = last.usage_json == null ? null : Math.floor(last.t / 60) === Math.floor(nowSec / 60) ? SAME_USAGE : rows.get(id)!.usage_json;
+        copies.push({ ...last, t: nowSec, tokens_delta: 0, usage_json: usage });
+      }
+    }
+    // A live session that reports less often than once a second still gets one sample per
+    // second, so its charts do not fall to zero between heartbeats.
+    if (copies.length > 0) await this.storage.tx(async () => { for (const c of copies) await this.db.insertSampleIfAbsent(c); });
+    // Only the sessions read above. A report cannot land during a sweep (they run apart), but a session with no row here is never dropped from the live set for it.
+    for (const id of ids) {
+      const entry = this.live.get(id);
+      if (!entry) continue;
+      const row = rows.get(id);
       if (!row) {
         this.live.delete(id);
         continue;
@@ -1022,22 +1100,11 @@ export class Fleet {
         }
         continue;
       }
-      const status = sessionStatus(row, entry.heard, now, staleAfterFor(row, this.derive));
-      if (status === 'stale') {
-        if (now >= (this.dropAtFor(row, entry.heard, now) ?? Infinity)) {
-          await this.leave(row, 'dropped', 'heartbeat lost');
-          removed.dropped.push(id);
-          continue;
-        }
-      } else {
-        // A live session that reports less often than once a second still gets one sample per
-        // second, so its charts do not fall to zero between heartbeats.
-        const last = await this.db.latestSample(id);
-        if (last && last.t < nowSec) {
-          // The copy repeats the usage as "same as before", except at the start of a minute, which needs it in full (#270).
-          const usage = last.usage_json == null ? null : Math.floor(last.t / 60) === Math.floor(nowSec / 60) ? SAME_USAGE : row.usage_json;
-          await this.db.insertSampleIfAbsent({ ...last, t: nowSec, tokens_delta: 0, usage_json: usage });
-        }
+      const status = statuses.get(id)!;
+      if (status === 'stale' && now >= (this.dropAtFor(row, entry.heard, now) ?? Infinity)) {
+        await this.leave(row, 'dropped', 'heartbeat lost');
+        removed.dropped.push(id);
+        continue;
       }
       if (entry.status !== null && entry.status !== status) {
         if (status === 'stale') {
@@ -1073,7 +1140,9 @@ export class Fleet {
 
   /** Every 2 s: KPIs to every client; doubles as the keepalive. */
   tick(): Promise<void> {
-    return this.emit(async () => ['tick', { serverTime: this.now(), kpis: await this.kpis() }]);
+    // With nobody connected the message would be dropped by the hub, so the KPIs are not computed (#749). The check runs
+    // inside the queued step, so a client that attached just before this tick is counted.
+    return this.emit(async () => (this.hub.size === 0 ? null : ['tick', { serverTime: this.now(), kpis: await this.kpis(undefined, true) }]));
   }
 
   /** Hourly: retention. It runs alone, so no report is half stored while the old rows go. */

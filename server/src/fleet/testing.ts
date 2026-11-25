@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { Report } from './protocol.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-export const REPO_ROOT = path.resolve(here, '..', '..', '..');
+const REPO_ROOT = path.resolve(here, '..', '..', '..');
 
 /** The shared fixture as raw JSON (for validator tests that mutate it). */
 export function loadFixture(): Record<string, unknown> {
@@ -13,7 +13,7 @@ export function loadFixture(): Record<string, unknown> {
 }
 
 /** The 0.14 fields that change what the server does with a report: they open asks, name an owner and a machine, hold an idle session. */
-const SITUATIONAL_SESSION = ['clearedFrom', 'activityFeed', 'activityOutput', 'fileDiff', 'fileDiffPreload', 'activity', 'background', 'respond', 'asks', 'peers', 'sessionRecording'] as const;
+const SITUATIONAL_SESSION = ['clearedFrom', 'activityFeed', 'activityOutput', 'backgroundOutput', 'fileDiff', 'fileDiffPreload', 'activity', 'background', 'respond', 'asks', 'peers', 'sessionRecording'] as const;
 
 /**
  * The shared fixture without the fields that start behavior of their own (open asks, an owner, a machine, background work,

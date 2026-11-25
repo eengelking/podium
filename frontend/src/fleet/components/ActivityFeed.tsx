@@ -3,12 +3,14 @@ import { fmtCount, fmtDay } from "../format";
 import { isShellTool } from "../harness";
 import { useHarness } from "../harnessContext";
 import { reporterBelow } from "../logic";
+import { BackgroundPane } from "./BackgroundList";
+import { ActivityTabs, type ActivityTab } from "./ActivityTabs";
 import type { ActivityEntryView, SessionView } from "../types";
 import { EVERY_CHOICES, readEvery, useActivityFeed, writeEvery, type FeedEntry, type FeedState, type FetchActivity, type FetchHistory } from "../useActivityFeed";
 import { ActivityOutputFlag, BashRow, LINE_CUT, missingOutput, Redacted, useRowAnchor, type RowAnchor } from "./BashRow";
 import { Modal } from "./Modal";
 import { useRespond } from "../useRespond";
-import { nameKey } from "../respond";
+import { nameKey, ownsSession } from "../respond";
 import { useReadingPing } from "../sessionReads";
 import { DESKTOP_OPTIONS, OPENCODE_RESTART, OPENCODE_SETTINGS_FILE, OPTION_CMD, optionVariable } from "../pluginOptions";
 
@@ -73,7 +75,7 @@ export function feedTime(at: number, startedAt: number): string {
   return h ? `${h}:${two(Math.floor((s % 3600) / 60))}:${two(s % 60)}` : `${two(Math.floor(s / 60))}:${two(s % 60)}`;
 }
 
-export { ActivityOutputFlag, Redacted };
+export { Redacted };
 
 /** Who sent an answer or message from Podium, as the feed names them: "You" for the signed-in person (#206). */
 function senderOf(by: string | undefined, me: string | null): string {
@@ -307,15 +309,19 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
   const enabled = s.reporter === "mod" && !old && s.activityFeed !== false;
   const [every, setEvery] = useState(readEvery);
   const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<ActivityTab>("output");
   const opener = useRef<HTMLButtonElement>(null);
+  // A shell or monitor can outlive the agent that started it (#1242): while this loop's own list holds a running item it is still being asked.
   const feed = useActivityFeed({ sessionId: s.id, loop: props.loop, enabled, active, every, adminOn: props.adminOn, fetchActivity: props.fetchActivity, fetchHistory: props.fetchHistory });
+  // Asked still: the loop works, or its own list holds a running item. The footer and the interval picker follow that, not the agent's status alone.
+  const polling = active || feed.background.some((i) => i.state === "running");
   const respond = useRespond();
   // An Admin whose stored view of another person's Activity stays open keeps that person's notice alive (#1074); the read itself was recorded by the route.
   const me = respond?.me;
-  const readingOthers = !!me?.signedIn && me.admin === true && !!feed.stored?.canRead && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  const readingOthers = !!me?.signedIn && me.admin === true && !!feed.stored?.canRead && !!s.owner && s.owner !== "Admin" && !ownsSession(s, me);
   useReadingPing("activity", s.id, props.loop, readingOthers);
   // The same for the live feed (#1082): each poll is itself a read the server recorded; the ping keeps the notice alive between slow polls.
-  const watchingOthers = !!me?.signedIn && me.admin === true && feed.fetchedAt !== null && !feed.refused && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) !== nameKey(me.name ?? "");
+  const watchingOthers = !!me?.signedIn && me.admin === true && feed.fetchedAt !== null && !feed.refused && !!s.owner && s.owner !== "Admin" && !ownsSession(s, me);
   useReadingPing("live", s.id, props.loop, watchingOthers);
 
   const pick = useCallback((n: number) => {
@@ -368,7 +374,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
       : `${props.isMain ? "The session has ended" : "This agent has finished"}. Activity is kept only while someone watches it run.`;
   const empty = feed.refused ? refusedEmpty(feed.refused, s.owner) : feedEmpty(feed, respond?.me ? respond.me.signedIn : null, emptyBase);
   // Date.now() rather than `now` for "Updated": fetchedAt is this browser's time. `now` ticking re-renders it.
-  const [count, when] = footer(feed, active, !!props.isMain, Date.now());
+  const [count, when] = footer(feed, polling, !!props.isMain, Date.now());
 
   // The modal stays in one place in the tree, so one that is open when the flag flips keeps its focus and only swaps
   // its content for the note.
@@ -396,7 +402,7 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
                 Expand
               </button>
             </span>
-            {active && <EverySelect id={`every-${props.loop}`} every={every} onChange={pick} />}
+            {polling && <EverySelect id={`every-${props.loop}`} every={every} onChange={pick} />}
           </div>
           <FeedList feed={feed} startedAt={props.startedAt} empty={empty} machineOutput={s.activityOutput} active={active} />
           <OlderRow feed={feed} />
@@ -407,9 +413,12 @@ export function ActivityFeed(props: { s: SessionView; loop: string; title: strin
         </>
       )}
       {open && (
-        <Modal titleId="activityTitle" title="Activity" sub={props.title} onClose={close} className="modal-feed" actions={active && !adminOff ? <EverySelect id={`every-m-${props.loop}`} every={every} onChange={pick} /> : undefined}>
-          <div className="mb feedmb">
-            {adminOff ? (
+        <Modal titleId="activityTitle" title="Activity" sub={props.title} onClose={close} className="modal-feed" actions={polling && !adminOff ? <EverySelect id={`every-m-${props.loop}`} every={every} onChange={pick} /> : undefined}>
+          <ActivityTabs tab={tab} onTab={setTab} count={s.backgroundOutput == null ? null : feed.background.length} idPrefix={`act-${props.loop}`} />
+          <div className="mb feedmb" role="tabpanel" id={`act-${props.loop}-panel`} aria-labelledby={`act-${props.loop}-tab-${tab}`}>
+            {tab === "background" ? (
+              <BackgroundPane s={s} items={feed.background} now={Date.now()} when={when} adminOff={adminOff} refused={feed.refused ? refusedEmpty(feed.refused, s.owner) : null} />
+            ) : adminOff ? (
               <AdminOffNote />
             ) : (
               <>

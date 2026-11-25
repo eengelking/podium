@@ -29,6 +29,7 @@ n=$((n - \${FAKE_DROP:-0}))
 code=0
 for pair in \${FAKE_CODES:-}; do [ "\${pair%%=*}" = "$name" ] && code="\${pair#*=}"; done
 [ "$code" = 2 ] && { echo "e2e: FAIL  the server did not answer"; exit 2; }
+[ -n "\${FAKE_SLEEP:-}" ] && sleep "$FAKE_SLEEP"
 echo "  │ Specs:          $n found (x.cy.js)   │"
 if [ "$code" = 0 ]; then
   echo "    ✔  All specs passed!                        01:00      $((n * 2))      $((n * 2))        -        -        -"
@@ -44,6 +45,7 @@ function repo() {
   made.push(root);
   mkdirSync(join(root, "scripts"));
   copyFileSync(join(REPO, "scripts", "e2e-all.sh"), join(root, "scripts", "e2e-all.sh"));
+  copyFileSync(join(REPO, "scripts", "db-lock.sh"), join(root, "scripts", "db-lock.sh"));
   copyFileSync(join(REPO, "scripts", "e2e-shards.mjs"), join(root, "scripts", "e2e-shards.mjs"));
   writeFileSync(join(root, "scripts", "e2e-up.sh"), FAKE_UP);
   chmodSync(join(root, "scripts", "e2e-up.sh"), 0o755);
@@ -63,7 +65,7 @@ function run(args: string[], env: Record<string, string> = {}, prepare?: (root: 
   prepare?.(root);
   const r = spawnSync("bash", [join(root, "scripts", "e2e-all.sh"), "--out", out, ...args], {
     encoding: "utf8",
-    env: { ...process.env, E2E_ENGINE: "none", ...env },
+    env: { ...process.env, E2E_ENGINE: "none", PODIUM_DB_LOCK: "off", ...env },
   });
   const last = r.stdout.trim().split("\n").pop();
   return { ...r, last, out };
@@ -94,6 +96,15 @@ describe("e2e-all.sh", () => {
     const specs = [1, 2, 3].flatMap((k) => readFileSync(join(r.out, `sqlite.${k}`, "args"), "utf8").trim().split(" ").pop()!.split(","));
     expect(specs.sort()).toEqual(["cypress/e2e/a/one.cy.js", "cypress/e2e/a/two.cy.js", "cypress/e2e/b/four.cy.js", "cypress/e2e/b/three.cy.js", "cypress/e2e/c/five.cy.js"]);
   });
+
+  it("prints a progress line while runs go, names only the runs still going, and can be turned off", () => {
+    const r = run(["--shards", "2", "--databases", "sqlite"], { E2E_HEARTBEAT: "1", FAKE_SLEEP: "2" });
+    expect(r.status).toBe(0);
+    expect(r.stdout).toMatch(/e2e-all: still running after 0m\d+s: sqlite\.1 sqlite\.2\n/);
+    expect(r.last).toBe("E2E RESULT: PASS sqlite.1=PASS sqlite.2=PASS");
+    const off = run(["--databases", "sqlite"], { E2E_HEARTBEAT: "0", FAKE_SLEEP: "1" });
+    expect(off.stdout).not.toContain("still running");
+  }, 30_000);
 
   it("prints each shard's spec count and weight before the runs, and says when there are no recorded times", () => {
     const r = run(["--shards", "2", "--databases", "sqlite"]);

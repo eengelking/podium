@@ -14,7 +14,7 @@ import { PING_MS, SessionReadsProvider } from "./sessionReads";
 import type { Ask, AskDetail, AskSummary, RespondMe, SessionView } from "./types";
 
 const T0 = 1_800_000_000_000;
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const ALL = ["question", "message", "plan-approve", "plan-feedback", "permission", "command"] as const;
 
 const QUESTION: Ask = {
@@ -127,8 +127,8 @@ describe("the Respond button", () => {
   });
 
   it("stays live signed out, and is dimmed with the owner's name on someone else's session", () => {
-    const s = session({ owner: "Alex" });
-    expect(respondGate(s, { ...ME, signedIn: false, name: null }, true)).toEqual({ show: "live", count: "2" });
+    const s = session({ owner: "Alex", ownerId: 5 });
+    expect(respondGate(s, { ...ME, signedIn: false, name: null, id: null }, true)).toEqual({ show: "live", count: "2" });
     expect(respondGate(s, ME, true)).toEqual({ show: "dimmed", count: "2", owner: "Alex" });
     expect(respondGate(s, { ...ME, admin: true }, true)).toEqual({ show: "live", count: "2" });
     render(
@@ -151,26 +151,26 @@ describe("the Respond button", () => {
   it("draws the dimmed button with whose session it is", async () => {
     render(
       <RespondProvider api={fakeApi()} flagsOn>
-        <RespondButton s={session({ owner: "Alex" })} />
+        <RespondButton s={session({ owner: "Alex", ownerId: 5 })} />
       </RespondProvider>,
     );
     await flush();
     const b = screen.getByRole("button", { name: /Respond/ });
     expect(b).toBeDisabled();
-    expect(b).toHaveAttribute("title", "Only Alex, who owns this session, or an Admin can respond.");
+    expect(b).toHaveAttribute("title", "Only Alex, who owns this session, or an Admin Alex has allowed, can respond.");
     expect(screen.getByText("Alex's session")).toBeInTheDocument();
   });
 });
 
 describe("signing in", () => {
   it("shows the sign-in form in the panel while signed out, and no message box", async () => {
-    await modal(session(), fakeApi({}, { enabled: true, signedIn: false, name: null, admin: false }));
+    await modal(session(), fakeApi({}, { enabled: true, signedIn: false, name: null, id: null, admin: false }));
     expect(screen.getByText("Sign in to respond")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "Message to claude-dashboard" })).toBeNull();
   });
 
   it("says a wrong pair without saying which, keeps the name and clears the token", async () => {
-    const api = fakeApi({ signIn: vi.fn(async () => Promise.reject(new RespondError(401, { error: "wrong name or token" }))) }, { enabled: true, signedIn: false, name: null, admin: false });
+    const api = fakeApi({ signIn: vi.fn(async () => Promise.reject(new RespondError(401, { error: "wrong name or token" }))) }, { enabled: true, signedIn: false, name: null, id: null, admin: false });
     await modal(session(), api);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ed" } });
     fireEvent.change(screen.getByLabelText("Token"), { target: { value: "pdm_x" } });
@@ -182,7 +182,7 @@ describe("signing in", () => {
   });
 
   it("locks the form after too many wrong tries", async () => {
-    const api = fakeApi({ signIn: vi.fn(async () => Promise.reject(new RespondError(429, { error: "too many wrong tries" }))) }, { enabled: true, signedIn: false, name: null, admin: false });
+    const api = fakeApi({ signIn: vi.fn(async () => Promise.reject(new RespondError(429, { error: "too many wrong tries" }))) }, { enabled: true, signedIn: false, name: null, id: null, admin: false });
     await modal(session(), api);
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ed" } });
     fireEvent.change(screen.getByLabelText("Token"), { target: { value: "x" } });
@@ -193,7 +193,7 @@ describe("signing in", () => {
   });
 
   it("puts Sign in, then Signed in as and Sign out, at the far end of the top bar", async () => {
-    const api = fakeApi({}, { enabled: true, signedIn: false, name: null, admin: false });
+    const api = fakeApi({}, { enabled: true, signedIn: false, name: null, id: null, admin: false });
     const r = render(
       <RespondProvider api={api} flagsOn>
         <TopBar page="Fleet" phase="live" reporters={1} />
@@ -218,8 +218,8 @@ describe("signing in", () => {
     };
     expect(await top({ ...ME, signedIn: true, admin: true })).toHaveAttribute("href", "#/admin");
     expect(await top({ ...ME, signedIn: true, admin: false })).toBeNull();
-    expect(await top({ enabled: true, signedIn: false, name: null, admin: false })).toBeNull();
-    expect(await top({ enabled: false, signedIn: false, name: null, admin: false })).toBeNull();
+    expect(await top({ enabled: true, signedIn: false, name: null, id: null, admin: false })).toBeNull();
+    expect(await top({ enabled: false, signedIn: false, name: null, id: null, admin: false })).toBeNull();
     expect(await top(null)).toBeNull();
     expect(await top(null, false)).toBeNull();
   });
@@ -238,7 +238,7 @@ describe("signing in", () => {
   });
 
   it("shows Signed in as and Sign out once signed in, and Sign out signs out", async () => {
-    const api = fakeApi({ me: vi.fn().mockResolvedValueOnce(ME).mockResolvedValue({ ...ME, signedIn: false, name: null }) });
+    const api = fakeApi({ me: vi.fn().mockResolvedValueOnce(ME).mockResolvedValue({ ...ME, signedIn: false, name: null, id: null }) });
     const r = render(
       <RespondProvider api={api} flagsOn>
         <TopBar page="Fleet" phase="live" reporters={1} />
@@ -255,7 +255,7 @@ describe("signing in", () => {
 
   it("says the server signed you out before asking again", async () => {
     const api = fakeApi(
-      { me: vi.fn().mockResolvedValueOnce(ME).mockResolvedValue({ ...ME, signedIn: false, name: null }), answer: vi.fn(async () => { throw new RespondError(403, { ok: false, error: "sign in to respond" }); }) },
+      { me: vi.fn().mockResolvedValueOnce(ME).mockResolvedValue({ ...ME, signedIn: false, name: null, id: null }), answer: vi.fn(async () => { throw new RespondError(403, { ok: false, error: "sign in to respond" }); }) },
       ME,
       detailOf(TOOL),
     );
@@ -483,7 +483,7 @@ describe("when Podium can't send the answer", () => {
   });
 
   it("Someone else's session", async () => {
-    await modal(session({ owner: "Alex" }), fakeApi());
+    await modal(session({ owner: "Alex", ownerId: 5 }), fakeApi());
     expect(screen.getByText("This is Alex's session.")).toBeInTheDocument();
     // In the panel's body, like every other outcome, so it keeps the panel's padding.
     expect(screen.getByText("This is Alex's session.").closest(".ab")).not.toBeNull();
@@ -599,7 +599,7 @@ describe("stored Activity in the Respond modal (#432)", () => {
   it("tells another viewer who can open it, and shows no entries", async () => {
     withHistory(false);
     const activityHistory = vi.fn();
-    await modal(session(), fakeApi({ activityHistory }, { ...ME, name: "Alex" }));
+    await modal(session(), fakeApi({ activityHistory }, { ...ME, name: "Alex", id: 5 }));
     expect(activityHistory).not.toHaveBeenCalled();
     expect(screen.getByText("History is kept for this session. Only Ed and the Admin can open it.")).toBeInTheDocument();
     expect(screen.getByText("Nothing to show")).toBeInTheDocument();
@@ -607,7 +607,7 @@ describe("stored Activity in the Respond modal (#432)", () => {
 
   it("tells a viewer who is not signed in to sign in", async () => {
     withHistory(false);
-    await modal(session(), fakeApi({}, { enabled: true, signedIn: false, name: "", admin: false }));
+    await modal(session(), fakeApi({}, { enabled: true, signedIn: false, name: "", id: null, admin: false }));
     expect(screen.getByText("History is kept for this session. Sign in as Ed or an Admin to open it.")).toBeInTheDocument();
   });
 });
@@ -629,7 +629,7 @@ describe("the quoted answer keeps another harness's (Recommended) label (#853)",
 });
 
 describe("an Admin's read of a waiting ask (#1073)", () => {
-  const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
+  const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Root", id: 7, admin: true };
   const readingApi = (me: RespondMe, readers: Record<string, { admin: string; since: number; until: number }[]> = {}) =>
     fakeApi(
       {
@@ -674,12 +674,32 @@ describe("an Admin's read of a waiting ask (#1073)", () => {
     vi.useRealTimers();
   });
 
+  it("lets an Admin read someone else's ask but not answer it or send to the session until the owner allows it (#1251)", async () => {
+    const api = readingApi(ADMIN);
+    await openWith(api, session({ owner: "Ed", ownerId: 1, adminRespond: false }));
+    expect(api.ask).toHaveBeenCalled();
+    // The ask is there to read, with the reason in place of the answer controls and the message box.
+    expect(screen.getByText("How many History rows per page?")).toBeInTheDocument();
+    expect(screen.getByText("Ed hasn't allowed an Admin to respond.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Submit answers|Next/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^Message to /)).not.toBeInTheDocument();
+  });
+
+  it("gives an Admin the answer controls and the message box once the owner has allowed it, and on a session owned by Admin or no one (#1251)", async () => {
+    for (const s of [session({ owner: "Ed", ownerId: 1, adminRespond: true }), session({ owner: "Admin" }), session({ owner: null })]) {
+      const r = await openWith(readingApi(ADMIN), s);
+      expect(screen.queryByText(/hasn't allowed an Admin to respond/)).not.toBeInTheDocument();
+      expect(screen.getByLabelText(/^Message to /)).toBeInTheDocument();
+      r.unmount();
+    }
+  });
+
   it("sends no ping for the owner's own ask, and none for an Admin of a session the Admin owns", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     const own = readingApi(ME);
     await openWith(own, session());
     const mine = readingApi(ADMIN);
-    await openWith(mine, session({ owner: "Root" }));
+    await openWith(mine, session({ owner: "Root", ownerId: 7 }));
     await act(async () => {
       vi.advanceTimersByTime(PING_MS * 2);
     });
@@ -690,13 +710,13 @@ describe("an Admin's read of a waiting ask (#1073)", () => {
 
   it("shows the owner the red notice above the ask while an Admin has it open, and an Admin who is not the owner nothing", async () => {
     const reading = { admin: "Root", since: Date.now() - 20_000, until: Date.now() + 25_000 };
-    const owner = await openWith(readingApi(ME, { "sess-ed": [reading] }), session());
+    await openWith(readingApi(ME, { "sess-ed": [reading] }), session());
     const note = document.querySelector("[data-testid='read-notice']")!;
     expect(note.textContent).toContain("Root (an Admin) is reading your waiting plan, question or tool request.");
     expect(note.closest(".read-notes.above")).not.toBeNull();
     expect(note.compareDocumentPosition(document.querySelector("section.ask")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     cleanup();
-    const admin = await openWith(readingApi(ADMIN, { "sess-ed": [reading] }), session());
+    await openWith(readingApi(ADMIN, { "sess-ed": [reading] }), session());
     expect(document.querySelector("[data-testid='read-notice']")).toBeNull();
   });
 });

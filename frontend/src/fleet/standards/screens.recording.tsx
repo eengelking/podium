@@ -22,7 +22,7 @@ import type { Screen } from "./screens";
 const at = (h: number, m: number, s = 0) => Date.UTC(2026, 9, 20, h, m, s);
 const NOW = at(12, 0);
 const CFG = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const flush = () => act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
 const noop = () => {};
 
@@ -31,7 +31,7 @@ const api = (over: Partial<RespondApi> = {}) => ({ me: async () => ME, signIn: v
 const AGENTS = [makeAgent({ id: "p", description: "Port the endpoints" }), makeAgent({ id: "f", parentId: "p", kind: "fork", description: "Try the second approach" })];
 const focus = (over: Parameters<typeof makeSession>[0] = {}) => (
   <RespondProvider api={api()} flagsOn={false} recordingOn>
-    <FocusView s={makeSession({ owner: "Ed", agents: AGENTS, ...over })} now={NOW} config={CFG} sort={{ key: null, dir: 1 }} onSort={noop} selectedAgent={null} flashAgent={null} onAgent={noop} />
+    <FocusView s={makeSession({ owner: "Ed", ownerId: 1, agents: AGENTS, ...over })} now={NOW} config={CFG} sort={{ key: null, dir: 1 }} onSort={noop} selectedAgent={null} flashAgent={null} onAgent={noop} />
   </RespondProvider>
 );
 
@@ -65,7 +65,7 @@ const replayPage = (): RecordingPage => {
 // Bash rows, as the feed holds them.
 const T0 = 1_000_000;
 const entry = (seq: number, over: Partial<FeedEntry> = {}): FeedEntry => ({ seq, at: T0 + seq * 1000, kind: "tool", text: "Bash npm test", command: "npm test", ...over });
-const bashFeed = (entries: FeedEntry[]): FeedState => ({ entries, stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false, refused: null });
+const bashFeed = (entries: FeedEntry[]): FeedState => ({ entries, background: [], stored: null, loadOlder: async () => {}, seen: entries.length, fetchedAt: T0, failed: false, live: true, adminOff: false, refused: null });
 const LONG_CURL = `curl -H 'Authorization: Bearer [redacted]' "https://staging.example.com/api/invoices?${Array.from({ length: 30 }, (_, i) => `field${i}=value${i}`).join("&")}"`;
 const bashRows: FeedEntry[] = [
   entry(1, { command: "npm run build", text: "Bash npm run build", output: "built in 2.1s", done: true, exitCode: 0 }),
@@ -102,7 +102,7 @@ export const RECORDING_SCREENS: Record<string, Screen> = {
   "rec-focus-recording": { make: () => focus({ recording: makeRecording() }), act: flush },
   "rec-focus-kept": { make: () => focus({ recording: makeRecording({ state: "stopped", stoppedBy: "Maya Okafor", stoppedAt: at(13, 2) }) }), act: flush },
   "rec-picker": {
-    make: () => <div><RespondProvider api={api()} flagsOn={false} recordingOn><RecordPicker s={makeSession({ owner: "Ed", agents: AGENTS })} onClose={noop} /></RespondProvider></div>,
+    make: () => <div><RespondProvider api={api()} flagsOn={false} recordingOn><RecordPicker s={makeSession({ owner: "Ed", ownerId: 1, agents: AGENTS })} onClose={noop} /></RespondProvider></div>,
     act: flush,
   },
   "rec-replay": {

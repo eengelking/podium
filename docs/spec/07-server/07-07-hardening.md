@@ -337,6 +337,81 @@ A file's diff is source code. Reads are open by design, so this is one of the fe
   `recording_settings_changed` and `recording_purged`, never text; [7.7](#session-recording-353)), each with the source
   address.
 
+**Every Admin route**
+
+Paths are under `/api/admin`. Every route needs an open session except `GET /session`, `GET /notice` and the two unlocks, and every change (`POST`, `PUT`,
+`DELETE`) needs the header above. The shapes are in [7.1](07-01-endpoints.md#admin-api). A route that writes the admin log
+names its kind; `none` means it writes none. A route whose part is off (TLS, reporters, messaging, Activity history,
+recording) answers `404`.
+
+| Method and path | Purpose | Admin log kind |
+|---|---|---|
+| `GET /session` | Whether Admin is on and this browser is unlocked, with the server's version and build. Open to anyone. | none |
+| `GET /notice` | The count the top bar shows an unlocked Admin of features that stopped after a harness update. `{ unlocked: false }` to anyone else. Does not count as activity, so it never holds off the idle lock. | none |
+| `POST /unlock` | Sign in with a name and a token. | `unlock`; `unlock_failed` on a wrong pair |
+| `POST /unlock/from-respond` | Sign in with no second prompt from a browser signed in to respond as an Administrator. | `unlock` |
+| `POST /lock` | End the session and hold this browser's sign-in to respond shut. | none |
+| `GET /people` | List people, paged and searchable. | none |
+| `POST /people` | Add a person. Answers the token once, and the config file once when TLS is on. | `person_created`; `certificate_issued` with TLS |
+| `POST /people/:id/rotate` | Give the person a new token and end the old one. Answers the new token once. | `token_rotated` |
+| `POST /people/:id/revoke` | Revoke the person's token, and their certificate with it. Refused for the last Administrator. | `token_revoked` |
+| `POST /people/:id/certificate/reissue` | Issue a new config file, once. Restores a revoked person. | `certificate_issued`; `person_restored` when it restored one |
+| `POST /people/:id/certificate/revoke` | Revoke only the person's certificate. | `certificate_revoked` |
+| `POST /people/:id/revoke-all` | Revoke the certificate and the token. Refused for the last Administrator. | `revoked_all` |
+| `GET /people/:id/certificate.pem` | The person's certificate and the CA, public halves only. | none |
+| `POST /people/delete` | Delete 1 to 500 people, all or none (`{ ids }`). Refused for the person who is signed in to Admin. | `person_deleted`, one per person |
+| `PUT /people/:id/group` | Move a person to a group, or to none (`{ groupId }`). | `group_assigned` |
+| `GET /groups` | List groups, paged. | none |
+| `POST /groups` | Create a group. | `group_created` |
+| `DELETE /groups/:id` | Delete a group. A built-in group is refused. | `group_deleted` |
+| `GET /about` | What the server and its reporters are running. Read-only, with no token, address or machine name. | none |
+| `GET /reporters` | List reporters, paged, filtered and sorted. | none |
+| `POST /reporters/remove` | Take reporters off the list by `keys`, by `state` or by a `match` filter. | `reporter_removed` |
+| `GET /reporters/ignores` | List the ignore rules. | none |
+| `POST /reporters/ignores` | Add an ignore rule (`{ kind, pattern }`), which also drops the reporters it matches. | `reporter_ignore_added` |
+| `DELETE /reporters/ignores/:id` | Remove an ignore rule. | `reporter_ignore_removed` |
+| `GET /reporters/:key` | One reporter's detail. | none |
+| `DELETE /reporters/:key` | Take one reporter off the list. | `reporter_removed` |
+| `GET /reporters/:key/peers` | The reporter's messaging links, trust and pending proposals. | none |
+| `POST /reporters/:key/peers/propose` | Propose a messaging level between two reporters (`{ from?, to, level }`). The owner must accept it. Answers `202`. | none here; the messaging trail records it |
+| `PUT /reporters/:key/peers/pause` | Pause or resume all of the reporter's messaging links (`{ paused }`). The person is told. | `peer_links_paused` or `peer_links_resumed` |
+| `DELETE /reporters/:key/peers/:other` | Remove the messaging link between two reporters. The person is told. | `peer_link_removed` |
+| `GET /peers/conversations` | The conversations between agents in a range (`live`, `24h` or `30d`), names and counts. | none |
+| `GET /peers/conversations/:a/:b` | Read one conversation's text. Recorded before it is answered, and its owners are told. A person's Chat is refused (`403`). | `chat_admin_read` |
+| `GET /settings` | Every setting the Admin page shows. | none |
+| `PUT /settings` | Change one setting per call (the body's one key says which). | See the table below |
+| `POST /activity-history/preview` | What a policy would delete, before it is saved (`{ settings }`). Changes nothing. | none |
+| `GET /stored-activity` | The stored sessions of the Activity history, or of the recordings with `source=recordings`, paged and filtered. | none |
+| `POST /stored-activity/delete` | Delete stored sessions by `ids`, a `match` filter or `all`. The owners are told. | `activity_deleted`; `recording_deleted` for recordings |
+| `GET /certificates` | The CA, the serving certificate and the settings (TLS on). | none |
+| `GET /certificates/ca.pem` | The CA certificate. | none |
+| `PUT /certificates` | Change the `tls.*` settings. | `tls_settings_changed`; `tls_http_changed` for the HTTP switch |
+| `POST /certificates/renew` | Renew the serving certificate now. | `tls_serving_renewed`; `tls_serving_renew_failed` |
+| `POST /certificates/rotate-ca` | Rotate the CA (`{ endOverlap }`). | `tls_ca_rotated` |
+| `POST /certificates/retire-ca` | Retire the old CA. | `tls_ca_retired` |
+| `GET /recordings` | List recordings, paged, by `state` and `q`. | none |
+| `POST /recordings/:sessionId/stop` | Stop a session's recording. The owner is told. | `recording_stopped` |
+| `DELETE /recordings/:sessionId` | Delete a session's recording. The owner is told. | `recording_deleted` |
+| `GET /reports/retention`, `GET /reports/spend/projection`, `GET /reports/spend/today/:owner`, `GET /reports/:report` | The Reporting reports ([7.1](07-01-endpoints.md)). Read-only. | none |
+| `GET /log` | The admin log, paged. | none |
+
+`PUT /settings` takes one key per call. Each is logged under its own kind:
+
+| Key | Admin log kind |
+|---|---|
+| `allowAdminSecretReporting` | `admin_reporting_changed` |
+| `forgetReporters` | `reporters_forget_changed` |
+| `peerMessaging` | `peer_limits_changed` |
+| `chat` | `chat_settings_changed` |
+| `activityHistory` | `activity_history_changed` |
+| `recording` | `recording_settings_changed` |
+| `showBackgroundSessions` | `wall_background_changed` |
+| `cardTitleMachine` | `wall_card_title_changed` |
+| `features` | `feature_changed`, one per feature |
+| `notices` | `wall_notice_changed`, one per notice |
+| `modelPrice` | `model_price_changed`; none when the values did not change |
+| `resetModelPrice` | `model_price_reset`; none when nothing was overridden |
+
 **Names**
 - A name is 1 to 48 characters and a group name 1 to 24, with no control characters, both unique
   case-insensitively.
@@ -509,6 +584,8 @@ This is the only way anything reaches a session from Podium, so every rule here 
 - The text of an answer, a message, a question, a plan or a tool's input is never logged, shipped or stored on
   disk ([7.2](07-02-database.md)).
 
+**An Admin responds only when the owner allows it (#1251).** An Admin, or the admin secret, can read a waiting ask in full (told to the owner, as above), but sends a message, runs `/clear` or `/compact`, or answers an ask on a person's session only when that person has allowed it for the reporter the session runs on. The allow is a link from `person:admin` to the reporter in `peer_rights`, off by default, and only the reporter's owner gives or takes it back (`PUT /respond/peers/reporters/:key/admin-respond`). A session owned by Admin or by no one needs no allow. A refused try is written to the Admin log as `respond_refused` and told to the owner on their `act:` thread and in their reporter, never with the text. The reporter puts every message in one frame that names the sender, quotes the text and closes it ([6.2](../06-reporter-protocol/06-02-the-report.md)). See DECISIONS 72.
+
 **What the content is shown as, and to whom**
 - An ask's content and the answers are served only to the session's owner or an Admin
   (`GET /respond/sessions/:id/asks/:askId`), never in the state or the stream, which carry only a summary
@@ -596,9 +673,9 @@ so every rule here holds whatever else is set. The routes are in [7.1](07-01-end
 - The sender is the session and token of the request that carries it, never a name in the message. The server
   resolves `to` (`name@machine`, case-insensitive) only among the same owner's live orchestrators whose `peers` is on
   and that the sender's reporter can see. A name it cannot find there, another person's, and one it has no right to see
-  all get the same `404`, so a refusal says nothing about who else exists. Two that match are a `409`, which names the ids that tell them apart. An inbound message carries the sender's
-  short id (`from.id`), and the mod frames the reply address as `name@machine#id`, so a reply reaches the sender even when
-  others share its name (#500).
+  all get the same `404`, so a refusal says nothing about who else exists. Two that match are a `409`, which names the ids that tell them apart. An inbound message carries the id the server gave the sender
+  (`from.id`, #1284), and the mod frames the reply address as `name@machine#id`, so a reply reaches the sender and never a later
+  agent that took its name (#500).
 - A message is only for an orchestrator, and only an orchestrator sends one.
 
 **Limits**, set by the Admin in Admin > Settings, in an Orchestrator messaging section shown while the flag is on
@@ -615,9 +692,17 @@ out of range is refused in place, and the error says nothing was saved and which
   refused, and if the Admin later lowers theirs, the lower one applies.
 
 **Delivery**
-- A message is held until the receiving orchestrator's turn ends, and a message that needs approval is held
-  until its owner approves it. The server hands a message over only in the reply to a report that says the session is
-  idle (`status: "waiting"`, `waitReason` not `permission`).
+- A message that needs approval is held until its owner approves it. The server hands any other message over in the
+  reply to the receiver's next report, within about the report interval, whether the session is running or waiting. It
+  holds one only while a permission prompt is open (`waitReason: "permission"`), because the message would answer the
+  prompt, and never hands one to a session that is `done`. A running subagent does not hold a message back (#1252).
+- A message handed to an idle agent enters the session as a prompt. One handed over while the agent works is read at its
+  next step (#1264): OpenCode takes it as a `steer` prompt, and Claude Code adds it to the main loop's next tool result,
+  or submits it as a prompt when the turn ends first. It ends with
+  Podium's own note, after the quoted text, that says it was sent while the agent was working and lets the agent decide
+  whether it matters more than what it was doing.
+- When a message was taken, the server log line `peers.delivered` carries `waited_ms`, the time from send to the
+  result. For OpenCode that is the time until the host accepted the prompt, which is earlier than the agent reads it.
 - A held message is dropped if the receiver ends (it reports `done` or leaves the live set), a session is deleted, the
   link is removed, the receiving reporter refuses it, or the flag goes off. The sender is told by a notice while it is
   live, except when the flag goes off.
@@ -662,7 +747,9 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
 | What | Who can read it | Who can write it |
 |---|---|---|
 | **General** (`public_messages`) | Everyone signed in. It is public to the people on the server | Any signed-in person; an agent through its reporter's token, bound by the channel's flags |
+| **A public channel** (`public_messages`, keyed by channel; #1035, DECISIONS 69) | Every signed-in person, every reporter and every Admin. It is public to the server, and an Admin's read raises no notice and writes no record, as for General | Any signed-in person; any orchestrator through its reporter's token, only where an `@` called it in during the last hour, as for General (a subagent is refused by the reporter, which posts through its orchestrator); bound by the channel's flags |
 | **My group** (`group_messages`) | The person, their own agents, and an Admin | The person; their agents through their token |
+| **A conversation of people** (`conversations`, #1278; DECISIONS 74) | Its members, and nobody else. An Admin has no read while no agent is a member; with an agent in it an Admin reads it as a Direct Message, with the notice below | Its members |
 | **A Direct Message** (`peer_messages`) | The conversation's owner, and an Admin. In a conversation across owners (a person and another person's agent), both owners and an Admin | The owner of the agents; for a message to another person's agent, the person who wrote it |
 
 - Another person gets a `403` or nothing, never another person's rows. A person who is not in a Direct Message gets the same
@@ -685,17 +772,20 @@ that it is off by default and needs the Admin's flag, authentication, and the `p
   before the Admin is answered, so a read that cannot be recorded is not made. An Admin who signs in with their own name is
   named by it; the admin secret has no name, and is named "Admin secret". The Admin's open thread pings every 15 seconds to say it is
   still read; a reading is live for 30 seconds after the last read or ping, and reads of one thread by one Admin less than 30 minutes
-  apart are one session. The Admin log records `chat_admin_read` once for each session. General is public and is never recorded.
+  apart are one session. The Admin log records `chat_admin_read` once for each session. General and every public channel are public and are never recorded: an Admin's read of one raises no notice and writes no `chat_admin_reads` row (DECISIONS 69), because the content is readable by everyone signed in and there is no one to tell. An agent's read of one is the same owner-only call as its read of General (`channels.agentRead` in the Admin read registry): the admin secret and any other person are refused.
   An Admin can read, pause and resume any Direct Message link, and pause, resume, disconnect and remove all the messages of a
-  person's My group; General for everyone (pause, remove all) is the Admin's already. An Admin cannot remove a link, allow a message,
+  person's My group; General for everyone (pause, remove all) is the Admin's already, and so is a public channel's. An Admin's power over a public channel is also told to the person it affects, in words and with the Admin's name (#1035): a pause for everyone and a remove all are told to every live reporter session and
+  recorded as a line on the channel's thread (`chat_admin_reads`, kind `paused`, `resumed` or `cleared`, never any text), and an edit of the description or the removal of the channel is owed to the person who opened it (#1328): it is kept on their `act:<id>` thread (kind `channel_edited` or `channel_removed`, the words in `detail`, never any text) until they have seen it, and each reporter session of theirs shows it from that record ("<Admin> (an Admin) edited the description of the channel <name> you opened."), so an opener with no live session when the Admin acts, or a restart of the server, loses nothing. The Admin log's `channel_edited` and `channel_removed` rows name the opener and how many sessions were told. Removing a channel removes the records of it. An Admin cannot remove a link, allow a message,
   delete a conversation, or write in a Direct Message or in a person's My group (`403`, "An Admin can read and stop a person's group but cannot write in it."). An Admin's pause names the Admin and the owner cannot resume it; an Admin's pause, resume, disconnect, reconnect and remove all
   each leave a record line ("<Admin> (an Admin) paused this link on ...") and a callout, and each is recorded before it is done, so a stop that cannot be recorded does not happen.
   Remove all messages never deletes the Admin's records. Delete conversation, the retention days and the purge delete only the records nobody is still owed a look at.
   An Admin's `@` of another person's agent needs that agent's owner to approve it, as anyone's does.
+- **An Admin cannot read a conversation of people (#1278).** While no agent is a member, no route, page, tool or log shows an Admin its text, its name, its members or its counts: a read answers `404`, and an Admin's browse of a person's Chat (`?owner=`) leaves it out. A person-to-person conversation cannot run away, so there is nothing for an Admin to stop. A conversation that has an agent in it is read, paused and stopped as a Direct Message is, and every person in it is told in the console and in `podium-reporter`, with a record in the Admin log that never holds the text.
+- **A person changes only their own messages (#1269).** A person may edit or delete a message they wrote in a channel or in a Direct Message. Who wrote it is the person's id (`author_id`), never the name. An Admin has no way to edit or delete anyone else's message: the routes refuse with `403` ("An Admin can read a conversation but cannot change its messages." in a Direct Message), and the admin secret, which has no person and no messages of its own, is refused with `403` too. A message is locked once Podium has sent it to an agent, and a deleted message keeps only a tombstone with no text ([7.2](07-02-database.md)). An edit may not add or remove an `@` of an agent or a person (`422`), sends nothing again, and is held to the same `maxChars`, `perMinute` and secret redaction as a new message. An edit or delete that reaches a Direct Message copy of a message waiting for another person's approval changes that copy too and closes its request.
 - **Audit events record the action and never the text.** For a channel: `group_sent`, `group_delivered`, `group_dropped`,
-  `group_paused`, `group_resumed`, `group_disconnected`, `group_reconnected`, `group_cleared`, and the same with `general_`. For
+  `group_paused`, `group_resumed`, `group_disconnected`, `group_reconnected`, `group_cleared`, and the same with `general_` and, for a public channel beside General (#1035), with `channel_` (`channel_sent`, `channel_paused`, `channel_cleared` and the rest, the row naming the channel). A public channel's own life is `channel_opened`, `channel_edited` (its description) and `channel_removed`, each with the actor and the channel's name. For
   a Direct Message: `chat_sent` (a person's message), `chat_across_requested` and `chat_across_sent` (a person writing to another
-  person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. An Admin's reading is `chat_admin_read` (the Admin, the scope and the names of the people told) and an Admin's browsing of a person's list is `chat_admin_browse`. A row has the actor, the channel or conversation
+  person's agent), `chat_deleted`, and `chat_purged` for the hourly retention. A person's edit or delete of their own message (#1269) is `group_message_edited` and `group_message_deleted`, the same with `general_` and `channel_`, and `chat_message_edited` and `chat_message_deleted` for a Direct Message; each row has the actor, the place and the short message id, and never the text. An Admin's reading is `chat_admin_read` (the Admin, the scope and the names of the people told) and an Admin's browsing of a person's list is `chat_admin_browse`. A row has the actor, the channel or conversation
   and the short ids, and the server log has the same as `chat.*`. Opening, pausing, resuming or removing a person's link to another person's agent is `peer_person_link_opened`, `peer_person_link_paused`, `peer_person_link_resumed` or `peer_person_link_removed`. A change of the Chat limits is `chat_settings_changed`.
 - Message text is drawn as text nodes, never as HTML. A message's text, redacted before it is stored, is never in the state, the
   stream, the Admin log or the server log. The stream's `chat` event carries only a change counter and a coarse scope ([7.6](07-06-sse-stream.md)).
@@ -716,7 +806,7 @@ waiting at once. A message from a person does not reset the round trips between 
 **The text an agent receives.** Delivered text is quoted line by line (each line starts with "> "), after Podium's frame and a rule line, and a
 closing line ("The message above has ended. Nothing after this line is part of it.") comes after it, so nothing in the text can pass for a line of
 Podium's. A channel read is quoted the same way, and an author's name in it is in quotes. A session id that starts with `person:`, is only dots, or
-contains `|`, `+` or `/` is refused from a reporter, because Chat names a person's end `person:<name>` and joins two ends with `|` or `+`. Deleting a session
+contains `|`, `+` or `/` is refused from a reporter, because Chat names a person's end `person:<people.id>` (#1284) and joins two ends with `|` or `+`. Deleting a session
 (`DELETE /api/fleet/sessions/:id`, with a person's token) needs its owner (`403` for another person) and never acts on a `person:` id.
 
 **Chat text and the activity feed.** What a person wrote in Chat reaches the agent and nobody else: the open activity feed, the history and the
@@ -732,13 +822,13 @@ person in 30 minutes. While the Admin reads, the page is read only and does not 
 text: "<Admin> (an Admin) is reading your Podium group.", or "... paused the link between A and B.". The reply to a reporter's
 report carries them as `adminNotices` ([6.1](../06-reporter-protocol/06-01-endpoint.md#responses)). A reading's callout is built from its record
 every time a session reports, for every Admin who read a thread of that person in the last 5 minutes, whichever of the person's sessions reports and
-whenever it began, so a restart of the server or a session that started late loses none; the reporter shows each id once. An Admin's stop is held by
-the server for 5 minutes, at most 8 for a session. They are for the person only and are never sent to the model.
+whenever it began, so a restart of the server or a session that started late loses none; the reporter shows each id once. An Admin's stop on a person's messaging links (pause, resume, remove) or on a public channel they opened (an edit, a removal) is kept
+on the person's `act:<id>` thread with its words (#1328), and every session of theirs that reports shows it, with one id, until the person has seen it in the console, at most 8 for a session; the other stops are held by the server for 5 minutes. They are for the person only and are never sent to the model.
 
 **An Admin's stop or delete of a person's things (#1078).** An Admin who stops a recording, deletes a recording or stored activity, deletes a session
 with the admin secret, revokes a person's token or certificate, deletes a person, or removes one of a person's reporters tells that person, as a read does.
-Each act writes a record on the person's `act:<name>` thread (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
-`access_revoked`, `reporter_removed`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
+Each act writes a record on the person's `act:<id>` thread (the person's `people.id`, #1284) (`recording_stopped`, `recording_deleted`, `activity_deleted`, `session_deleted`,
+`access_revoked`, `reporter_removed`, and (#1251) `respond_refused`; never any text), which the person's Chat overview shows as a quiet line, once, with the Admin's name. Each also sends a
 callout to every live reporter session of that person ("<Admin> (an Admin) stopped the recording of your session <name>."), through `adminNotices` as above. A
 server with no sign-in has no Admin to name and tells no one; a session or reporter with no owner, or on the admin secret, has no person to tell; an Admin
 acting on their own things tells no one. Revoking or deleting a person is told after it succeeds, because a refusal (the last Administrator) must not leave a
@@ -747,8 +837,8 @@ show a record on, so for those two the Admin log is the lasting record.
 
 **Stopping a session.** A channel's menu is the stop button for a runaway session. **Pause** holds messages and keeps access,
 **Disconnect** takes the agents' access away, and **Remove all messages** deletes the history. In My group the person and an Admin can
-do all three. In General any person can pause or disconnect their own agents, and only an Admin can pause General for everyone or
-remove its messages. A Direct Message has **Pause link** and **Remove link** (under the ownership rules above) and **Delete
+do all three. In General, and in a public channel (#1035), any person can pause or disconnect their own agents, and only an Admin can pause it for everyone or
+remove its messages. A public channel also has **Edit description…** (its opener or an Admin) and **Remove channel…** (an Admin, after a confirmation that names what goes). A Direct Message has **Pause link** and **Remove link** (under the ownership rules above) and **Delete
 conversation**.
 
 **Another person's agent.** A person's `@` of an agent that is not theirs is held as a request in the agent owner's My reporters
@@ -777,9 +867,14 @@ in can address any individual (`name@location`) in a Direct Message, the group o
 set by its reporter's permissions.
 
 **Agents addressing each other** stop at the round-trip limit until their owner approves the next. An agent reads a channel
-with `podium_chat_read`, only the last hour of General or its person's My group and only where a delivered `@` of that agent is stored in the
-channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. An agent posts to a channel with `podium_send` to `channel:group` or `channel:general`, under the same rule: only a channel that called it in the last
-hour, otherwise the same refusal (#1065). Agents addressing each other is still #1035.
+with `podium_chat_read`, only the last hour of General, a public channel or its person's My group and only where a delivered `@` of that agent is stored in the
+channel inside the hour (otherwise a refusal that names nothing); a read is cut at about 30,000 characters and a cursor gives the rest. An agent posts to a channel with `podium_send` to `channel:group`, `channel:general` or `channel:<name>`, under the same rule: only a channel that called it in the last
+hour, otherwise the same refusal (#1065).
+
+**Agents and public channels (#1035, DECISIONS 69).** A public channel beside General follows that rule exactly as General does: an agent reads or posts in it only where an `@` called it in during the last hour, sees at most the last hour, paged by a cursor within the hour, at most about 30,000 characters a call, and never its whole history. Only the list of the channels (`podium_chat_read` with no channel: names, descriptions, links, openers, message counts, the paused and disconnected flags, no message text) needs no call-in. A post is redacted on the machine before it leaves. The channel's flags bind the agent (a paused channel takes no post, a disconnected one neither reads nor posts).
+Only an orchestrator's main loop lists, reads or posts: a subagent's call is refused by the reporter on both harnesses (Claude Code by the call's `agentId`, OpenCode by its own child session), and the server, which cannot tell, takes the call as its orchestrator's.
+A channel message never interrupts a running turn: an agent reads it when it chooses to, or sees it at the end of its turn.
+Agents addressing each other in a channel is still not built: an `@` in an agent's post is stored as not delivered.
 
 ## The `Host` header (#256, DNS rebinding)
 

@@ -1,15 +1,18 @@
 // What Chat's channel and direct-message sides share (#1034): the Admin's limits, redaction of a person's text, the rate limit, telling the
 // console that something changed (a count, never text), the audit callback, and delivering text to an agent through the console's message path.
 // Nothing here reads a direct message or a channel message.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { cleanNameText, cleanPeerText } from '../storage/peerText.js';
+import { overLimitWords } from '../storage/peerEdit.js';
 import { scrubStored } from '../logging/redact.js';
 import { CHAT_EVERYONE } from '../storage/features.js';
 import { nameKey } from '../storage/rows.js';
 import type { ChatSettings, ChatStoreApi, MentionState, PeopleStoreApi } from '../storage/types.js';
-import type { Delivery } from './protocol.js';
+import { ENDED_NOTICE_MARK, type Delivery } from './protocol.js';
 import type { AnswerError, DeliveryTrail } from './respond.js';
 import { AdminNotices } from './chatAdminNotices.js';
-import { fail, type ChatEvent, type ChatHost, type ChatSignal, type ChatViewer, type Fail } from './chatTypes.js';
+import { ConcludedList } from './chatConcluded.js';
+import { emptyMessage, fail, type ChatEvent, type ChatHost, type ChatScope, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 const MINUTE = 60_000;
 
@@ -17,11 +20,17 @@ const MINUTE = 60_000;
  * What the channel side asks of the direct-message side when a person @-addresses another person's agent (#1034): the text goes to the agent's owner for
  * approval (or over a link the owner already opened). The channel never sees a conversation; it gets only whether that worked.
  */
-export type AcrossAsk = (viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }) => Promise<{ ok: true; state: 'approval' | 'ready'; owner: string } | Fail>;
+export type AcrossAsk = (viewer: ChatViewer, sessionId: string, text: string, opts: { rate: boolean }) => Promise<{ ok: true; state: 'approval' | 'ready'; owner: string; messageId: string } | Fail>;
 
-/** What became of such a message, told to the channel side so the mention the person wrote can move: the person (folded), the agent, and the states it may move from. */
+/**
+ * What the channel side asks of the direct-message side when the author changes a channel message whose mention waits for another person's approval (#1269): the copy of its
+ * text that the agent's owner was asked about, named by the id the channel kept (`copyId`), is edited or deleted with it. The channel never sees a conversation.
+ */
+export type AcrossChange = (viewer: ChatViewer, copyId: string, op: { kind: 'edit'; text: string } | { kind: 'delete' }) => Promise<{ ok: true } | Fail>;
+
+/** What became of such a message, told to the channel side so the mention the person wrote can move: the person (`people.id`, #1284), the agent, and the states it may move from. */
 export interface AcrossUpdate {
-  person: string;
+  personId: number;
   sessionId: string;
   from: MentionState[];
   state: MentionState;
@@ -50,20 +59,89 @@ const DROP_WHY: Record<string, string> = {
   'responding-off': 'responding was turned off before the agent got the message',
 };
 
+/** What a text refused for its length or its rate is answered with: a channel and a Direct Message say it one way, a conversation (#1278) shorter. */
+const TEXT_WORDS = {
+  chat: {
+    long: overLimitWords,
+    fast: (perMinute: number, wait: number) => `That is more than ${perMinute} messages a minute, the limit here. Try again in ${wait} seconds.`,
+  },
+  convo: {
+    long: (_length: number, max: number) => `A message is at most ${max} characters.`,
+    fast: (_perMinute: number, wait: number) => `You are sending too fast. Wait ${wait} seconds.`,
+  },
+} as const;
+type TextWords = keyof typeof TEXT_WORDS;
+
+/** Why a store refuses to change a message: the same four for every audience (#1269). */
+export type ChangeRefusal = 'not-found' | 'not-yours' | 'locked' | 'deleted';
+
+/** The words of a refused change in one audience. A message an agent has been handed is said by the caller, since it may name the agents. */
+export interface ChangeWords {
+  notFound: string;
+  notYours: string;
+  deleted: string;
+}
+
+/** The refusal for a reason a store gives: not found (404), not the author's (403), deleted and locked (409, with the reason a form reads). */
+export async function changeRefusal(why: ChangeRefusal, words: ChangeWords, locked: () => string | Promise<string>): Promise<Fail> {
+  if (why === 'not-found') return fail(404, words.notFound);
+  if (why === 'not-yours') return fail(403, words.notYours);
+  return why === 'deleted' ? fail(409, words.deleted, 'deleted') : fail(409, await locked(), 'locked');
+}
+
+/** The words for a message that went to agents, which a channel and a Direct Message say the same way: it names them. */
+export function sentWords(names: string[]): string {
+  const who = names.length === 0 ? 'the agent' : names.length === 1 ? names[0]! : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  return `Podium has already sent this message to ${who}, so it can no longer be changed.`;
+}
+
+/** Whether the viewer may change a message, and when not, why: `mine` is the author's own live message (by id), `locked` that an agent has it, `waiting` another reason in words. */
+export function changeState(mine: boolean, locked: boolean, lockedWords: () => string, waiting: string | null = null): { canChange: boolean; changeWhy: string | null } {
+  if (!mine) return { canChange: false, changeWhy: null };
+  const why = locked ? lockedWords() : waiting;
+  return { canChange: why === null, changeWhy: why };
+}
+
+/** What an agent still in a conversation is told when another agent ended (#1283): it was concluded, or (`stays`, two or more people) it goes on without it. */
+export function endedNotice(gone: string, stays = false, cleared = false): string {
+  // After a /clear the agent goes on under a new session (#1340): the conversation is concluded, and a new one with it is fine.
+  const rest = stays
+    ? 'It can no longer be written to, and you should not send it anything. The people in the conversation can keep writing.'
+    : cleared
+      ? `This direct message has been concluded. Do not try to continue it. You can open a new direct message to ${gone}.`
+      : `This direct message has been concluded. Do not try to continue it, and do not open a new direct message to ${gone}.`;
+  return `${ENDED_NOTICE_MARK} ${gone} ${cleared ? 'was cleared with /clear and is still running under a new session' : 'ended'}. ${rest}`;
+}
+
 /** The longest issue, project or milestone a post may carry, in characters. */
-export const MAX_LABEL = 200;
+const MAX_LABEL = 200;
+
+/** What one action has signalled and started so far (`ChatCore.batch`). `closed` is set once its events are on their way. */
+interface Batch {
+  scopes: Set<ChatScope>;
+  started: Promise<void>[];
+  closed: boolean;
+}
 
 export class ChatCore {
   /** Replaced by the routes, so an event reaches the Admin log and the server log. */
   onEvent: (e: ChatEvent) => void = () => {};
   /** What an Admin's reading or stopping tells the person's reporter sessions (#1034); the report reply carries it, to the person only. */
   readonly notices: AdminNotices;
+  /** Conversations concluded because an agent in them ended, for each person (#1283); memory only, never any text. */
+  readonly concluded: ConcludedList;
+  /** Which agent was told which agent ended, per conversation that stayed (#1283), so a second end of the same session does not tell it again. Memory only. */
+  readonly noticed = new Set<string>();
   /** Replaced by the routes: the names of everyone who can sign in, for the counts a post changes for all of them. */
-  people: Pick<PeopleStoreApi, 'list'> | null = null;
+  people: (Pick<PeopleStoreApi, 'list'> & Partial<Pick<PeopleStoreApi, 'findByName'>>) | null = null;
   /** Replaced by the Chat service: hands a person's @ of another person's agent to the direct-message side. */
   across: AcrossAsk | null = null;
+  /** Replaced by the Chat service: edits or deletes the copy of a channel message that waits for another person's approval (#1269). */
+  changeAcross: AcrossChange | null = null;
   private readonly acrossHearers: ((u: AcrossUpdate) => void)[] = [];
   private rev = 0;
+  /** The action the running code belongs to, when it belongs to one (`batch`). */
+  private readonly batches = new AsyncLocalStorage<Batch>();
   private readonly recent = new Map<string, number[]>();
   private readonly following = new Map<string, (o: DeliveryOutcome) => void>();
 
@@ -72,6 +150,7 @@ export class ChatCore {
     readonly store: ChatStoreApi,
   ) {
     this.notices = new AdminNotices(host.now);
+    this.concluded = new ConcludedList(host.now);
     host.respond.watch((t) => this.onTrail(t));
   }
 
@@ -103,8 +182,35 @@ export class ChatCore {
     return clean || null;
   }
 
+  /** Refuses a text longer than Chat's limit, in the audience's own words (`TextWords`), or returns null. Nothing has read the text yet. */
+  tooLong(length: number, limits: ChatLimits, words: TextWords = 'chat'): Fail | null {
+    return length > limits.maxChars ? fail(422, TEXT_WORDS[words].long(length, limits.maxChars)) : null;
+  }
+
+  /**
+   * The checks of a person's or an agent's text that cost nothing, in the order every writing path keeps (#1051): a string with something in it (400), within Chat's length (422),
+   * under the per-minute limit of `rateKey` (429, and counted; null counts none). The scan for secrets (`cleaned`) follows. `limits` is read here unless the caller has them.
+   */
+  async screen(raw: unknown, rateKey: string | null, limits?: ChatLimits): Promise<{ raw: string } | Fail> {
+    if (typeof raw !== 'string' || !raw.trim()) return emptyMessage();
+    const l = limits ?? (await this.limits());
+    return this.tooLong(raw.length, l) ?? (rateKey === null ? null : this.tooFast(rateKey, l)) ?? { raw };
+  }
+
+  /** The scan for secrets, and the check that something is left: a text of nothing but characters that draw nothing is as empty as a blank one. */
+  cleaned(raw: string): string | Fail {
+    const text = this.redact(raw);
+    return text.trim() ? text : emptyMessage();
+  }
+
+  /** Counts one post by `who` and refuses it (429) in the audience's own words when it is over the per-minute limit, or returns null when it is within. */
+  tooFast(who: string, limits: ChatLimits, words: TextWords = 'chat'): Fail | null {
+    const wait = this.rate(who, limits.perMinute);
+    return wait === null ? null : fail(429, TEXT_WORDS[words].fast(limits.perMinute, wait));
+  }
+
   /** Counts one post by `who` and returns the seconds to wait when it is over `perMinute`, or null when it is within. */
-  rate(who: string, perMinute: number): number | null {
+  private rate(who: string, perMinute: number): number | null {
     const now = this.host.now();
     const mine = (this.recent.get(who) ?? []).filter((t) => now - t < MINUTE);
     if (mine.length >= perMinute) {
@@ -122,41 +228,92 @@ export class ChatCore {
     for (const [who, times] of this.recent) if (times.every((t) => now - t >= MINUTE)) this.recent.delete(who);
   }
 
-  /** Tells open consoles that a thread changed. `owner` and counts are for one person's badges; there is never text. */
-  signal(s: ChatSignal): void {
-    this.host.signal({ ...s, rev: ++this.rev });
+  /**
+   * Tells open consoles that something in `scope` changed: a counter and the scope, never a name, a count or text. Inside a `batch` it is held until the action is
+   * done, so one action is one event for each scope however many times it signals; outside one it goes out at once.
+   */
+  signal(scope: ChatScope): void {
+    const open = this.batches.getStore();
+    if (open && !open.closed) open.scopes.add(scope);
+    else this.emit(scope);
   }
 
-  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal with their counts. Counts only. */
-  async count(who: string, thread: string, scope: 'public' | 'group' | 'dm', mention: boolean): Promise<void> {
-    const row = await this.store.readState.bump(who, thread, mention);
-    this.signal({ scope, owner: who, unread: row.unread, mentions: row.mentions });
+  private emit(scope: ChatScope): void {
+    this.host.signal({ scope, rev: ++this.rev });
   }
 
-  /** Every person who can sign in, with the name as typed and folded. */
-  async persons(): Promise<{ name: string; key: string }[]> {
-    const out: { name: string; key: string }[] = [];
+  /**
+   * Runs one action (a request, or a task nobody asked for) and, when it and what it `also` started are done, sends one event for each scope it signalled, in the
+   * order it first did (#1296). Every signal of an action comes after the write it follows, so an event never reaches a console before what it announces is stored.
+   * It is sent when the action throws as well. The action is found by the async context, so two actions that overlap each keep their own, and a batch started
+   * inside another that is still open joins it (inside one that is done it is an action of its own). A signal that comes after the batch is done (work nobody waited for) goes out on its own.
+   */
+  async batch<T>(act: () => Promise<T>): Promise<T> {
+    // Only a batch that is still open is joined: code that outlives its batch (a timer, or what a handler's `next()` started) is in a closed one, and its own action gets its own.
+    const outer = this.batches.getStore();
+    if (outer && !outer.closed) return act();
+    const open: Batch = { scopes: new Set(), started: [], closed: false };
+    try {
+      return await this.batches.run(open, act);
+    } finally {
+      while (open.started.length) await Promise.allSettled(open.started.splice(0));
+      open.closed = true;
+      for (const scope of open.scopes) this.emit(scope);
+    }
+  }
+
+  /**
+   * A store write an action starts and does not wait for (the one that records a delivery's fate, a count, an update `hearAcross` hands over): the action's batch waits for
+   * it before it sends its events, never for the delivery itself. It must catch its own errors.
+   */
+  also(work: Promise<void>): void {
+    const open = this.batches.getStore();
+    if (open && !open.closed) open.started.push(work);
+  }
+
+  /** One more unread message in a thread for a person (and a mention when it is addressed to them), and the stream signal. The count is kept under the person's id (#1284). */
+  count(who: PersonRef, thread: string, scope: ChatScope, mention: boolean): Promise<void> {
+    return this.countMany([{ who, mention }], thread, scope);
+  }
+
+  /** `count` for several people at once, in one store call (#1309): one signal when any count came back. */
+  async countMany(people: { who: PersonRef; mention: boolean }[], thread: string, scope: ChatScope): Promise<void> {
+    if (people.length === 0) return;
+    const rows = await this.store.readState.bumpMany(thread, people.map((p) => ({ personId: p.who.id, mention: p.mention })));
+    if (rows.length > 0) this.signal(scope);
+  }
+
+  /**
+   * The person with this name now, or null: the one place a typed name becomes an id. A person whose access is revoked is still a person (their group is still theirs to an Admin), so the
+   * directory of people who can sign in is tried first, then the store's own lookup by name.
+   */
+  async personNamed(name: string): Promise<(PersonRef & { key: string }) | null> {
+    const key = nameKey(name);
+    const listed = (await this.persons()).find((x) => x.key === key);
+    if (listed) return listed;
+    const found = await this.people?.findByName?.(name);
+    return found ? { id: found.id, name: found.name, key } : null;
+  }
+
+  /** Every person who can sign in, by id, with the name as typed and folded. */
+  async persons(): Promise<(PersonRef & { key: string })[]> {
+    const out: (PersonRef & { key: string })[] = [];
     if (!this.people) return out;
     for (let page = 1; page <= 20; page++) {
       const got = await this.people.list({ page, pageSize: 100 });
-      for (const p of got.rows) if (p.revokedAt === null) out.push({ name: p.name, key: nameKey(p.name) });
+      for (const p of got.rows) if (p.revokedAt === null) out.push({ id: p.id, name: p.name, key: nameKey(p.name) });
       if (got.rows.length < 100) break;
     }
     return out;
-  }
-
-  /** Every person's name, folded, for a post to General. */
-  async everyone(): Promise<string[]> {
-    return (await this.persons()).map((p) => p.key);
   }
 
   /**
    * Hands `text` to an agent as a message of the console (the existing delivery and consent rules: the Admin's respond flags, and what the
    * session's reporter says it accepts). Fails with words for the person, never a status code of the store.
    */
-  deliver(sessionId: string, by: string, name: string, text: string, chat = false, channel: string | null = null): { ok: true; delivery: Delivery } | Fail {
+  deliver(sessionId: string, by: string, name: string, text: string, via: 'chat' | 'channel', chat = false, channel: string | null = null, byId: number | null = null, convo: string | null = null): { ok: true; delivery: Delivery } | Fail {
     if (!this.host.respondFlagsOn()) return fail(403, 'Responding is off, so Podium cannot hand a message to an agent. An Admin turns it on in Admin > Settings.');
-    const out = this.host.respond.message(sessionId, by, { text }, chat, channel);
+    const out = this.host.respond.message(sessionId, by, { text }, chat, channel, { via, ...(convo ? { convo } : {}) }, byId);
     if (!out.ok) return fail(out.err.status === 429 ? 429 : out.err.status, answerWords(out.err, name, text));
     return { ok: true, delivery: out.delivery };
   }

@@ -224,7 +224,7 @@ function PlatformBody({ reply }: { reply: ReportReply }) {
   );
 }
 
-export function PlatformSection({ client, r, onLocked }: { client: ReportsClient; r: ReportState; onLocked: () => void }) {
+function PlatformSection({ client, r, onLocked }: { client: ReportsClient; r: ReportState; onLocked: () => void }) {
   const [harness, setHarness] = useState("");
   const s = useSection(client, r, { report: "harness", breakdown: "platform", harness, blocked: null }, onLocked);
   return (
@@ -252,9 +252,7 @@ export function PeoplePage({ cfg, client, onLocked }: { cfg: ReportConfig; clien
         </Panel>
       </Section>
       <Section id={`rep-${cfg.report}-r`} title={head.title} help={head.help}>
-        <Panel>
-          <ReportBody r={r} />
-        </Panel>
+        <ReportBody r={r} />
       </Section>
       {!r.problem && <PlatformSection client={client} r={r} onLocked={onLocked} />}
     </>

@@ -108,18 +108,18 @@ export type ReporterSort = 'state' | 'name' | 'who' | 'token' | 'ver' | 'last' |
 /** The credential the server records for a report made with the admin secret. */
 export const ADMIN_SECRET = 'admin secret';
 
-/** The name every reporter sent before a second one existed: the Claude Code reporter, and what a row from before the name was stored holds (#849). */
-export const DEFAULT_REPORTER_NAME = CLAUDE_REPORTER_NAME;
 
 /** What one accepted report says about its sender. Never a token: `credential` is a key id or the words "admin secret". */
 export interface ReporterSeen {
   kind: 'mod' | 'hooks';
-  /** Which reporter sent it (`reporter.name` of the report). Absent means `DEFAULT_REPORTER_NAME`. A machine running two reporters is two rows (#849). */
+  /** Which reporter sent it (`reporter.name` of the report). Absent means the Claude Code reporter (`CLAUDE_REPORTER_NAME`). A machine running two reporters is two rows (#849). */
   reporterName?: string;
   machineId: string | null;
   machineName: string | null;
   source: string | null;
   owner: string | null;
+  /** The owner's `people.id`, which binds the row to the person (#1284); null for the admin secret, with no sign-in, and from a caller that has no id. */
+  ownerId?: number | null;
   credential: string | null;
   version: string;
   engineVersion: string | null;
@@ -137,6 +137,8 @@ export interface ReporterRow {
   /** False when the reporter sends no machine name and `name` is made up from its newest project or its address (issue #166). */
   named: boolean;
   who: string;
+  /** The owner's `people.id` (#1284); null for the admin secret and for a reporter whose person was deleted. `who` is only the name shown. */
+  whoId: number | null;
   /** The token's key id (`pdm_...`) or the words "admin secret"; null when the server had no authentication. Never a token. */
   credential: string | null;
   /** True when it reports with the admin secret instead of a token made for a person (issue #166). Always warned about. */
@@ -265,7 +267,10 @@ export interface SessionRow {
   usage_json: string | null;
   attached: number | null;
   detached_at: number | null;
+  /** The owner's name as the server recorded it: display text only (#1284). Who owns the session is `owner_id`. */
   owner: string | null;
+  /** The owner's `people.id` (#1284), never reused and with no foreign key. NULL for the admin secret's sessions and for one whose person was deleted: it belongs to nobody, and a newcomer with the same name cannot claim it. */
+  owner_id: number | null;
   machine_json: string | null;
   /** The session this one continues after a /clear (Report.session.clearedFrom, #206); NULL otherwise. */
   cleared_from: string | null;
@@ -553,6 +558,13 @@ export interface PurgeRecordingsResult {
 
 export type StoredState = Exclude<RecordingState, 'off'>;
 
+/**
+ * The longest id (a session, an agent, an event, a reporter's session) a store takes (#1177). One database holds an id in a 255-character key column and
+ * the others hold any length, so an id above this is outside what the stores agree on. None reaches one over the wire: a report and a hook
+ * cut an id to `LIMITS.id` (200) first, so a longer one is never stored. A caller that skips the wire keeps to this.
+ */
+export const ID_MAX = 255;
+
 /** The longest source address stored, and so the longest one a key holds: a key column can be bounded in one adapter and not another, so the cut is made here, once, for all (#1153). */
 export const SOURCE_MAX = 120;
 
@@ -563,7 +575,13 @@ export function keyOf(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'r
 }
 
 /** The longest owner name a second account's key holds, cut here for the same reason as `SOURCE_MAX` (#1153). */
-export const OWNER_KEY_MAX = 120;
+const OWNER_KEY_MAX = 120;
+
+/** Whether a stored row's owner is the one a report names (#1284): by the person's id when it has one, and otherwise (the admin secret, which has no person) by the name it is recorded under, with no id on the row. */
+export function sameAccount(stored: { owner: string | null; owner_id: number | null }, s: { owner: string | null; ownerId?: number | null }): boolean {
+  if (s.ownerId !== undefined && s.ownerId !== null) return stored.owner_id === s.ownerId;
+  return stored.owner_id === null && stored.owner === s.owner;
+}
 
 /** The key a second account on one machine is filed under: `<machine id>#<owner>` plus the name suffix (#221). */
 export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> & { owner?: string | null }): string {
@@ -574,7 +592,7 @@ export function apartKeyOf(s: Pick<ReporterSeen, 'machineId' | 'reporterName'> &
  * What a reporter's name adds to its key (#849): nothing for the Claude Code reporter, so every key and ignore rule made before
  * the name was stored stays valid, and `@<name>` for any other, so two reporters on one machine are two rows.
  */
-export function nameSuffix(reporterName: string | undefined | null): string {
+function nameSuffix(reporterName: string | undefined | null): string {
   const name = canonicalReporterName(reporterName);
   return name === CLAUDE_REPORTER_NAME ? '' : `@${name}`;
 }

@@ -4,7 +4,7 @@ import { CERTS_HASH, pillOf, useTlsStatus, type PillView } from "../tlsStatus";
 const ICON = { clock: IconClock, warn: IconWarn, cross: IconCertCross };
 
 /** The pill for a computed view: a status that is a link to Admin > Server > Certificates, with no X (mockup #573, decision 9). */
-export function CertPillView({ view }: { view: PillView }) {
+function CertPillView({ view }: { view: PillView }) {
   const Icon = ICON[view.icon];
   return (
     <a className={`pill ${view.tone}`} href={CERTS_HASH} title={view.title}>

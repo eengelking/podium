@@ -57,6 +57,9 @@ Environment:
                     pinned; another version is untested).
   E2E_KEEP=1        Keep the temp folder and the server container's data volume for looking at (tear down the rest).
   E2E_CYPRESS_IMAGE Override the pinned Cypress image (a different version needs a new digest and a DECISIONS 49 note).
+  PODIUM_DB_LOCK    off skips the machine's database lock. `run` takes it (scripts/db-lock.sh) so that only one database test job runs at
+                    a time per user, and waits its turn; a run started by scripts/e2e-all.sh is already under it and does not wait.
+                    PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting. CI skips it.
 
 Cypress itself is never installed: the image carries it. axe-core is mounted read-only from node_modules (a root dev dependency).
 Exit code: 0 passed, 1 a spec or a check failed, 2 a setup error.
@@ -100,7 +103,8 @@ remove_labelled() {
   local filter="label=$LABEL${1:+=$1}" ids
   ids="$($E ps -aq --filter "$filter" 2>/dev/null)"
   # shellcheck disable=SC2086
-  [[ -n "$ids" ]] && $E rm -f $ids >/dev/null 2>&1
+  # -v takes each container's anonymous volumes with it: the postgres and mariadb images declare a data VOLUME that no label reaches.
+  [[ -n "$ids" ]] && $E rm -f -v $ids >/dev/null 2>&1
   ids="$($E volume ls -q --filter "$filter" 2>/dev/null)"
   # shellcheck disable=SC2086
   [[ -n "$ids" ]] && $E volume rm -f $ids >/dev/null 2>&1
@@ -136,6 +140,11 @@ fi
 $E info >/dev/null 2>&1 || { fail "$E is not usable ($E info fails). Is it running? On a Mac: podman machine start"; exit 2; }
 if [[ "$CMD" == build ]]; then build_images; say "images ready"; exit 0; fi
 [[ -f "$ROOT/node_modules/axe-core/axe.min.js" ]] || { fail "node_modules/axe-core is missing: run npm ci --ignore-scripts at the repo root (axe-core is a frontend dev dependency)"; exit 2; }
+
+# One heavy database job at a time on this machine (#1284). A run started by scripts/e2e-all.sh is already under its lock and does not wait.
+# shellcheck source=scripts/db-lock.sh
+source "$ROOT/scripts/db-lock.sh"
+db_lock_acquire "scripts/e2e-up.sh run"
 
 RUN="$(date +%s)-$$"
 NET="podium-e2e-$RUN"
@@ -190,12 +199,13 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then echo "::add-mask::$SECRET"; [[ "$DB_KIND
 teardown() {
   local code=$?
   trap - EXIT INT TERM
+  db_lock_release
   [[ -n "$CTL_PID" ]] && { touch "$CTL/stop"; wait "$CTL_PID" 2>/dev/null; }
   # The server log, scrubbed of the secret, for the CI artifact. The repo is public and artifacts are world-readable.
   $E logs "$SRV" 2>&1 | sed -e "s/$SECRET_RE/[secret]/g" -e "s/$DB_PASS/[db password]/g" >"$OUT/server.log" 2>/dev/null
   chmod 666 "$OUT/server.log" 2>/dev/null
   if [[ "${E2E_KEEP:-0}" == 1 ]]; then
-    $E rm -f "$CYC" >/dev/null 2>&1
+    $E rm -f -v "$CYC" >/dev/null 2>&1
     say "kept $WORK and volume $VOL (container $SRV is stopped); remove them with: scripts/e2e-up.sh down"
     $E stop "$SRV" >/dev/null 2>&1
   else
@@ -292,7 +302,7 @@ client_wait() {
 
 # Creates the server container (first start only, with a fresh volume).
 server_create() {
-  $E rm -f "$SRV" >/dev/null 2>&1
+  $E rm -f -v "$SRV" >/dev/null 2>&1
   $E volume rm -f "$VOL" >/dev/null 2>&1
   $E volume create --label "$LABEL=$RUN" "$VOL" >/dev/null || return 1
   if [[ "$DB_KIND" != sqlite ]]; then db_create || return 1; fi

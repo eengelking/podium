@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup, act, renderHook } from "@testing-li
 import { FleetView } from "./FleetApp";
 import { CopyCell } from "./components/FactsBar";
 import { clampWidth, keyWidth } from "./useResizable";
-import { useFleet, type FleetSource } from "./useFleet";
+import { CHAT_FRAME_MS, useFleet, type FleetSource } from "./useFleet";
 import { useTheme } from "./useTheme";
 import { makeSession, makeState } from "./fixtures";
 import { stateFrom } from "./testState";
@@ -400,7 +400,101 @@ describe("useFleet", () => {
     });
     const before = result.current.chatRev;
     act(() => FakeSource.last!.emit("chat", { scope: "dm", owner: null, rev: 1 }));
+    act(() => void vi.advanceTimersByTime(CHAT_FRAME_MS));
     expect(result.current.chatRev).toBe(before + 1);
+  });
+
+  // #1296: the server sends one chat event for each scope an action changed (a message across owners: a dm and a public one), and the page reads
+  // once for them, not once for each.
+  describe("chat events that arrive in one frame", () => {
+    async function live() {
+      vi.useFakeTimers();
+      const fetchState = vi.fn().mockResolvedValue(makeState());
+      const hook = renderHook(() => useFleet({ open: () => new FakeSource(), fetchState }));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      return { ...hook, emit: (type: string, data: unknown) => act(() => FakeSource.last!.emit(type, data)), wait: (ms: number) => act(() => void vi.advanceTimersByTime(ms)) };
+    }
+
+    it("count once, however many there are, and none is held longer than a frame", async () => {
+      const { result, wait } = await live();
+      const before = result.current.chatRev;
+      act(() => {
+        for (const scope of ["dm", "public", "group"]) FakeSource.last!.emit("chat", { scope, owner: null, rev: 1 });
+      });
+      wait(CHAT_FRAME_MS - 1);
+      expect(result.current.chatRev).toBe(before);
+      wait(1);
+      expect(result.current.chatRev).toBe(before + 1);
+      // Nothing is left over for a later frame.
+      wait(1000);
+      expect(result.current.chatRev).toBe(before + 1);
+    });
+
+    it("are counted a frame after the first one, which later ones in the frame do not move", async () => {
+      const { result, emit, wait } = await live();
+      const before = result.current.chatRev;
+      emit("chat", { scope: "dm", owner: null, rev: 1 });
+      wait(10);
+      emit("chat", { scope: "public", owner: null, rev: 2 });
+      wait(CHAT_FRAME_MS - 10);
+      expect(result.current.chatRev).toBe(before + 1);
+    });
+
+    it("count once for each frame they come in", async () => {
+      const { result, emit, wait } = await live();
+      const before = result.current.chatRev;
+      emit("chat", { scope: "dm", owner: null, rev: 1 });
+      wait(CHAT_FRAME_MS);
+      emit("chat", { scope: "public", owner: null, rev: 2 });
+      wait(CHAT_FRAME_MS);
+      expect(result.current.chatRev).toBe(before + 2);
+    });
+
+    it("leave a snapshot alone: it counts at once, and the chat event before it is not counted a second time", async () => {
+      const { result, emit, wait } = await live();
+      const before = result.current.chatRev;
+      emit("chat", { scope: "dm", owner: null, rev: 1 });
+      emit("snapshot", makeState());
+      expect(result.current.chatRev).toBe(before + 1);
+      wait(1000);
+      expect(result.current.chatRev).toBe(before + 1);
+      // A chat event after it counts as before.
+      emit("chat", { scope: "dm", owner: null, rev: 2 });
+      wait(CHAT_FRAME_MS);
+      expect(result.current.chatRev).toBe(before + 2);
+    });
+
+    it("are counted at once when the page is hidden, where a timer would be held back, and the other signals do not wait for the frame", async () => {
+      const { result, emit, wait } = await live();
+      const before = { chat: result.current.chatRev, reads: result.current.readsRev };
+      const hidden = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+      try {
+        emit("chat", { scope: "dm", owner: null, rev: 1 });
+        emit("reads", { rev: 1 });
+        expect(result.current.chatRev).toBe(before.chat + 1);
+        expect(result.current.readsRev).toBe(before.reads + 1);
+        // One that was held while the page was still shown is not counted a second time when the page hides before its frame ends.
+        hidden.mockReturnValue("visible");
+        emit("chat", { scope: "dm", owner: null, rev: 2 });
+        hidden.mockReturnValue("hidden");
+        emit("chat", { scope: "public", owner: null, rev: 3 });
+        expect(result.current.chatRev).toBe(before.chat + 2);
+        wait(1000);
+        expect(result.current.chatRev).toBe(before.chat + 2);
+      } finally {
+        hidden.mockRestore();
+      }
+    });
+
+    it("leave no timer behind when the page goes away in the middle of them", async () => {
+      const { unmount, emit } = await live();
+      emit("chat", { scope: "dm", owner: null, rev: 1 });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it("counts the stream's content-free reads event, for the owner's notice of an Admin's read to be read again (#1073, #1074)", async () => {

@@ -255,7 +255,7 @@ describe('real handshakes', () => {
   });
 
   it('an expired cross certificate ends the overlap for a client that holds only the old CA, and not for one with the new CA', async () => {
-    const { dir, oldCa } = await setup();
+    const { dir } = await setup();
     const out = await rotateCa({ dir, names, servingDays: 365, endOverlap: false });
     const trust = new TrustStore(dir);
     // Re-sign the cross certificate with dates in the past, using the old CA's public identity is not possible without its

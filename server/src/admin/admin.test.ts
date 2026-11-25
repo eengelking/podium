@@ -216,7 +216,7 @@ describe('groups and settings', () => {
     const { agent, people, wall } = await unlocked();
     const got = (await agent.get('/api/admin/settings').set(H)).body;
     expect(got.showBackgroundSessions).toBe(false);
-    expect(got.notices).toEqual([expect.objectContaining({ id: 'background-sessions', name: 'Background sessions', on: true })]);
+    expect(got.notices).toEqual([expect.objectContaining({ id: 'background-sessions', name: 'Background sessions', on: true }), expect.objectContaining({ id: 'concluded-direct-messages', name: 'Concluded direct messages', on: true })]);
     expect((await agent.put('/api/admin/settings').set(H).send({ notices: { 'background-sessions': false } })).status).toBe(200);
     expect(wall.noticeOn('background-sessions')).toBe(false);
     expect((await agent.put('/api/admin/settings').set(H).send({ showBackgroundSessions: true })).status).toBe(200);
@@ -303,6 +303,12 @@ describe('groups and settings', () => {
           on: false,
         },
         {
+          id: 'background-output',
+          name: 'Background shell output in the activity modal',
+          description: expect.stringContaining('Output is held in memory while the tab is open and is never stored'),
+          on: false,
+        },
+        {
           id: 'update-check',
           name: 'Release check',
           description: expect.stringContaining('Off, this server makes no request to GitHub.'),
@@ -338,7 +344,7 @@ describe('groups and settings', () => {
       const { agent, features, people } = await unlocked();
       const res = await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': false } });
       expect(res.status).toBe(200);
-      expect(res.body.features).toEqual([expect.objectContaining({ id: 'activity-feed', on: false }), expect.objectContaining({ id: 'activity-output', on: false }), expect.objectContaining({ id: 'respond', on: false }), expect.objectContaining({ id: 'file-diff', on: false }), expect.objectContaining({ id: 'peer-messaging', on: false }), expect.objectContaining({ id: 'chat-everyone', on: false }), expect.objectContaining({ id: 'session-recording', on: false }), expect.objectContaining({ id: 'my-usage', on: false }), expect.objectContaining({ id: 'update-check', on: true })]);
+      expect(res.body.features).toEqual([expect.objectContaining({ id: 'activity-feed', on: false }), expect.objectContaining({ id: 'activity-output', on: false }), expect.objectContaining({ id: 'respond', on: false }), expect.objectContaining({ id: 'file-diff', on: false }), expect.objectContaining({ id: 'peer-messaging', on: false }), expect.objectContaining({ id: 'chat-everyone', on: false }), expect.objectContaining({ id: 'session-recording', on: false }), expect.objectContaining({ id: 'my-usage', on: false }), expect.objectContaining({ id: 'background-output', on: false }), expect.objectContaining({ id: 'update-check', on: true })]);
       expect(features.featureOn('activity-feed')).toBe(false);
       expect((await agent.get('/api/admin/settings').set(H)).body.features[0].on).toBe(false);
       await agent.put('/api/admin/settings').set(H).send({ features: { 'activity-feed': true } });
@@ -497,16 +503,18 @@ describe('reporters (#142)', () => {
 
   it('tells a person once when an Admin removes their reporters, naming one or counting several, and tells no one for the admin secret (#1078)', async () => {
     const acts = { onSession: vi.fn(async () => {}), onPerson: vi.fn(async () => {}) } as unknown as AdminActs & { onPerson: ReturnType<typeof vi.fn> };
-    const { agent, reporters } = await unlocked({ acts });
-    await reporters.record(seen(), Date.now());
-    await reporters.record(seen({ machineId: '1111aaaa2222', machineName: 'laptop', sessionId: 's2' }), Date.now());
+    const { agent, reporters, people } = await unlocked({ acts });
+    // A reporter belongs to a person by id (#1284): the person is told by the id the reporter kept, and a reporter that kept none (the person is gone) tells no one.
+    const dana = (await people.createPerson('Dana')).person.id;
+    await reporters.record(seen({ ownerId: dana }), Date.now());
+    await reporters.record(seen({ machineId: '1111aaaa2222', machineName: 'laptop', sessionId: 's2', ownerId: dana }), Date.now());
     await reporters.record(seen({ machineId: '3333bbbb4444', machineName: 'ci', owner: 'Admin', credential: 'admin secret', sessionId: 's3' }), Date.now());
     expect((await agent.delete('/api/admin/reporters/9f3a1c7d2e40').set(H)).status).toBe(200);
-    expect(acts.onPerson.mock.calls).toEqual([['Admin', 'reporter_removed', 'Dana', 'your reporter studio-m2']]);
+    expect(acts.onPerson.mock.calls).toEqual([[{ id: null, name: 'Admin' }, 'reporter_removed', { id: dana, name: 'Dana' }, 'your reporter studio-m2']]);
     acts.onPerson.mockClear();
     const rest = await reporters.list({}, Date.now());
     expect((await agent.post('/api/admin/reporters/remove').set(H).send({ keys: rest.rows.map((r: { key: string }) => r.key) })).status).toBe(200);
-    expect(acts.onPerson.mock.calls).toEqual([['Admin', 'reporter_removed', 'Dana', 'your reporter laptop']]);
+    expect(acts.onPerson.mock.calls).toEqual([[{ id: null, name: 'Admin' }, 'reporter_removed', { id: dana, name: 'Dana' }, 'your reporter laptop']]);
   });
 
   it('removes a reporter, writes it to the admin log, and refuses a write without the Admin header', async () => {

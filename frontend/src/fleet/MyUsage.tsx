@@ -11,6 +11,7 @@ import { Waiting } from "./admin/ToolsPage";
 import { DataSection, useSection, type SectionState, type Spec } from "./admin/TimePages";
 import { useReport, type ReportConfig } from "./admin/useReport";
 import { Blank } from "./components/Blank";
+import { PAGE_INFO } from "./pageInfo";
 import type { RespondMe } from "./types";
 
 const BASE = "/api/fleet/respond/usage";
@@ -35,7 +36,7 @@ const MY_SPEND: ReportConfig = {
   report: "spend",
   prefsKey: "my-spend",
   title: "Spend",
-  lead: "What your own sessions cost, how they ended and what failed. Only you can see this page.",
+  lead: PAGE_INFO.myUsage.description,
   hasBy: true,
   // The Harness filter narrows the tool calls: spend is not kept per harness, and the page says so.
   filters: ["harness"],
@@ -104,7 +105,10 @@ function Reports({ client }: { client: ReportsClient }) {
   const period = `${range.from} to ${range.to}`;
   return (
     <>
-      <PageHeader title="My usage" lead={MY_SPEND.lead} actions={<ReportExport r={r} noun="spend " />} />
+      <h1 className="vh">My usage</h1>
+      <div className="page-tools">
+        <ReportExport r={r} noun="spend " />
+      </div>
       <Section id="my-f" title="Period and filters">
         <Panel>
           <ReportFilters client={client} r={r} harnesses={tools.reply?.harnesses} />
@@ -181,7 +185,7 @@ export function MyUsagePage({ me, on, client = LIVE }: { me: RespondMe | null; o
             body
           ) : (
             <>
-              <PageHeader title={gone ? "Page not found" : "My usage"} lead={gone ? "" : MY_SPEND.lead} />
+              {gone ? <PageHeader title="Page not found" lead="" /> : <h1 className="vh">My usage</h1>}
               {body}
             </>
           )}

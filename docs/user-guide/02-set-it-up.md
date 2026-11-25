@@ -39,7 +39,7 @@ Then give it the token:
 
 If someone else runs the server, ask them for your own token and enter it as `token`, with your name as `userName`
 (see [Admin](05-admin/README.md)). To run one server for several people, see "Several people on one Podium" in
-[SERVER.md](../SERVER.md#run-it-with-podiumctl). It covers the bind address, the firewall, the names the server accepts
+[SERVER.md](../SERVER.md#several-people-on-one-podium). It covers the bind address, the firewall, the names the server accepts
 (`PODIUM_ALLOWED_HOSTS`, for reaching it by a name rather than an address) and what everyone who can reach the server
 can see. If you put a TLS proxy in front of it, see [Behind a reverse proxy](../SERVER.md#behind-a-reverse-proxy), so that
 Admin's log shows each person's address and one person's wrong tries do not lock everyone out.

@@ -27,7 +27,7 @@ const PING_MS = 15_000;
 type Load =
   | { state: "loading" }
   | { state: "error"; status: number | null; message: string; owner: string | null; unavailable?: true }
-  | { state: "ok"; rows: RecordingRow[]; olderBefore: number | null; total: number; grant: RecordingGrant; owner: string | null };
+  | { state: "ok"; rows: RecordingRow[]; olderBefore: number | null; total: number; grant: RecordingGrant; owner: string | null; ownerId: number | null };
 
 /** A text that may be long: short ones as they are, long ones cut with the whole text one click away. Text only, never HTML. */
 function Long({ text, label }: { text: string; label: string }) {
@@ -255,7 +255,7 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
       .then((p: RecordingPage) => {
         if (!live) return;
         setLoops(p.loops);
-        setLoad({ state: "ok", rows: p.entries, olderBefore: p.olderBefore, total: p.total, grant: p.grant, owner: p.owner });
+        setLoad({ state: "ok", rows: p.entries, olderBefore: p.olderBefore, total: p.total, grant: p.grant, owner: p.owner, ownerId: p.ownerId ?? null });
       })
       .catch((e: unknown) => {
         if (!live) return;
@@ -279,8 +279,9 @@ export function ReplayPage({ id, session, now }: { id: string; session: SessionV
 
   // An Admin replaying someone else's session keeps that person's notice alive while the replay is open (#1075): one ping every 15 seconds. A failed ping is
   // ignored; the next one tries again. The person's own replay needs none.
-  const owner = load.state === "ok" ? load.owner : null;
-  const admin = respond?.me?.admin === true && !!respond.me.name && owner !== null && nameKey(owner) !== nameKey(respond.me.name);
+  // Whose recording it is, is the owner's person id (#1291), never the name: a same-named newcomer is not the owner. A recording with no owner id (the admin secret's, a deleted person's) has no one to tell.
+  const ownerId = load.state === "ok" ? load.ownerId : null;
+  const admin = respond?.me?.admin === true && ownerId !== null && respond.me.id !== ownerId;
   const ping = api?.recordingReading;
   useEffect(() => {
     if (!admin || !ping) return;

@@ -8,7 +8,7 @@ import type { ContractAdapter } from './contractAdapter.js';
 import type { Storage } from './types.js';
 
 /** Records one value of a scenario's trace. Resolves with it, so a scenario can use the value it records. */
-export type Rec = <T>(label: string, value: T | Promise<T>) => Promise<T>;
+type Rec = <T>(label: string, value: T | Promise<T>) => Promise<T>;
 
 /** What a scenario is: calls on a storage, each result handed to `rec`. */
 export type Scenario = (s: Storage, rec: Rec) => Promise<void>;
@@ -18,13 +18,14 @@ export interface Openers {
   adapters: ContractAdapter[];
 }
 
-/** A generated id (`prq_` or `dlv_` and 24 hex digits; a channel message's `grp_` or `pub_`, the server's 8 hex digits of scope and 24 hex digits): random by design, so it differs between two storages and is not compared. */
-const GENERATED = /^((prq|dlv)_[0-9a-f]{24}|(grp|pub)_[0-9a-f]{8}_[0-9a-f]{24})$/;
+/** A generated id (`prq_` or `dlv_` and 24 hex digits; a channel message's `grp_` or `pub_`, or a conversation's `cnv_` or its message's `cmg_`, the server's 8 hex digits of scope and 24 hex digits): random by design, so it differs between two storages and is not compared. */
+const GENERATED = /^((prq|dlv)_[0-9a-f]{24}|(grp|pub|cnv|cmg)_[0-9a-f]{8}_[0-9a-f]{24})$/;
 
 /**
  * The one list of differences between databases that are not defects (#1008): a field a database reports about its own storage is a
  * number in every database and a different one in each, so only its type is compared. A new entry needs a reason here, and is never
- * a way to make one adapter pass.
+ * a way to make one adapter pass. This set is for reported values. How an adapter lays a table out is not a value, and is declared in that
+ * adapter's list of physical differences and checked against its database (`PhysicalDifference`, DECISIONS 78), never put here.
  */
 const PHYSICAL = new Set(['fileBytes', 'freed']);
 
@@ -77,6 +78,9 @@ export async function sameOnAll(o: Openers, scenario: Scenario): Promise<Map<str
   }
   return new Map(first.trace);
 }
+
+/** A copy of `texts` in one fixed order, for a case that holds a set of keys or ids and not the order they come back in (an explicit compare, so the order does not depend on a default). */
+export const sortedText = (texts: readonly string[]): string[] => [...texts].sort((x, y) => x.localeCompare(y));
 
 /** Registers `body` as one test per adapter, titled with the adapter's name, for a case about an adapter's own behavior in one storage. */
 export function onEachAdapter(o: Openers, title: string, body: (s: Storage, adapter: string) => Promise<void>, timeout?: number): void {

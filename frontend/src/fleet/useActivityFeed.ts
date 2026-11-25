@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVITY_HISTORY_PAGE } from "../../../server/src/fleet/activityHistoryTypes";
 import { respondApi, RespondError } from "./respondApi";
 import { readJson, writeJson } from "./storage";
-import type { ActivityEntryView, ActivityHistoryNote, ActivityHistoryPage, ActivityReply } from "./types";
+import type { ActivityEntryView, ActivityHistoryNote, ActivityHistoryPage, ActivityReply, BackgroundItem } from "./types";
 import { usePageVisible } from "./usePageVisible";
 
 // The agent activity feed's fetching (#118). The server keeps a loop's entries only while a viewer holds a lease on
@@ -25,9 +25,9 @@ export type FetchActivity = (sessionId: string, loop: string, every: number) => 
 export const EVERY_CHOICES = [5, 10, 20, 30, 60] as const;
 export const EVERY_KEY = "podium.activityEvery";
 /** Entries shown, as the server keeps. */
-export const FEED_KEPT = 20;
+const FEED_KEPT = 20;
 /** Live entries kept in the window once stored history is loaded; older ones are in the stored pages. */
-export const LIVE_KEPT = 500;
+const LIVE_KEPT = 500;
 
 const defaultFetch: FetchActivity = async (sessionId, loop, every) => {
   const res = await fetch(`/api/fleet/sessions/${encodeURIComponent(sessionId)}/agents/${encodeURIComponent(loop)}/activity?every=${every}`);
@@ -53,7 +53,7 @@ export type FetchHistory = (sessionId: string, loop: string, before?: number | n
 export type FeedEntry = ActivityEntryView & { key?: string; live?: true };
 
 /** What the window says about the stored history of its loop; null under the default policy. */
-export interface StoredInfo {
+interface StoredInfo {
   total: number;
   since: number | null;
   keptUntil: number | null;
@@ -82,12 +82,14 @@ export interface FeedState {
   live: boolean;
   /** The last reply said the Admin has turned the feed off for this server. */
   adminOff: boolean;
+  /** The loop's background shells and monitors as the last answer held them (#897), oldest first. A snapshot, not an increment: the newest answer replaces it. */
+  background: BackgroundItem[];
   /** The server refused the live feed: 401 when nobody is signed in, 403 for a person who is not the owner or an Admin (#1082). Null otherwise. */
   refused: 401 | 403 | null;
 }
 
 type Live = Omit<FeedState, "stored" | "loadOlder">;
-const EMPTY: Live = { entries: [], seen: 0, fetchedAt: null, failed: false, live: true, adminOff: false, refused: null };
+const EMPTY: Live = { entries: [], background: [], seen: 0, fetchedAt: null, failed: false, live: true, adminOff: false, refused: null };
 const NO_OLDER = async () => {};
 
 /** What a stored page holds, keyed apart from the live feed. */
@@ -124,12 +126,19 @@ interface Store {
   denied: boolean;
 }
 
+/** How many more times a finished loop is asked, to catch the items the reporter sends with its first report after the lease (#1242). */
+const FINISHED_ASKS_AFTER = 3;
+
 export function useActivityFeed(opts: {
   sessionId: string;
   loop: string;
   /** The reporter can send a feed: the option is on (or not known to be off) and the mod is new enough. */
   enabled: boolean;
-  /** The loop is still working. A finished one is fetched once more, for its last entries, and then left alone. */
+  /**
+   * The loop is still working. A finished one is still asked while its own Background list holds a running item (a shell can outlive the agent that
+   * started it, #1242) and for a few more answers, because the first answer after the lease only starts the lease and the reporter sends the items with its
+   * next report. Then it is left alone.
+   */
   active: boolean;
   every: number;
   /**
@@ -160,6 +169,8 @@ export function useActivityFeed(opts: {
   const epoch = useRef(0);
   // The highest `seq` already taken, and the lease it belongs to. Null until the first answer for this loop.
   const cursor = useRef<{ since: number | null; seq: number } | null>(null);
+  /** Whether the newest answer listed a running background item: a finished loop keeps being asked while it does (#1242). */
+  const runningBg = useRef(false);
 
   useEffect(() => {
     cursor.current = null;
@@ -234,7 +245,8 @@ export function useActivityFeed(opts: {
         // happened before this viewer was watching, so it is skipped rather than backfilled.
         if (!c || c.since !== r.since) {
           cursor.current = { since: r.since, seq: top };
-          setState((st) => ({ ...st, fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false, refused: null }));
+          runningBg.current = (r.background ?? []).some((i) => i.state === "running");
+          setState((st) => ({ ...st, background: r.background ?? [], fetchedAt: Date.now(), failed: false, live: r.live, adminOff: false, refused: null }));
           return;
         }
         const fresh = r.entries.filter((e) => e.seq > c.seq);
@@ -245,9 +257,11 @@ export function useActivityFeed(opts: {
         const bySeq = new Map(r.entries.map((e) => [e.seq, e]));
         const low = r.entries.length ? r.entries[0]!.seq : Infinity;
         const synced = (list: ActivityEntryView[]) => list.filter((e) => e.kind !== "podium" || e.seq < low || bySeq.has(e.seq)).map((e) => (e.kind === "podium" || e.kind === "tool" ? (bySeq.get(e.seq) ?? e) : e));
+        runningBg.current = (r.background ?? []).some((i) => i.state === "running");
         setState((st) => ({
           // With stored history the cap is far wider: what is trimmed is still stored, and stays one page away.
           entries: [...synced(st.entries), ...fresh].slice(-(loaded.current === "done" ? LIVE_KEPT : FEED_KEPT)),
+          background: r.background ?? [],
           seen: st.seen + fresh.length,
           fetchedAt: Date.now(),
           failed: false,
@@ -267,7 +281,15 @@ export function useActivityFeed(opts: {
       }
     };
     void tick();
-    const timer = active ? setInterval(() => void tick(), every * 1000) : null;
+    // A finished loop is asked FINISHED_ASKS_AFTER more times, and for as long as its own list holds a running item (#1242).
+    let spare = FINISHED_ASKS_AFTER;
+    const timer = setInterval(() => {
+      if (!active && !runningBg.current && spare-- <= 0) {
+        clearInterval(timer);
+        return;
+      }
+      void tick();
+    }, every * 1000);
     return () => {
       cancelled = true;
       if (timer) clearInterval(timer);

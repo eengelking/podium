@@ -4,10 +4,10 @@
 // know: it cannot tell a reporter that is turned off from one that cannot reach it. All statements are parameterized.
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { checkReporter } from '../../fleet/compat.js';
+import { chunksOf } from '../batches.js';
 import { clampPage, likeTerm } from './people.js';
-import type { ReporterCompat } from '../../fleet/protocol.js';
 import type { PeerReporterLookup, ReporterRef } from '../../fleet/peerTypes.js';
-import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, nameSuffix, canonicalReporterName, storedReporterNames, type Paged, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, canonicalReporterName, storedReporterNames, REPORTING_MS, IDLE_MS, type ReporterState, REPORTER_STATES, type ReporterSort, ADMIN_SECRET, sameAccount, type ReporterSeen, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, IGNORE_KINDS, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 const MAX_REJECTED = 200;
 const SHOWN_REJECTED = 20;
 const DAY_MS = 24 * 60 * 60_000;
@@ -26,6 +26,7 @@ interface DbReporter {
   machine_name: string | null;
   source_address: string | null;
   owner: string | null;
+  owner_id: number | null;
   credential: string | null;
   reporter_version: string;
   engine_version: string | null;
@@ -39,7 +40,7 @@ interface DbReporter {
   project: string | null;
 }
 
-type DbPeerRef = Pick<DbReporter, 'key' | 'machine_name' | 'owner' | 'credential' | 'os' | 'peers' | 'reporter_version' | 'reporter_name'>;
+type DbPeerRef = Pick<DbReporter, 'key' | 'machine_name' | 'owner' | 'owner_id' | 'credential' | 'os' | 'peers' | 'reporter_version' | 'reporter_name'>;
 
 /** The state, in SQL, from the last report, the time the server started and now. */
 const STATE_SQL = `CASE WHEN r.last_seen_at < :started THEN 'restart'
@@ -91,14 +92,14 @@ export class ReporterStore {
    * the first one keeps the machine id as its key (rows and ignore rules made before this stay valid) and each
    * other account gets `<machine id>#<owner>`. A reporter with no machine id is keyed by `keyOf` alone.
    */
-  private accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): string {
+  private accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'ownerId' | 'reporterName'>): string {
     const own = ReporterStore.keyOf(s);
     if (!s.machineId) return own;
     const apart = apartKeyOf(s);
-    const has = (key: string) => this.stmt('SELECT owner FROM reporters WHERE key = ?').get(key) as { owner: string | null } | undefined;
+    const has = (key: string) => this.stmt('SELECT owner, owner_id FROM reporters WHERE key = ?').get(key) as { owner: string | null; owner_id: number | null } | undefined;
     if (has(apart)) return apart;
     const bare = has(own);
-    return !bare || bare.owner === s.owner ? own : apart;
+    return !bare || sameAccount(bare, s) ? own : apart;
   }
 
   /**
@@ -120,7 +121,7 @@ export class ReporterStore {
   }
 
   /** Every key a report from this sender can be known by: its own, and the row that already holds its session (#166). */
-  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): string[] {
+  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null; ownerId?: number | null }): string[] {
     const own = ReporterStore.keyOf(s);
     const known = this.knownKey(s as ReporterSeen);
     const account = this.accountKey({ ...s, owner: s.owner ?? null });
@@ -139,12 +140,13 @@ export class ReporterStore {
     const key = known ?? this.accountKey(s);
     // A row made for this address before a known session turned up here is the same reporter: fold it in.
     if (known && known !== own) this.merge(own, known);
+    this.takeover(key, s);
     const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
     this.stmt(
-      `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, owner_id, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, reporter_name = excluded.reporter_name, machine_name = excluded.machine_name, source_address = excluded.source_address,
-         owner = excluded.owner, credential = excluded.credential, reporter_version = excluded.reporter_version,
+         owner = excluded.owner, owner_id = excluded.owner_id, credential = excluded.credential, reporter_version = excluded.reporter_version,
          engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at,
          os = COALESCE(excluded.os, os), peers = COALESCE(excluded.peers, peers)`,
     ).run(
@@ -155,6 +157,7 @@ export class ReporterStore {
       s.machineName?.slice(0, 64) ?? null,
       s.source?.slice(0, SOURCE_MAX) ?? null,
       s.owner,
+      s.ownerId ?? null,
       s.credential,
       s.version.slice(0, 64),
       s.engineVersion?.slice(0, 64) ?? null,
@@ -187,26 +190,32 @@ export class ReporterStore {
       key: r.key,
       machine: r.machine_name ?? r.key,
       owner: r.owner,
+      ownerId: r.owner_id,
       adminSecret: r.credential === ADMIN_SECRET,
       os: r.os,
       peers: r.peers === null ? null : r.peers === 1,
       version: r.reporter_version,
       reporterName: canonicalReporterName(r.reporter_name),
     });
-    const cols = 'key, machine_name, owner, credential, os, peers, reporter_version, reporter_name';
-    const mine = `lower(owner) = lower(:owner) AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`;
+    const cols = 'key, machine_name, owner, owner_id, credential, os, peers, reporter_version, reporter_name';
+    // A person's reporters are the rows that carry the person's id (#1284): a row with none (the admin secret's, or one whose person was deleted) is nobody's.
+    const mine = `owner_id = :ownerId AND kind = 'mod' ORDER BY lower(COALESCE(machine_name, key)), key`;
     return {
       startedAt: this.startedAt,
-      ofOwnerSeen: (owner, now) =>
-        (this.stmt(`SELECT ${cols}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${mine}`).all({ owner, now, started: this.startedAt }) as unknown as (DbPeerRef & Pick<DbReporter, 'last_seen_at' | 'state'>)[]).map(
-          (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)) }),
-        ),
+      ofOwnerSeen: (ownerId, now) =>
+        ownerId === null
+          ? []
+          : (this.stmt(`SELECT ${cols}, last_seen_at, ${STATE_SQL} AS state FROM reporters r WHERE ${mine}`).all({ ownerId, now, started: this.startedAt }) as unknown as (DbPeerRef & Pick<DbReporter, 'last_seen_at' | 'state'>)[]).map(
+              (r) => ({ ...ref(r), state: r.state, lastSeenAt: r.last_seen_at, compat: checkReporter(r.reporter_version, canonicalReporterName(r.reporter_name)) }),
+            ),
       get: (key) => {
         // Mod reporters only, as ofOwner: a hooks-only reporter has no orchestrator to message, so no right can name it.
         const r = this.stmt(`SELECT ${cols} FROM reporters WHERE key = ? AND kind = 'mod'`).get(key) as DbPeerRef | undefined;
         return r ? ref(r) : null;
       },
-      ofOwner: (owner) => (this.stmt(`SELECT ${cols} FROM reporters WHERE ${mine}`).all({ owner }) as unknown as DbPeerRef[]).map(ref),
+      // order-insensitive: the reporters are put into a map by key.
+      getMany: (keys) => chunksOf([...new Set(keys)]).flatMap((part) => (this.db.prepare(`SELECT ${cols} FROM reporters WHERE kind = 'mod' AND key IN (${part.map(() => '?').join(', ')})`).all(...part) as unknown as DbPeerRef[]).map(ref)),
+      ofOwner: (ownerId) => (ownerId === null ? [] : (this.stmt(`SELECT ${cols} FROM reporters WHERE ${mine}`).all({ ownerId }) as unknown as DbPeerRef[]).map(ref)),
     };
   }
 
@@ -220,6 +229,19 @@ export class ReporterStore {
     this.stmt('INSERT OR IGNORE INTO reporter_sessions (reporter_key, session_id, peers) SELECT ?, session_id, peers FROM reporter_sessions WHERE reporter_key = ?').run(into, from);
     this.stmt('UPDATE reporters SET first_seen_at = MIN(first_seen_at, COALESCE((SELECT first_seen_at FROM reporters WHERE key = ?), first_seen_at)) WHERE key = ?').run(from, into);
     this.stmt('DELETE FROM reporters WHERE key = ?').run(from);
+  }
+
+  /**
+   * A reporter row that changes hands starts clean (#1284). When a report comes for a key whose row belongs to another account (a different person's id, or a row with no id that a person now
+   * claims, as when a newcomer takes a deleted person's name and reports from the same machine), the row's links, rights, requests and session links are cleared before the new owner is written, so
+   * the newcomer inherits none of what the earlier holder had. The messages stay with the earlier owner's id, which no one now holds.
+   */
+  private takeover(key: string, s: ReporterSeen): void {
+    const had = this.stmt('SELECT owner, owner_id FROM reporters WHERE key = ?').get(key) as { owner: string | null; owner_id: number | null } | undefined;
+    if (!had || sameAccount(had, s)) return;
+    this.stmt('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?').run(key, key);
+    this.stmt('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?').run(key, key);
+    this.stmt('DELETE FROM reporter_sessions WHERE reporter_key = ?').run(key);
   }
 
   /** Keeps a short, memory-only list of refused reports by source address, for the detail view. The reason is one of the server's own fixed phrases. */
@@ -236,6 +258,7 @@ export class ReporterStore {
       name: r.machine_name ?? (r.kind === 'hooks' ? 'Hooks only' : (r.project ?? r.source_address ?? 'Unnamed reporter')),
       named: r.machine_name !== null,
       who: r.owner ?? 'Unassigned',
+      whoId: r.owner_id ?? null,
       credential: r.credential,
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,

@@ -38,6 +38,25 @@ pages, responding, the orchestrator page and the right panel.
   reporter count and a control after it would move; the buttons stay at the far right.
 - No Pause or simulator buttons (those belong to the simulator script).
 
+**The info row** (#1209, `mockup/podium-page-title-once.html`)
+- The page's name is the page pill in the top bar and is not said again. The info row holds the page's description
+  alone, with no bold name before it, on every page that shows it. A page's name and description are one entry
+  (`pageInfo.ts`), so the pill, the row and the (i) cannot drift apart. No two pages share a name or a description.
+- The row is one line and its text stops at the middle of the row, or before the open drawer, whichever is nearer.
+  The text is cut only between sentences: the row shows as many whole sentences as fit, and a first sentence that
+  does not fit uses the whole row and is never cut inside. A description's first sentence is at most 36 characters,
+  so it fits at 400 px beside the (i) and the Wall options pill.
+- When a sentence is left out, an (i) button comes before the text, at the left edge of the row, clear of the top bar's
+  collapse tab, which hangs into the middle of the row. Hovering or focusing it shows the tip "Click to read
+  the full description"; a click opens a modal, under the (i) and not in the middle of the page, titled "About" and
+  the page's name, with the full description. The modal closes with its X, Esc or a click on the dimmed area and
+  gives focus back to the (i). It is as wide as its text needs, with the same padding on all four sides.
+- The page body does not say the name or the description again where the pill and the row already say them: Chat,
+  My reporters, My usage and Traffic start at their content, with a visually hidden `h1`. A page whose body has a
+  title and description of its own that differ from the pill and the row (each Admin page) keeps them. My usage's
+  Export is a row at the top of its body.
+- The Wall options drawer opens over the row and never makes it taller.
+
 **Wall options** (#1129, `mockup/podium-wall-options.html`)
 - The info row under the top bar ends in one drawer, Wall options (`WallOptions`), that holds the display controls:
   Refresh every, Shortcuts, Theme and Light / Dark / System, in that order. Every page that shows the row draws the
@@ -68,7 +87,7 @@ pages, responding, the orchestrator page and the right panel.
 - It sets how often the fleet page redraws: the browser keeps receiving every event, but shows the newest
   state once per interval, and the elapsed times and clock move on the same interval.
 - A change shows at once when it is a change of connection phase, a session that newly reaches waiting or
-  stale, or an agent that newly has a failure.
+  stale, an agent that newly has a failure, a change in Chat, a change to the wall's settings or flags, or a session that left.
 - The pulse and blink beat (`useHeartbeat`) is not affected. History and Admin show and save the setting but do
   not redraw on it yet, and the activity feed has its own.
 - It goes with the info row when the top bar is collapsed, and the red disconnect banners replace the info
@@ -103,7 +122,7 @@ pages, responding, the orchestrator page and the right panel.
   hover, a pointer cursor and a focus ring) that opens the console's `Modal`, "Keyboard shortcuts" (#828). The modal
   lists every shortcut in two columns split by a 1px `--border` pipe, `\`, `[` and `]` on the left and `w` and `Esc`
   on the right, each key in the inline code chip, with a note where a key does nothing (`[` and `]` on Traffic, `w`
-  on Traffic, Chat, My reporters and My usage). Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
+  on Traffic or My reporters). The page switch ignores `w` on Chat and My usage too, which draw no wall, but the note names only the two pages above. Under 480 px the columns stack with a rule between them. The X, `Esc` and a press on
   the dimmed area close it, and focus returns to the word. While the switch is off the word is a plain label. One
   array, `SHORTCUTS`, feeds this list and the switch's hint. Mockup `mockup/podium-shortcuts-help.html`.
 - The shortcuts are ignored while typing in a field, with ctrl, meta or alt held, and on a resize handle.
@@ -457,7 +476,9 @@ menu and the page scroll on their own.
   it**; none is primary, since Create user is the page's primary button. The file cannot be fetched again.
 
 **Groups**
-- **Create group**, then **Manage groups**.
+- Lead: "Arrange people into groups. The fleet wall shows a band per group."
+- **Create group** (help: "A person belongs to one group at most. Groups arrange the console, and the built-in Administrators group also lets its people open Admin with their own token."): a **Name** field (placeholder "For example Frontend, Backend or DevOps", at most 24 characters) and a primary **Create group** button.
+- **Manage groups** (help: "Deleting a group leaves its people without a group."): a table with the columns Group and People and a hidden Actions column, and a pager. With no group it says "No groups yet. Create one above, then pick it for a person on the People page." A group's People cell shows up to five member chips, then "and N more", then "N in total", or "No one yet. Pick this group for a person on the People page." The built-in **Administrators** group carries a "built in" tag and a dashed **Admin (secret)** chip (the admin secret is always a member), says how many people can also open Admin with their own token, and has a disabled **Delete** with "Built in. It cannot be renamed or deleted." Any other group's **Delete** opens an inline confirmation in its row (a danger **Delete** and **Cancel**).
 
 <a id="admin-reporting-484"></a>**Reporting (#484, `mockup/podium-admin-reporting.html`)**
 - A menu group of eight pages, all Administrator-only like the rest of Admin. Every page but Spend is the usual stack: a
@@ -498,8 +519,8 @@ menu and the page scroll on their own.
     content of the old Admin > Activity > Spend page: *Spend today, by person* and *by group* as Chart or Table,
     now the first section of this page with its `podium.adminSpend` choices unchanged, above the report. Figures
     are estimated from tokens, not a bill, and a model without a price shows a dash. A session counts on the day it
-    was last seen, so a session that runs past midnight is not split. The page has three sections, in this order:
-    *Spend today* (with the breakdown below), *Projection* and *Spend over time*.
+    was last seen, so a session that runs past midnight is not split. The page has four sections, in this order:
+    *Spend today* (with the breakdown below), *Projection*, *Spend over time* and *Tokens and cache hit rate* (#723).
     - **Breakdown (#482).** A row in *Spend today, by person* is a button (Enter and Space work). It opens the
       person's breakdown under the list, with a **Close** button, and focus moves to its heading. The breakdown
       is of the same "since midnight" figure as the row, cut three ways, each adding up to the row:
@@ -523,8 +544,7 @@ menu and the page scroll on their own.
         month's spend so far, today included, plus the run rate for each day left after today. *Next 30 days* is
         30 times the run rate. It does not allow for weekdays, a trend or a price change.
       - Shown: the projected total, and beside it the window ("14 days, 2026-10-06 to 2026-10-19"), the run rate
-        per day, and the assumptions in one line ("Straight run rate. Models without a price are left out.
-        Not a budget."). Per person or group when **Group by** says so, each with its own run rate.
+        per day, and the assumptions in one line ("Based on the 14 days 2026-10-06 to 2026-10-19. Straight run rate: weekdays, trends and price changes are not allowed for. Not a budget. Models without a price are left out."). Per person or group when **Group by** says so, each with its own run rate.
       - With fewer than 7 complete days of history in the window (the server has less, or a person has been
         active on fewer than 3 of them), it shows "Not enough history to project. Podium has N days so far" in
         place of the number, never a guess. A person under that rule is listed with a dash.
@@ -557,7 +577,7 @@ menu and the page scroll on their own.
     **Mix of**, in each day, week or month, the long tail as one column) and *Context fullness at the end* (sessions that ended under 50%, from 50% to 80% and above 80% full, and how many
     compacted on their own or continued after a `/clear`, with a row for each harness). Each has its own CSV and JSON, follows the Harness filter and is held back by a Person, Group or Model
     filter with the same line. A session with no context size is counted in a line under the table, not in a row.
-  - **Tools** (#720 to #724): since #724 a *Skills* section lists how often each skill was used, by harness, and by how many people (Podium's reporters see skills, not other slash commands). Since #723 two sections follow *Calls by tool*: *Cost per tool call and per session* (by model and harness, with the priced total; a model without a price
+  - **Tools** (#720 to #724): the page's lead is "Which tools sessions call, how many calls a session makes, and which harness versions are in use. Counts and names only." It has the Harness filter and the usual *Period and filters*, then a *Tool calls by day/week/month* chart section (only tool names and counts are kept: no arguments, paths or commands) and these base sections, in order: *Calls by tool* (an MCP server shows its total and opens to the tools under it), *Tool failures* (failures divided by calls per tool, the bars showing the number of failures and the figure after each its share of that tool's calls; counts only, no error text), *Permission prompts* (how often a tool asked before it ran and how the ask ended), *Call duration* (the middle call and the slower twentieth of calls per tool, slowest first), *Calls per session* (the middle session and the busier tenth) and *Harness versions* (reporters on each version per period; each harness is compared only with its own newest version). Since #724 a *Skills* section lists how often each skill was used, by harness, and by how many people (Podium's reporters see skills, not other slash commands). Since #723 two sections follow *Calls by tool*: *Cost per tool call and per session* (by model and harness, with the priced total; a model without a price
     shows a dash and its calls are counted apart) and *What sessions that used a tool cost* (the average priced spend of a session that called each tool, paged, labelled as not the
     tool's own cost, which Podium cannot measure). Each has its own CSV and JSON and follows the Harness filter.
   - **Spend** (#723): a fourth section, *Tokens and cache hit rate*, after Spend over time: the four token counts and the cache hit rate in each period as a chart and a table, with a row for the
@@ -566,6 +586,25 @@ menu and the page scroll on their own.
     filtered to those sessions while they are within the 30 days History keeps. It is the root-cause report.
   - **Admin activity**: the Admin log filtered by kind and period, read from `admin_log` (90 days).
 - Names are untrusted text, drawn as text nodes. A CSV cell is neutralized as in [7.7](../07-server/07-07-hardening.md).
+
+**Security (#484)** (lead: "Control how reporters prove who they are, and what protects the tokens."; it is `admin/ReportingTab.tsx`, the page that was "Reporting and security")
+- *Reporting with the admin secret*: one switch row, **Allow reporters to use the admin secret**. On, its description says that reporters sending the admin secret show in the Admin band and that anyone who has the secret can also open Admin, so keep it to the Admin's own machine and give everyone else a token. Off, it says reporters that still send the admin secret are refused and a token should be created for them first. A failed load or save shows an error box.
+- *What protects this*: a plain list: tokens are stored hashed and cannot be shown again; Podium decides who a report is from by its token, not by the name in it; revoking takes effect on the next report; wrong guesses at the admin secret are limited and logged in the Admin log; tokens travel as they do today, so on a network use a trusted network or a TLS proxy.
+
+**Certificates (#586, `mockup/podium-tls-certificates.html`)** (Server group; lead: "Podium's own certificate authority (CA) and the certificates it signs. Reporters trust the CA and connect on the reporter port, which accepts only a valid reporter certificate. The console is served over HTTP; put a proxy in front of it for HTTPS.")
+- With built-in TLS off the page is one panel: "TLS is off. Start Podium with built-in TLS to manage certificates here." Otherwise it has these sections, in order, and the header's certificate pill (a warning when the CA or the serving certificate is close to expiring, or a renewal failed) opens it.
+- *Status*: a band when something needs attention, then a table (Certificate, Expires, Renewal, Status) with a row for the CA (valid for years, time left, renewed By hand, with its fingerprint as a button that copies it), a row for the old CA while a rotation overlaps (retiring, kept for the overlap, with the date its chain stays verified) and a row for the serving certificate (expiry, the date it renews itself, and a badge: valid, renewal due, lapses soon, expired, or "not trusted: the CA expired"). An expired CA or serving certificate adds a **To restore access** note. A **CA fingerprint** note says every reporter config carries this CA, so comparing fingerprints shows which CA signed a config. While an overlap runs, **Retire old CA…** ends it, after a confirmation ("Retire the old CA?"), and says how many reporters then need a new reporter config.
+- *Renewal and lifetimes* (help: the serving certificate renews itself and keeps the one it replaced as a backup, reporters renew their own, a change saves when the field is left or the switch flipped and is written to the Admin log): three number rows, **Serving certificate lifetime** (default 365 days, 30 to 825), **Renew when this many days remain** (7 to 90) and **Reporter certificate lifetime** (default 90 days, 30 to 365; a reporter renews its own certificate when 30 days remain, or half its lifetime when that is shorter), and the switch **Show the expiry countdown in the header** (a failed renewal and an expired certificate always show).
+- *Reporters over HTTP*: the switch **Allow reporters to connect over HTTP** (a reporter may still use its name and token on the console port, with no certificate), with how many of the reporters are connected over HTTP now and a warning bar. Turning it off first asks, in a warning-bordered confirmation ("Stop allowing reporters over HTTP?", **Stop allowing HTTP** and **Cancel**), and says that reporters connected over HTTP are refused at once until their person saves a reporter config and starts a new session, and that the console on the loopback address keeps working over HTTP so an Admin can always sign in.
+- *Rotate by hand* (help: for a change of host name, or if a private key may have been exposed): **Renew now** (a new serving certificate from the same CA, the old one kept as a backup, reporters need nothing; primary when the serving certificate has expired and the CA has not) and **Rotate CA…**, which opens a confirmation: **Rotate CA** (a new CA with an overlap of 120 days, during which the serving certificate chains to both CAs and each reporter picks up the new CA when it renews; disabled while a rotation is in progress, or when the CA was made before overlap was possible), **Rotate CA and end the overlap now** (every reporter then needs a new reporter config and open connections are closed) and **Cancel**, which has focus when the question opens. A result line says what happened.
+- *Previous certificates* (help: kept as a backup in `/data/tls/previous`, the last 3): a table of Certificate, Valid, Serial and Status ("kept"), or "No earlier certificate has been replaced yet."
+
+**Admin log (#143)** (Activity group; lead: "What happened in Admin, newest first.")
+- One section, *Recent activity*, whose help names how long entries are kept (for example "Entries are kept for 90 days.", from the reply's `retainMs`, in whole days, else whole hours, else minutes). A table with When, Who ("Not recorded" when there is no actor), What happened (a failure is in the warning color) and From, then the pager. It says "Nothing has happened yet." when empty. The menu badge is the total. Nothing in it holds message text.
+
+**The lock screen**
+- Admin opens one of four ways. While it checks it says "Checking…". With no server token it says "Admin is off" and how to turn it back on (`podiumctl config unset PODIUM_TOKEN`, then `podiumctl restart`). Otherwise it is locked, or open.
+- Locked: a form headed **Admin** whose lead says to sign in with a name and token, and that an Administrator signed in to respond opens Admin without it unless they locked it with **Lock Admin**. A **Name** field, a **Token** password field (cleared after every try), a primary **Unlock Admin** and a hint: use your own name and token if you are in Administrators, or the name `Admin` with the admin secret, which `podiumctl token` prints on the server's machine; Admin locks again after 10 minutes without activity. A notice line above the form says why it is locked ("Admin is locked.", or "Admin locked after 10 minutes without activity. Sign in with your name and token to continue."). Empty fields say "Enter your name and your token."; a wrong pair says "That name and token do not open Admin."; too many tries says "Too many wrong tries. Try again in N minutes." The rail's footer shows on this screen too.
 
 **Data and Stored activity (#432, `mockup/podium-activity-history.html`)**
 - **Data** (it was Data kept under Reporting, #484, and moved to the Server group because it now holds a setting
@@ -666,15 +705,20 @@ features that can be switched off appear here."
     With a warning bar (`role="note"`) under it: "A recording holds whole prompts, file contents, command output and
     tool results. Secrets are removed on the machine before it is sent, but that is best effort. A session is
     recorded only when its owner has allowed it in the reporter and someone has chosen it. Only the owner and an
-    Admin can read a recording." The row is unavailable, with a line saying a token is needed, when the server has no
-    `PODIUM_TOKEN`.
+    Admin can read a recording." When the server has no sign-in the row stays switchable, and its description adds "This server has no
+    sign-in, so nothing can be recorded."
   - **My usage page** (`my-usage`, #726): "Gives each signed-in person a My usage page in the top bar with their own spend,
     sessions, failures and tool calls. Only their own: it never shows another person, and an Administrator sees their own
     figures there too. Needs sign-in on the server. Off by default."
+  - **Background shell output in the activity modal** (`background-output`, #897): "Lets a person open a background shell or
+    monitor in the Activity modal's Background tab to see its whole command and what it printed. Needs the Agent activity
+    feed on, and the reporter's backgroundOutput option on the machine as well. Output is held in memory while the tab is
+    open and is never stored, so an Admin who reads it is recorded and the person is told. Off, the tab still lists each
+    item's state and times." Off by default.
   - **Release check** (`update-check`, #499, [6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml),
     `mockup/podium-update-check-admin.html`): "Asks GitHub once a day for the latest Podium release and says at the
     bottom of the wall when a newer one is out. Off, this server makes no request to GitHub." It is the last row.
-- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output` and `my-usage`, which are off by default.
+- Flags default to on, except `respond`, `file-diff`, `peer-messaging`, `chat-everyone`, `session-recording`, `activity-output`, `my-usage` and `background-output`, which are off by default.
 - They live in the server's `settings` table (`feature.<id>`), apply to every browser, survive a restart, and
   each change is written to the admin log (`feature_changed`).
 - The console gets them in `StateBody.features` and a change as a fresh snapshot.
@@ -700,7 +744,7 @@ a map of it.
 - Signed out (with `enabled` true), it is live on every waiting card, since Podium doesn't know whose sessions are yours;
   it leads to the sign-in form.
 - Signed in, on a session that is neither yours nor answerable as an Admin, it is dimmed, with "`<Owner>`'s
-  session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin can respond."
+  session" beside it and the tooltip "Only `<Owner>`, who owns this session, or an Admin `<Owner>` has allowed, can respond."
 - The card's own click target is unchanged.
 
 **The modal**
@@ -834,16 +878,32 @@ Informational notes about the wall sit in one stack at the bottom of the wall, b
   On/Off). They are stored in the server's `settings` table and sent to the wall in `StateBody.wall`, so they
   apply to every browser and survive a restart. A change reaches open tabs through the `wall` stream event.
 - All notices default to on.
-- The notices are the background-sessions note and the update notice. Only the background-sessions note is in
+- The notices are the background-sessions note, the concluded-direct-messages note and the update notice. The first two are in
   `NOTICES`; the update notice is handled apart (below). A later notice that has its own switch adds one entry to
   `NOTICES` in `server/src/storage/features.ts` and one to the stack in `Wall.tsx`.
+- **The concluded-direct-messages notice (#1283, `mockup/podium-chat-dm-ended.html`)** is in `NOTICES` as `concluded-direct-messages`
+  ("Concluded direct messages", on by default). There is one row for each Direct Message that was concluded because an agent in it ended, for the people in it only. It reads
+  `Tester ended.` then `Its direct message with dev was concluded and deleted. A conversation with two or more people stays.`, and adds `A message you wrote to it was not delivered.`
+  (or `N messages you wrote to it were not delivered.`) when a message of the person's never reached the agent. When the agent was cleared with `/clear` (#1340) the heading is
+  `Tester was cleared.` and the text starts `It is still running under a new session.`. It reports an event, not a standing state, so it departs from
+  "closing turns it off for everyone" as the update notice does: its X is "Close notice: Concluded direct messages", dismisses only that row (`DELETE /api/fleet/respond/chat/concluded/:id`),
+  and the confirmation is titled **Notice dismissed** and says `“Concluded direct messages” will show again the next time a direct message is concluded. You can turn it off in Admin > Settings.`
+  The switch under Admin > Settings > Wall notices turns the whole kind off. The rows come from `GET /api/fleet/respond/chat/concluded` and are read again whenever the console's `chat`
+  signal moves; the server keeps them in memory for 24 hours, so a person who was not connected when it happened is not shown it, and a restart forgets them.
+- **A concluded Direct Message that is open (#1283).** The thread stays open with the read-only banner `Tester ended. This direct message has been concluded and deleted. Nothing in it is kept.`
+  (and the not-delivered sentence), a **Back to conversations** button, and the composer off (`This direct message has ended.`). Nothing else of it is left to show: the console reads
+  no messages for it, shows none and shows no read error (a 404 on a Direct Message is told by the composer, `That conversation is gone, so nothing can be sent.`), and the banner is as high as its text (#1340).
+  After a `/clear` the banner reads `Tester was cleared. It is still running under a new session. This direct message has been concluded and deleted. Nothing in it is kept.`
+- **A conversation of people and agents that stays after an agent ended (#1283).** The agent is listed as `Agent, ended` in the members panel and an `Ended. It can no longer be written to.`
+  tag in the header, the thread ends with the line `Tester ended. This direct message has been concluded for Tester. You and Maya can keep writing here.`, and a message that would
+  go to the agent is skipped with `it ended, so it did not get this message`. A conversation with two people and one agent shows this way. "Ended" is read from the session, so it holds after a restart.
 - **The update notice (#499, `mockup/podium-update-notice.html`)** is the one notice that is not in `NOTICES`. It reads
   `Podium 0.15.0 is available`, in a green pill (`pill good`), then `You are running 0.14.3.` and a **Release notes**
   link that opens the release in a new tab. It shows only while `StateBody.wall.update` is set
   ([6.8](../06-reporter-protocol/06-08-version-compatibility.md#the-release-check-499-mockuppodium-update-noticehtml-mockuppodium-update-check-adminhtml)).
   - Its X is "Close notice: Update available". It hides the release the notice names, for everyone
     (`POST /api/fleet/update-notice/close`), not the notice: a newer release shows it again. The confirmation is titled
-    **Notice dismissed**, says `“Update available” will show again when a release newer than 0.15.0 comes out`, and
+    **Notice dismissed**, says `“Update available” will show again when a release newer than 0.15.0 comes out. You can turn the release check off in Admin > Settings.`, and
     links to Admin > Settings as the others do.
   - Its switch is the **Release check** flag under Feature flags, because turning the notice off for good means
     stopping the check. It has no row under Wall notices.
@@ -1082,7 +1142,7 @@ Built (#415). A console page, `#/me/reporters`, for a signed-in person. The rule
     pair has today. An orchestrator's request says what allowing gives, or that it changes nothing when the pair
     already has as much, since allowing never lowers a right.
   - **Your reporters**: state, machine, system, Messaging (On, or Off on the machine, with how to turn it on
-    there in words, for both Claude Code and the Claude desktop app), version, last report, live orchestrators. State uses Admin > Reporters' badge, words and note
+    there in words, for both Claude Code and the Claude desktop app), version, last report, Admin may respond (#1251: a centered `.sw` switch in each row, off by default, "Admin may respond on <machine>: On" in the page's status line, a failed save put back with the page's own error), live orchestrators. State uses Admin > Reporters' badge, words and note
     (Reporting, Idle, Silent, Not since restart) from the server's `state`, and Last report is `lastSeenAt` counted
     from the server's `serverTime`. Version is drawn as on Admin > Reporters from the server's `compat`, so an
     outdated reporter is flagged whether or not it has a live session.
@@ -1171,27 +1231,59 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 - **Panes.** The page sits between the left rail and the Activity panel as the Board does, and opens with both side panels
   collapsed to their edge tabs, kept under `podium.collapsed.chat` apart from the others. The top bar starts open. It has no
   legend and no Wall mode button. With Shortcuts on, `[` and `]` open and close the panels and `\` the top bar; `w` does nothing.
-- **Sidebar.** Three lists: **Channels** (*General*, and *My group* for a signed-in person), **Direct Messages** (every open or
-  ongoing conversation, with the two agents and the person as the third) and **People and agents** (people and orchestrators: the person's own
-  orchestrators, never a subagent or a fork, to start a Direct Message with). Each row has an unread count, or a mention count (`@ 2`) when it is
+- **The chat fills the window** (#1230, `mockup/podium-chat-redesign.html`). Below the banners the chat is as tall as the window, with the same 16 px gutter on all four sides (8 px on a phone), and only the sidebar and the message list scroll; the page does not. At 1040 px and narrower the console stacks and has no window height to fill, so the chat is most of the window tall (never under 360 px) and the page scrolls as a whole, like every stacked page. The sidebar's width does not change.
+- **Sidebar.** Three lists (`mockup/podium-channels.html`, #1035), in a column `clamp(300px, 30%, 360px)` wide so that a channel's description and a long Direct Message name are not cut off: **Channels** (*General*, then every public channel by name with its description and unread count, then *My group* for a signed-in person),
+  **Direct Messages** (every open or ongoing conversation, with the two agents and the person as the third) and **People and agents** (the person's own
+  orchestrators, never a subagent or a fork, and the other people, to start a Direct Message with) (#1234). Each section has a title in 12 px capitals with a count, which stays at the top of the list while it scrolls and folds
+  the section with a chevron; a hairline sits between sections. Rows keep the app's 13 px type with an 11 px muted line under it, and the selected row has a bar on its left; a row with new messages has a bold name.
+  The Channels, Direct Messages and People and agents titles each have a **+** with a tip, **Create a channel**, **Start a direct message** and **Start a direct message** (the last two open the same New direct message form), in place of the labeled New channel and New direct message buttons; at the
+  50-channel limit (beside General) the Channels **+** is off and the reason is under it. A conversation is named for its members, you left out and the other person first, with its agent's tile or the two
+  parties overlapped beside the name. Clicking a person in People and agents, or **Message** in its menu, opens New direct message with their name searched. Each row has an unread count, or a mention count (`@ 2`) when it is
   addressed to the person. A Direct Message row also shows when part of its conversation has ended ("Tester ended"). A row that
   is an agent shows the app's own state icon (running, waiting for you, delegating, idle on background work, heartbeat lost,
-  done) in the same shape and color as the session cards, and a person shows a monogram. A People and agents row takes its state's
+  done) in the same shape and color as the session cards, and a person shows the avatar below. A People and agents row takes its state's
   color when pointed at or focused. People and agents lists every live session of the person, including one the wall keeps off because it has
-  done nothing yet, and a session that ends leaves it by the wall's own leave animation (one class, one time, and the same reduced-motion rule) (#1110). A row opens with a click or Enter, and has a **...** button and a right-click that open its menu.
+  done nothing yet, and a session that ends leaves it by the wall's own leave animation (one class, one time, and the same reduced-motion rule) (#1110).
+  **People and agents is paged ten at a time** (#1272, `mockup/podium-chat-people-cap.html`), with the footer the Files tab uses (`Showing 1–10 of 23`, then Previous, `1 of 3` and Next; with one page, `10 per page`). The page size is fixed. The order is
+  the rows that need the person first (a running agent, or one with unread messages or mentions in a Direct Message with it), then the newest last message in a Direct Message with the person or agent, then the name; a new message moves its sender up. The order and the
+  count come from the Direct Messages the console already holds, so nothing is stored for the page, and the page number is the console's own. A person who is not on the page is found with the **+** (New direct message), which searches everyone. A row opens with a click or Enter, and has a **...** button and a right-click that open its menu.
   Above the Direct Messages a notice row says how many messages from other people wait for the person's approval in My reporters,
   and links there.
-- **Thread.** The header names the conversation, says who can read it, and lists who is in it as chips (an agent with its state
-  icon, a person with a monogram, and each agent's state). The newest message is at the bottom, and **Earlier messages** above
-  the oldest loaded one pages back, 50 at a time, keeping the reader's place. A message shows its author, the time, its text as text
+- **Who sent it** (#1231). Shape says what the sender is, then color, then a word. An agent is a rounded tile in its model's color with a state mark at its corner and an `Agent · <model>` tag by its name; a person is a neutral ring, a gap and a disc with their initials, never a hue (color already means model and status); you are the same disc inverted. Two parties in one conversation overlap as a pair. An avatar is decorative: the name is always beside it, so a screen reader reads the name, and an avatar is a button only where it opens a menu.
+- **The menu on a sender's avatar** (#1235). Right-clicking the avatar of another sender in a thread, or pressing Enter, the ContextMenu key or Shift+F10 on a focused message, opens the menu of that sender; the message list is one tab stop and the avatars take none. It opens at the pointer, or under the avatar from the keyboard, stays inside the window, closes on Escape with the focus back on the message and on Tab. A person's menu is **Message <name>** and **Mention <name>**; an agent's is **Message**, **Mention** and **Open orchestration page**. Message is offered on every person and agent in the thread, the members panel and the sidebar and is never hidden: it opens New direct message with the name searched, and when nothing can take it the dialog says why. Mention writes the address (`@Maya@console`) at the caret in the channel's message box and focuses it, and is offered only where a channel is open, so a Direct Message has none. Your own avatar has no menu. An Admin reading as a person gets no item that sends (a person's menu is a note that says so; an agent keeps Open orchestration page).
+- **A public channel's thread** (#1035). The header names the channel, says that everyone signed in to the server can read and post in it (every person, orchestrator and Admin; a subagent does not post, its orchestrator does; an orchestrator reads it when it chooses to or when its turn ends),
+  shows its description, a link chip when it is linked ("Issue #1035", "Milestone v1.7", "Project podium") and "Opened by <name>" when the opener is still known. An orchestrator's messages name its person ("orchestrator of <name>") where the console knows whose it is.
+- **New channel** opens a modal: **Name** (lowercase letters, numbers and hyphens, at most 40, not changeable later), **Description** (at most 280, with a count), **About (optional)** (*Nothing*, *Issue*, *Milestone* or *Project*) and **Which one**, and a note that everyone signed in can read and post, Admins and orchestrators included.
+  A refusal is shown in place in a red banner in the server's own words, with the focus moved to the field that is wrong: a name that is empty, malformed or taken, a link that another channel already has (the banner names that channel), a reference missing for a kind, and the 50-channel limit. **Edit description…** reuses the modal with the name and the link fixed.
+- **New direct message** opens a modal with a search (**Find an agent or person**), a list of **Your agents** and **Other people's agents** (each an orchestrator with its state; never a subagent, a fork or an ended session of another person), a **Message** box and **Send message**. An agent that cannot take a message now is shown disabled with the reason in words. Opened from a person (their row in People and agents, or a menu on them), it opens with their name searched and their orchestrator chosen when exactly one can take a message, the message box focused; with none or several it chooses nothing and the reasons are shown. **Cancel** and **Send message** stay at the bottom of the dialog while the form scrolls.
+  Another person's agent says its owner approves before it is delivered, and after sending the page says the message waits for that approval. It starts the same conversation an `@` or the People and agents list does and keeps nothing new.
+- **Thread.** The header names the conversation, says who can read it, and shows who is in it as the members avatar stack (below), not as chips. The thread is anchored to the bottom (#1230): the newest message sits just above the message box, and a short or empty thread grows upward from there. A conversation with no messages opens with an introduction to it in place of "No messages yet". **Earlier messages** above
+  the oldest loaded one pages back, 50 at a time, keeping the reader's place.
+  - **Rows and the bubble** (#1232). A message is a flat row, and every message, yours included, is in the same bubble (the `--sel` surface, no border); only yours is on the right. A run from one sender (the same author within five minutes, on the same day) shares one avatar, name and time, and the rest hang under it with their time in the left gutter on hover. A day divider ("Today") separates days, and a red **New** line marks the first unread message. A fenced block in a message is drawn as text in a monospace block that scrolls sideways and takes focus so the arrow keys scroll it, with its language word and a **Copy** button (a refused clipboard says so); inline code is drawn as code. Nothing in a message is HTML.
+  - **Keyboard and screen reader** (#1231, #1232). The message list is one tab stop and the arrow keys move between messages; avatars take no tab stop. The list is a polite live region, so a message that arrives while the conversation is open is announced, and the history that loads with it, the Earlier messages a person asks for and a message the person has just sent are not.
+  - A message shows its author, the time, its text as text
   (never HTML) and, for a message to an agent, where it is: waiting (until the agent's turn ends), working, done, held (while the
   channel is paused), not delivered or dropped (with why), or waiting for the owner's approval. A mention is a chip in the text. A
   person's message that went to both agents of a conversation is shown once.
-- **The box.** Enter sends and Shift+Enter adds a line. In a channel typing `@` opens a list (a combobox) of what the
-  address can mean, narrowed as more is typed, with a line that says how many match; the arrow keys move, Enter or Tab picks and
-  Escape closes. `@group` and `@everyone` are listed but cannot be picked while the Admin has them off. A box that cannot send
+- **An @ in a Direct Message with an agent in it** (#1282, `mockup/podium-chat-dm-target.html`). In a conversation that has an agent in it, typing `@` (or the **Mention** button) opens the address list of a channel, narrowed to the members of that conversation: its agents and its people other than the writer, each with its state, and no `@group`, no `@everyone` and nobody outside it. An agent that has ended is listed and cannot be picked, with the reason in words. A message with no `@` goes to every agent in it; one that names members goes to those members only. Under a message that was handed to an agent, one muted line says who it was for with an icon and words ("For everyone in this conversation", "For Tester", "For Maya. No agent received it."), and the delivery line below it names only the agents it was handed to ("Delivered to Tester", "Waiting for infra-notes to take it", "infra-notes did not take it"). A message written before this was kept shows neither. A refusal (an `@name@location` that is not a member, `@group`, `@everyone`) is shown above the box in the server's words, nothing is sent and the text stays. The header of a conversation with an agent says who is in it ("You, Maya and 2 agents."); the members panel says an Admin can read it.
+- **Edit and delete your own message** (#1269). There is no button. A right-click (a long press on a touch screen) on one of your own messages opens a menu at the pointer with **Edit message** (hint E) and **Delete message** (hint Del), and Enter, the ContextMenu key or Shift+F10 on the focused message opens it beside the message. Up, Down, Home and End move in the menu and Escape closes it. A message that is locked keeps both items disabled with the reason under them. The same two items are offered in channels (My group, General, a public channel) and in Direct Messages, and never on another person's or an agent's message; an Admin is offered neither on anyone's.
+  - **Edit** turns the text into a box with **Save** and **Cancel**. Enter saves, Shift+Enter adds a line and Escape cancels. A refusal is shown inside the box in the server's own words and the text is kept. A saved message shows "edited <time>".
+  - **Delete** asks first: an alert dialog "Delete this message?" that quotes the message, says who loses it, and says "This cannot be undone.". **Cancel** has the focus first and the arrow keys move between **Cancel** and **Delete message**. Afterward the row reads "This message was deleted by <You or the name> at <time>." and has no text.
+  - **Keyboard from the box.** Up in an empty box goes to your latest message; Up and Down then move between your own messages; E edits, Delete or Backspace deletes, Enter, the ContextMenu key or Shift+F10 open the menu, and Escape goes back one step. A message that cannot be changed ignores E and Delete and says why.
+  - **Locked.** A message is locked once it has been sent to an agent: in a channel, a mention of an agent that is waiting, working or done; in a Direct Message, a state of queued, handed or delivered, or approved by its owner. A message that is held (the channel is paused), waits for another person's approval, was not delivered, declined or dropped, or names no agent can still be changed; a mention of a person never locks. An edit may not add or remove an `@` and sends nothing again. A change shows at once in every console that has the thread open, including the earlier pages it holds ([7.6](../07-server/07-06-sse-stream.md)).
+- **The box** (#1233). One box: the text on top, a tools row under it with an **@** button in a channel and a **/** button in a message to your own agent, and **Send** as the one primary button, an icon that stays muted until there is something to send. It starts at one line and grows to 180 px. Enter sends and Shift+Enter adds a line. A send that fails says so above the box and keeps the draft. In a channel typing `@` opens a list (a combobox) of what the
+  address can mean, each with its avatar, role and state, narrowed as more is typed, with a line that says how many match; the arrow keys move, Enter or Tab picks and
+  Escape closes. Every `@` that starts a word opens it again, narrowed by the text typed after that `@` alone, so one message can address as many
+  people and agents as the writer picks (#1343). `@group` and `@everyone` are listed but cannot be picked while the Admin has them off. A box that cannot send
   is disabled and says why under it: Paused, Disconnected, "has ended and will not receive this", or a link that was removed. A sent
   message to an agent shows Waiting until the agent has taken it, and the page does not promise an immediate reply.
+- **Members** (#1236). The header of *My group* and of a channel has an avatar stack (up to four avatars, then the count; one button, named "Members, 9.
+  Show the list") that opens a panel on the right, closed when a conversation opens and not remembered. The panel has a search ("Find a member"), the filters
+  All, Waiting N and Running N, People then Agents with counts (an agent's state is a shape and a word; a person has none, because the page has no presence
+  for them), and a footer "Showing N of M" with "Show N more". Escape or the close button closes it and the focus returns to the stack; on a narrow window it
+  is a sheet over the thread. It is built from what the page already has: in My group, the person (the one an Admin reads as) and their orchestrators with
+  the subagents and forks the console knows; in a channel, the people and agents the overview lists, which is not everyone who can read it, and the panel
+  says so. There is no route that lists a large channel. A Direct Message has two parties, named by avatars before its title, and has no stack or panel.
 - **Menus.** Right-click and the **...** button open the same menu, which opens on arrow keys, closes on Escape and offers
   only what the viewer may do.
   - A Direct Message: **Pause link** or **Resume link**, **Remove link…** (a confirmation that names what goes) and **Delete
@@ -1200,13 +1292,15 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
     a menu item that is not the viewer's to use is disabled and a note says why ("Paused by Ed. Only Ed can resume it").
   - A channel, the stop button for a runaway session: **Pause** (hold messages, keep access), **Disconnect** (take the agents'
     access away) and **Remove all messages…**. In *My group* the person and an Admin can do all three (an Admin's pause is the Admin's to lift). In *General* any person can pause or
-    disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages.
-  - An agent, in People and agents or among a thread's participants: **Open orchestration page**, which opens that orchestrator on
+    disconnect their own agents, and only an Admin can **Pause General for everyone** or remove its messages. A public channel's menu is General's, with **Edit description…**
+    (its opener or an Admin) and **Remove channel…** (an Admin only, in a confirmation that names the channel, says its messages are removed for everyone and cannot be recovered, and says the opener is told an Admin removed it; the choices are **Keep it** and **Remove channel**).
+    An Admin's pause for everyone, remove all, description edit and channel removal are told to the people they affect, in the console and in their reporters ([7.7](../07-server/07-07-hardening.md#chat-1034)).
+  - An agent, in People and agents or in the members panel: **Open orchestration page**, which opens that orchestrator on
     the fleet console (`#/?open=<id>`), and **Message** where it applies.
   - A menu that only has something to say is a note (a popover with no choices).
 - **An Admin reading, and the person told** (#1034, [7.7](../07-server/07-07-hardening.md#chat-1034)). An Admin sees **Read as an Admin** at the top of
-  the sidebar: a picker, "Read a person's conversations", of everyone else who uses Chat. Choosing a person shows that person's My group and
-  Direct Messages, read only: the Admin has no composer, the sidebar has no unread counts and no People and agents, and a banner on the thread says
+  the sidebar: a picker, "Read a person's conversations", of everyone else who uses Chat. An Admin with no person of their own who has chosen no one and picked no row has no thread open: the area says "Choose General or a channel to read it." and where to choose a person (#1238). Choosing a person shows that person's My group and
+  Direct Messages, read only: the Admin's message box is off, with "An Admin cannot send here" in it, the reason and a **Stop reading** button under it, the sidebar has no unread counts and no People and agents, and a banner on the thread says
   "Reading <person>'s conversation as an Admin. You cannot send here." and that the person is told while the Admin reads and a line stays afterward.
   In a Direct Message the Admin's menu is Pause link and Resume link, and nothing else. For the people in the thread, while an Admin reads: a
   red banner above the messages names every Admin reading (one, two, or the first two and a count) and says the notice clears about 30 seconds
@@ -1222,13 +1316,12 @@ are in [7.7](../07-server/07-07-hardening.md#chat-1034) and the routes in [7.1](
 - **A Direct Message expires and leaves the list when every agent session in it has ended or disconnected from Podium** ([7.5](../07-server/07-05-lifecycle-timers.md)).
   It comes back with its history if the same peers return while it is kept (the longest resume window of its agents, or the grace period when none is known, [7.5](../07-server/07-05-lifecycle-timers.md)).
 - **Narrow.** At 760 px and narrower the sidebar and the thread are two screens, with **Back to the list** on the thread.
-- **Not signed in, or the admin secret.** General is read and written by every signed-in person. The admin secret reads General and has
-  no group, no Direct Messages and no counts of its own, and says so.
+- **Not signed in, or the admin secret.** General and the public channels are read and written by every signed-in person. The admin secret reads them and has
+  no group, no Direct Messages and no counts of its own, and says so. An Admin reading a public channel sees no Admin-reading notice and the people in it are told nothing, because it is public.
 - A failed action says so in place ("Could not pause General: … Nothing changed. Try again.") and changes nothing.
-- The page title has an (i) button beside it. It opens **Chat privacy and controls**, the rules in short form, in a modal that closes with its X, Esc or a click on the dimmed area and gives focus back to the (i). The rules no longer sit under the thread (#1099).
+- The info row has an (i) button before its text, always (#1209; it was beside the page title, #1099). It opens **About Chat**: the page's description, then **Chat privacy and controls**, the rules in short form, in a modal under the (i) that closes with its X, Esc or a click on the dimmed area and gives focus back to the (i). The rules no longer sit under the thread (#1099).
 
-**Not in this release.** Sending selected messages to an agent did not ship. Agents posting and reading in channels is route
-shapes only (#1035 finishes the feature).
+**Not in this release.** Sending selected messages to an agent did not ship. An agent's `@` of another agent in a channel is stored as not delivered. Joining, leaving or muting a channel, threads, reactions, pins and search are not built.
 
 ## Traffic page (#347, `mockup/podium-traffic.html`)
 
@@ -1236,7 +1329,7 @@ shapes only (#1035 finishes the feature).
 Chat at once, so the console never rests on the page and its top bar has no Traffic link ([DEPRECATIONS](../../DEPRECATIONS.md)). The read
 `GET /api/fleet/peers/traffic` keeps working until 1.9. The rest of this section describes the page as it was built, and as its code still draws it.
 
-Built (#417). A console page, `#/traffic`, reached from **Traffic** in the top bar after History while the flag is
+Built (#417). A console page, `#/traffic`, that was reached from **Traffic** in the top bar after History while the flag was
 on (left off the bar on the Traffic page itself). It draws no rail, side panel or wall, so it offers no Wall mode button, and `[`, `]` and `w` do nothing there; `\`
 still hides and shows the top bar.
 
@@ -1703,8 +1796,8 @@ the loop's recent tool calls and the text it writes ([6.4](../06-reporter-protoc
   never "just now"): "Last N of M since you started watching" (or "Nothing yet") and "Updated Ns ago". Then
   the line "Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave
   the session."
-- *Finished.* A finished agent (or an ended session) is fetched once more for its last entries, offers no
-  dropdown, and says "Agent finished, no more updates" (for the orchestrator's main loop, "Session ended, no more updates").
+- *Finished.* A finished agent (or an ended session) is fetched a few more times for its last entries (and for as long as its own Background list holds a running item, #1242), offers no
+  dropdown while nothing is being fetched, and says "Agent finished, no more updates" (for the orchestrator's main loop, "Session ended, no more updates").
 - *Stored history (#432).* When the Admin keeps the Activity history and a reply carries `history`, the window
   changes as follows. Under the default policy none of it applies and the window is as described above.
   - A viewer who may read it (`canRead`) gets the newest stored page from
@@ -1759,6 +1852,15 @@ the loop's recent tool calls and the text it writes ([6.4](../06-reporter-protoc
     output, so its rows read this way, apart from the newest one while the loop works.
   - A failed call with no exit code shows a cross and the one word "Failed"; with a code, "Exit N, failed". A call that
     succeeded shows a bare check with "Succeeded, exit 0" for a screen reader.
+- *Output and Background tabs (#897, `mockup/podium-background-items.html`).* In the Activity modal (the Expand window and the Respond window) the feed is the **Output** tab and a second tab, **Background**, lists the shells and monitors a loop started and those the agents under it started (#1242). The two are a tab list (`role="tablist"`, aria-label "Activity"): Left and Right move between them and focus follows. **Background** carries a count of its items while there are some, and no count when the reporter does not send background items (`backgroundOutput` is `null`).
+  - *The list.* The feed's own rows, oldest first, newest last, following the newest and offering **Jump to latest** when scrolled up. A row has its start time (a tooltip says "Started" with the clock time, or "First seen" when the harness reports no start time), a shape, a word and a color for its state (Running, "Finished, exit 0", "Failed, exit N", or "Ended without an exit code", which is never called killed), the name **Shell** or **Monitor**, the command (secrets marked as in the feed), how long it has run (`m:ss`, `h:mm:ss` from an hour) and, while it runs, "last output N s ago".
+  - *Scope and owner (#1242).* The orchestrator's tab lists its own items and those of every subagent and fork under it, nested ones included, and never another orchestrator's. A subagent's or fork's tab lists its own and its own children's, never its parent's or a sibling's. An item another agent started has a line under its state, "Started by *name*" (the agent's task description, as the console names it elsewhere), with ", which has finished" when that agent is done while its shell still runs; an item the loop started itself has none. A finished agent's tab keeps asking for updates while its own list holds a running item, and for a few more answers after the agent finishes (the reporter sends the items with its next report after the lease starts); it stops when nothing runs.
+  - *Quiet.* A running item that has printed nothing for 5 minutes or more (the quiet mark needs a time of last output; a reporter that cannot read the file sends none) shows "Quiet for N min", the sign of a shell that is stuck.
+  - *An open row* shows the whole **Command** with **Copy command**, and the **Output** with **Copy output** and the exit mark, and a **Collapse** button. When the output is missing it says why in words: "Output is off." with the Admin's `background-output` flag in Admin > Settings, or with the reporter's `backgroundOutput` option (Send a background shell's command and output) and how to turn it on for the harness, or "Output was not collected." when the option is on but the file could not be read; a finished item with nothing says "The command printed nothing.", a running one "Nothing printed yet.". A command is sent with its output, under the same switches, so without them the row shows only the first word and says "Only the first word is shown."
+  - *Empty and off.* "No background shells or monitors" when there are none; "This reporter does not send background items." for a reporter older than 1.7.0, with how to update; the same dashed note as the Output tab when the Admin has turned the feed off or the route refused. On OpenCode the tab says it has no monitors.
+  - *Footer.* "Showing the newest N of N" and the update time, "Kept only while someone is watching. Closing this clears it. Secrets are removed before they leave the session." and "Only the running items and the 20 latest finished ones are kept. Quiet means no output for 5 minutes."
+  - A command and its output are the person's own content: they come only through the activity route, so an Admin's read of them is recorded and told to the person like any other Admin read of Activity (below).
+- *An Admin's read is told to the owner (#1073, #1074, `mockup/podium-admin-read-notices.html`; PROJECT.md, "An Admin never reads in silence").* The owner of a session sees, on the orchestrator page under the status band and above the ask in the Respond window, one `SessionReadNotes` block for each kind of read (`ask`, `activity`, `text`, `live`). While an Admin reads, a red notice with an eye icon and no close button (`role="status"`) says who and what ("Root is reading your waiting plan, question or tool request.", "... paging through the stored Activity of `<session>`.", "... reading the whole prompt and answer of an agent in `<session>`.", "... watching the live activity of an agent in `<session>`."; two Admins are named, more are counted), followed by "Only you and Admins can open it. The notice clears about 30 seconds after" the reading stops. Each finished read leaves a quiet line ("`<Admin>` read the stored Activity of `<session>` on `<time>`."), newest first, at most three, each with an X that hides it in that browser only; the record and the Admin log stay. A person who is not the session's owner, an Admin included, sees none of these, and cannot dismiss another person's. The notes hold words and never any text of the session. The reporter's one-line callout is in 5.4 and 7.1.
 - A settings-hooks session has no mod and shows no Activity section.
 
 **Tools used**

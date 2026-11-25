@@ -56,5 +56,5 @@ their code.
 <!-- nav:start -->
 ---
 
-Previous: [66. A closed conversation is kept for the days its harness lets a person resume the session (#1113)](66-a-closed-conversation-is-kept-for-the-days-its-harness-lets-a-person-resume-the-session.md) · Up: [Decisions](README.md)
+Previous: [66. A closed conversation is kept for the days its harness lets a person resume the session (#1113)](66-a-closed-conversation-is-kept-for-the-days-its-harness-lets-a-person-resume-the-session.md) · Up: [Decisions](README.md) · Next: [68. A loop's background shells and monitors have a Background tab in the Activity modal (#897)](68-a-loops-background-shells-and-monitors-have-a-background-tab-in-the-activity-modal.md)
 <!-- nav:end -->

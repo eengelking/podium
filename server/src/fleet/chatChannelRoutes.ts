@@ -1,10 +1,9 @@
 // The browser's routes for Chat's channels (#1034), under /respond/chat/channels. Mounted on responding's browser router, so they share its sign-in
 // cookie, its cross-site check and its no-store header. These routes read and write General and My group only: they never touch a direct message.
 import { type Request, type Response, type Router } from 'express';
-import { asyncHandler } from './asyncHandler.js';
 import type { Fleet } from './fleet.js';
 import { messageView } from './chatChannels.js';
-import { channelOf, fail, type ChannelId, type ChatViewer, type Fail } from './chatTypes.js';
+import { fail, GROUP, GENERAL, isPublicChannel, noOwnMessages, type ChannelId, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
 
 /** What Chat's browser routes share: the gate (messaging on, and a signed-in viewer) and how a refusal is answered. */
 export interface ChatBrowserDeps {
@@ -13,8 +12,8 @@ export interface ChatBrowserDeps {
   refuse: (req: Request, res: Response, f: Fail) => void;
 }
 
-export const PAGE_DEFAULT = 50;
-export const PAGE_MAX = 100;
+const PAGE_DEFAULT = 50;
+const PAGE_MAX = 100;
 
 /** A page size from a query: 1 to 100, 50 when absent. Null for anything else. */
 export function limitOf(raw: unknown): number | null {
@@ -24,22 +23,31 @@ export function limitOf(raw: unknown): number | null {
   return n >= 1 && n <= PAGE_MAX ? n : null;
 }
 
+/** The page a request asks for: `limit` (`limitOf`) and the `before` cursor. A bad limit is answered 400 here and null returned. */
+export function pageOf(req: Request, res: Response): { before: string | null; limit: number } | null {
+  const limit = limitOf(req.query.limit);
+  if (limit !== null) return { before: typeof req.query.before === 'string' ? req.query.before : null, limit };
+  res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
+  return null;
+}
+
 const str = (v: unknown): string | null => (typeof v === 'string' && v ? v : null);
 
 export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): void {
   const { fleet } = d;
+  const chatHandler = fleet.chat.handler;
   const channels = () => fleet.chat.channels;
 
   /** The viewer and the channel a route is about, or an answer already sent. */
-  const target = async (req: Request, res: Response, named: unknown): Promise<{ v: ChatViewer; channel: ChannelId; owner: string | null } | null> => {
+  const target = async (req: Request, res: Response, named: unknown): Promise<{ v: ChatViewer; channel: ChannelId; owner: PersonRef | null } | null> => {
     const v = await d.viewer(req, res);
     if (!v) return null;
-    const channel = channelOf(String(req.params.channel));
+    const channel = await channels().resolve(req.params.channel);
     if (!channel) {
       res.status(404).json({ ok: false, error: 'no such channel' });
       return null;
     }
-    const scope = channels().scopeFor(v, channel, str(named));
+    const scope = await channels().scopeFor(v, channel, str(named));
     if ('status' in scope) {
       d.refuse(req, res, scope);
       return null;
@@ -47,45 +55,118 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     return { v, channel, owner: scope.owner };
   };
 
-  browser.get('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
+  /** Opens a public channel (#1035): a signed-in person or an Admin. `201 { ok, channel }`, the channel as the overview lists it. */
+  browser.post('/chat/channels', chatHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const out = await fleet.chat.publicChannels.open(v, (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.status(201).json({ ok: true, channel: await fleet.chat.channelEntry(v, out.channel) });
+  }));
+
+  /** Changes a public channel's description: the person who opened it, or an Admin. */
+  browser.patch('/chat/channels/:channel', chatHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const channel = await channels().resolve(req.params.channel);
+    if (channel === GENERAL || channel === GROUP) return void d.refuse(req, res, fail(403, `${channel === GENERAL ? 'General' : 'My group'} is built in: it has no description to change.`));
+    if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
+    const out = await fleet.chat.publicChannels.describe(v, channel, (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json({ ok: true, channel: await fleet.chat.channelEntry(v, out.channel) });
+  }));
+
+  /** Removes a public channel and everything in it: an Admin only. Its opener is told who did it. */
+  browser.delete('/chat/channels/:channel', chatHandler(async (req, res) => {
+    const v = await d.viewer(req, res);
+    if (!v) return;
+    const channel = await channels().resolve(req.params.channel);
+    if (channel === GENERAL || channel === GROUP) return void d.refuse(req, res, fail(403, `${channel === GENERAL ? 'General' : 'My group'} is built in and cannot be removed.`));
+    if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
+    const out = await fleet.chat.publicChannels.remove(v, channel);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json(out);
+  }));
+
+  browser.get('/chat/channels/:channel/messages', chatHandler(async (req, res) => {
     const t = await target(req, res, req.query.owner);
     if (!t) return;
-    const limit = limitOf(req.query.limit);
-    if (limit === null) return void res.status(400).json({ ok: false, error: `limit must be a whole number from 1 to ${PAGE_MAX}` });
-    const before = typeof req.query.before === 'string' ? req.query.before : null;
+    const page = pageOf(req, res);
+    if (!page) return;
     // The request is checked first (the cursor is, by reading the page), so a refused read records nothing and tells no one.
-    const got = await channels().page(t.v, t.channel, t.owner, { before, limit });
+    const got = await channels().page(t.v, t.channel, t.owner, page);
     if ('status' in got) return void d.refuse(req, res, got);
     // An Admin's read of another person's group is recorded before it is answered, so none goes unrecorded; if recording fails the read fails. General is public and never is.
     const adminReads = await channels().readRecord(t.v, t.channel, t.owner);
-    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v.name)), older: got.page.older, total: got.total, adminReads });
+    const owners = await channels().ownersOf(got.page.messages);
+    res.json({ ok: true, channel: t.channel, messages: got.page.messages.map((m) => messageView(m, t.v, owners)), older: got.page.older, total: got.total, adminReads });
   }));
 
   /** An Admin's open group pings this every 15 seconds so its person keeps seeing that it is being read. Answers only `ok`. */
-  browser.post('/chat/channels/:channel/reading', asyncHandler(async (req, res) => {
+  browser.post('/chat/channels/:channel/reading', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
-    const channel = channelOf(String(req.params.channel));
+    const channel = await channels().resolve(req.params.channel);
     if (!channel) return void res.status(404).json({ ok: false, error: 'no such channel' });
     if (!v.admin) return void d.refuse(req, res, fail(403, 'Only an Admin reads a group that is not their own.'));
-    if (channel === 'general') return void res.status(400).json({ ok: false, error: 'General is public, so reading it is not recorded.' });
-    const scope = channels().scopeFor(v, channel, str(((req.body ?? {}) as Record<string, unknown>).owner));
+    if (isPublicChannel(channel)) return void res.status(400).json({ ok: false, error: `${channel === GENERAL ? 'General' : 'A public channel'} is public, so reading it is not recorded.` });
+    const scope = await channels().scopeFor(v, channel, str(((req.body ?? {}) as Record<string, unknown>).owner));
     if ('status' in scope) return void d.refuse(req, res, scope);
     const out = await channels().reading(v, scope.owner);
     if ('status' in out) return void d.refuse(req, res, out);
     res.json({ ok: true });
   }));
 
-  browser.post('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
+  browser.post('/chat/channels/:channel/messages', chatHandler(async (req, res) => {
     // An owner named in the body is the group the message is meant for: an Admin may name another person's, and is refused in `post`.
     const t = await target(req, res, ((req.body ?? {}) as Record<string, unknown>).owner);
     if (!t) return;
     const out = await channels().post(t.v, t.channel, t.owner, (req.body ?? {}) as Record<string, unknown>);
     if (!out.ok) return void d.refuse(req, res, out);
-    res.status(201).json({ ok: true, message: messageView(out.message, t.v.name), warnings: out.warnings });
+    res.status(201).json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])), warnings: out.warnings });
   }));
 
-  browser.put('/chat/channels/:channel/pause', asyncHandler(async (req, res) => {
+  /** The viewer and the channel a change of one of their own messages is about (#1269), or an answer already sent. The admin secret has no messages, so it is refused before anything is read. */
+  const changeTarget = async (req: Request, res: Response): Promise<{ v: ChatViewer; channel: ChannelId; owner: PersonRef | null; id: string } | null> => {
+    const v = await d.viewer(req, res);
+    if (!v) return null;
+    if (v.personId === null) {
+      d.refuse(req, res, noOwnMessages());
+      return null;
+    }
+    const channel = await channels().resolve(req.params.channel);
+    if (!channel) {
+      res.status(404).json({ ok: false, error: 'no such channel' });
+      return null;
+    }
+    // Only the person's own group, as for a post: an owner is never named here.
+    const scope = await channels().scopeFor(v, channel, undefined);
+    if ('status' in scope) {
+      d.refuse(req, res, scope);
+      return null;
+    }
+    return { v, channel, owner: scope.owner, id: String(req.params.id) };
+  };
+
+  /** The author edits their own message: `{ text }`. `200 { ok, message }`, the message as a read returns it; refused with 404, 403, 409 (`locked`, `deleted`, `approval`), 400, 422 or 429. */
+  browser.patch('/chat/channels/:channel/messages/:id', chatHandler(async (req, res) => {
+    const t = await changeTarget(req, res);
+    if (!t) return;
+    const out = await channels().editMessage(t.v, t.channel, t.owner, t.id, (req.body ?? {}) as Record<string, unknown>);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])) });
+  }));
+
+  /** The author deletes their own message; a tombstone stays. `DELETE .../messages` without an id is Remove all and stays as it was. */
+  browser.delete('/chat/channels/:channel/messages/:id', chatHandler(async (req, res) => {
+    const t = await changeTarget(req, res);
+    if (!t) return;
+    const out = await channels().deleteMessage(t.v, t.channel, t.owner, t.id);
+    if (!out.ok) return void d.refuse(req, res, out);
+    res.json({ ok: true, message: messageView(out.message, t.v, await channels().ownersOf([out.message])) });
+  }));
+
+  browser.put('/chat/channels/:channel/pause', chatHandler(async (req, res) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const t = await target(req, res, b.owner);
     if (!t) return;
@@ -95,7 +176,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json(out);
   }));
 
-  browser.put('/chat/channels/:channel/disconnect', asyncHandler(async (req, res) => {
+  browser.put('/chat/channels/:channel/disconnect', chatHandler(async (req, res) => {
     const b = (req.body ?? {}) as Record<string, unknown>;
     const t = await target(req, res, b.owner);
     if (!t) return;
@@ -105,7 +186,7 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
     res.json(out);
   }));
 
-  browser.delete('/chat/channels/:channel/messages', asyncHandler(async (req, res) => {
+  browser.delete('/chat/channels/:channel/messages', chatHandler(async (req, res) => {
     const t = await target(req, res, (req.body as { owner?: unknown } | undefined)?.owner);
     if (!t) return;
     const out = await channels().clear(t.v, t.channel, t.owner);
@@ -114,11 +195,13 @@ export function mountChatChannelRoutes(browser: Router, d: ChatBrowserDeps): voi
   }));
 
   /** What a typed `@` can mean, narrowed by what is typed so far. For a direct message the list is the viewer's own agents. */
-  browser.get('/chat/addresses', asyncHandler(async (req, res) => {
+  browser.get('/chat/addresses', chatHandler(async (req, res) => {
     const v = await d.viewer(req, res);
     if (!v) return;
-    const channel: ChannelId = req.query.channel === 'general' ? 'general' : 'group';
-    const scope = channels().scopeFor(v, channel, undefined);
+    // A public channel's list is General's: everyone who can be reached from it. Anything that is not a channel is the viewer's group, as before.
+    const named = await channels().resolve(req.query.channel);
+    const channel: ChannelId = named !== null && isPublicChannel(named) ? named : GROUP;
+    const scope = await channels().scopeFor(v, channel, undefined);
     if ('status' in scope) return void d.refuse(req, res, scope);
     const q = typeof req.query.q === 'string' ? req.query.q.toLowerCase() : '';
     const all = await channels().addressBook(channel, scope.owner);

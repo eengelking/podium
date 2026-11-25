@@ -18,6 +18,7 @@ import { reportDepsOf } from "./fleet/reportDeps.js";
 import { createAdminRouter } from "./admin/adminRouter.js";
 import { Lockout } from "./fleet/lockout.js";
 import { failureLimiter, parseFailureLimit } from "./failureLimiter.js";
+import { parseCompression } from "./compress.js";
 import { serveSpa } from "./spa.js";
 import { readTestTimings } from "./testTimings.js";
 import { createRespondBridge } from "./fleet/respondBridge.js";
@@ -120,15 +121,15 @@ const respondBridge = createRespondBridge();
 const plainHttp = createPlainHttpWatch({ bind: HOST, respondOn: () => fleet.features.featureOn(RESPOND), logger });
 // Failed requests from one address are limited ahead of every /api route; successful ones are never counted. PODIUM_FAILURE_LIMIT raises it.
 app.use("/api", failureLimiter({ logger, max: parseFailureLimit(process.env.PODIUM_FAILURE_LIMIT) }));
-app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, signInIdleMs: testTimings.signInIdleMs, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport }));
+app.use("/api/fleet", createFleetRouter(fleet, { token: TOKEN, people, reporters, logger, lockout, signInIdleMs: testTimings.signInIdleMs, respondBridge, onSignIn: plainHttp.onSignIn, certs: { store: personCerts, trustedIssuers }, transport: reporterTransport, compression: parseCompression(process.env.PODIUM_COMPRESSION) }));
 // A reporter renews its own certificate, authenticated by the one it holds (#585).
 app.use("/api/reporter", createReporterRenewRouter({ certs: personCerts, people, tx: storage.tx, logger, now: Date.now, settings: () => tlsSettings.getReporter(), trustedIssuers, issuer: personIssuer }));
-app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, reporters, peers: fleet.peers, chat: fleet.chat.settings, toldLinkStop: (admin, owner, what) => fleet.chat.toldLinkStop(admin, owner, what), noteConversationRead: (viewer, a, b) => fleet.chat.noteConversationRead(viewer, a, b), activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => void fleet.activityHistoryChanged(), adminActs: fleet.adminActs, recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsBoot.listener?.renewer ?? null, rotation: () => tlsBoot.listener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, idleMs: testTimings.adminIdleMs, respondBridge, onRespondOn: plainHttp.onFlagOn }));
+app.use("/api/admin", createAdminRouter({ secret: TOKEN, storage, people, reporters, peers: fleet.peers, chat: fleet.chat.settings, stopOwed: (admin, ownerId, kind, what) => fleet.chat.stopOwed(admin, ownerId, kind, what), noteConversationRead: (viewer, a, b) => fleet.chat.noteConversationRead(viewer, a, b), activityHistory: { history: fleet.activityHistory, settings: fleet.activityHistorySettings }, onActivityHistoryChanged: () => void fleet.activityHistoryChanged(), adminActs: fleet.adminActs, recordings: { service: fleet.recordings, settings: fleet.recordingSettings, changed: (sid) => fleet.recordingChanged(sid) }, logRetainMs: fleetConfig.retention.adminLogMs, wall: fleet.wall, prices: fleet.prices, features: fleet.features, reports: reportDepsOf(fleet), certificates: { settings: tlsSettings, transport: reporterTransport, renewer: () => tlsBoot.listener?.renewer ?? null, rotation: () => tlsBoot.listener?.rotation ?? null, people: { store: personCerts, issuer: personIssuer } }, logger, lockout, idleMs: testTimings.adminIdleMs, respondBridge, onRespondOn: plainHttp.onFlagOn }));
 // The header's certificate countdown: the dates and a few flags, no token, like the other reads the console makes (T8).
 app.use("/api/tls", createTlsStatusRouter({ view: () => tlsBoot.listener?.renewer.statusView() ?? null }));
 app.use(createRouter());
 
-serveSpa(app, frontendDist);
+serveSpa(app, frontendDist, {}, parseCompression(process.env.PODIUM_COMPRESSION));
 
 // http.createServer(app).listen is what Express 4's app.listen did. Express 5's also hands a listen error to the callback, which would
 // log "listening" for a port that is taken and leave the process running; here the error stays uncaught and stops the process (#392).

@@ -277,16 +277,15 @@ describe('CSV', () => {
 /** Fourteen complete days of history: Priya and Dana work most days, Rare on two, a model nobody priced on a few. */
 async function history(w: World): Promise<void> {
   const priya = (await w.people.createPerson('Priya', (await w.people.createGroup('Backend', NOW)).id, NOW)).person;
-  await w.people.createPerson('Dana', null, NOW);
-  await w.people.createPerson('Rare', null, NOW);
-  void priya;
+  const dana = (await w.people.createPerson('Dana', null, NOW)).person;
+  const rare = (await w.people.createPerson('Rare', null, NOW)).person;
   for (let d = 1; d <= 14; d++) {
-    await w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));
-    if (d % 2 === 0) await w.fdb.upsertSession(session({ id: `D${d}`, owner: 'Dana', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 1 }));
-    if (d <= 2) await w.fdb.upsertSession(session({ id: `R${d}`, owner: 'Rare', started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 7 }));
-    if (d === 3) await w.fdb.upsertSession(session({ id: 'U3', owner: 'Dana', model: 'llama-local', cost_usd: null, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10) }));
+    await w.fdb.upsertSession(session({ id: `P${d}`, owner: 'Priya', owner_id: priya.id, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 2 }));
+    if (d % 2 === 0) await w.fdb.upsertSession(session({ id: `D${d}`, owner: 'Dana', owner_id: dana.id, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 1 }));
+    if (d <= 2) await w.fdb.upsertSession(session({ id: `R${d}`, owner: 'Rare', owner_id: rare.id, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10), cost_usd: 7 }));
+    if (d === 3) await w.fdb.upsertSession(session({ id: 'U3', owner: 'Dana', owner_id: dana.id, model: 'llama-local', cost_usd: null, started_at: at(d, 9), last_seen_at: at(d, 10), ended_at: at(d, 10) }));
   }
-  await w.fdb.upsertSession(session({ id: 'T', owner: 'Priya', started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10), cost_usd: 5 }));
+  await w.fdb.upsertSession(session({ id: 'T', owner: 'Priya', owner_id: priya.id, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: at(0, 10), cost_usd: 5 }));
 }
 
 describe('projection (#483)', () => {
@@ -356,8 +355,8 @@ describe('Spend breakdown (#482)', () => {
 
   it('cuts a group by person first, counts sessions on models without a price, and takes - for no owner', async () => {
     const w = await filled();
-    await w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', model: 'llama-local', cost_usd: null, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null }));
-    await w.fdb.upsertSession(session({ id: 'mix', owner: 'Priya', cost_usd: 6, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null, usage_json: JSON.stringify([
+    await w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', owner_id: (await w.people.findByName('Priya'))!.id, model: 'llama-local', cost_usd: null, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null }));
+    await w.fdb.upsertSession(session({ id: 'mix', owner: 'Priya', owner_id: (await w.people.findByName('Priya'))!.id, cost_usd: 6, started_at: at(0, 9), last_seen_at: at(0, 10), ended_at: null, status: 'running', end_reason: null, usage_json: JSON.stringify([
       { model: 'claude-opus-5-5', tier: 'std', tokens: { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
       { model: 'llama-local', tier: 'std', tokens: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } },
     ]) }));
@@ -400,7 +399,7 @@ describe('spendToday reads each session once (#529)', () => {
     expect(sessionOf).not.toHaveBeenCalled();
     expect(agentsOf).toHaveBeenCalledTimes(1);
     expect(reply.unpriced).toBe(0);
-    await w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: null, model: 'llama-local' }));
+    await w.fdb.upsertSession(session({ id: 'free', owner: 'Priya', owner_id: (await w.people.findByName('Priya'))!.id, started_at: at(0, 11), last_seen_at: at(0, 12), ended_at: at(0, 12), cost_usd: null, model: 'llama-local' }));
     expect((await spendToday(w.deps, 'Priya', false)).unpriced).toBe(1);
   });
 });

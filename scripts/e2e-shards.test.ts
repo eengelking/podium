@@ -215,6 +215,7 @@ describe("reading spec durations from a Cypress log", () => {
     expect(durationSeconds("2 minutes, 2 seconds")).toBe(122);
     expect(durationSeconds("1 minute, 9 seconds")).toBe(69);
     expect(durationSeconds("1 hour, 1 minute")).toBe(3660);
+    expect(durationSeconds("3 hours, 2 minutes, 1 second")).toBe(10921);
     expect(durationSeconds("850ms")).toBe(0.85);
     expect(durationSeconds("soon")).toBeNull();
   });

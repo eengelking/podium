@@ -20,7 +20,6 @@ import type {
   MachineInfo,
   ModelFamily,
   OwnerSpend,
-  Plan,
   PlanView,
   RecordingView,
   RespondInfo,
@@ -28,7 +27,7 @@ import type {
   SessionView,
 } from './protocol.js';
 
-export const SERIES_POINTS = 60;
+const SERIES_POINTS = 60;
 
 /** Model family by case-insensitive substring, for Claude models only (SPEC 6.5); mirrors the mod. */
 export function family(model: string | null | undefined): ModelFamily {
@@ -62,7 +61,7 @@ export function shortenHome(p: string, home: string): string {
 }
 
 /** Quotes a path for a POSIX shell when it holds anything but safe characters. */
-export function shellQuote(s: string): string {
+function shellQuote(s: string): string {
   if (/^[A-Za-z0-9_\/.,:@%+=-]+$/.test(s)) return s;
   return `'${s.replace(/'/g, `'\\''`)}'`;
 }
@@ -156,7 +155,7 @@ export function agentView(a: AgentRow, pricing?: Pricing): AgentView {
  * The last whole second before `now`: the newest series point. The second in progress is left out
  * because its sample is still partial (it would always read as a dip).
  */
-export function lastCompleteSecond(now: number): number {
+function lastCompleteSecond(now: number): number {
   return Math.floor(now / 1000) - 1;
 }
 
@@ -236,12 +235,16 @@ export interface SessionInput {
   activityFeed?: boolean | null;
   /** Whether the reporter has the activityOutput option on (#431), held in memory; null when unknown. */
   activityOutput?: boolean | null;
+  /** Whether the reporter has the backgroundOutput option on (#897), held in memory; null when unknown. */
+  backgroundOutput?: boolean | null;
   /** Whether the reporter has the fileDiff option on (#319), held in memory; null when unknown. */
   fileDiff?: boolean | null;
   /** Whether the reporter allows reading every changed file's diff ahead (#631); null when unknown. */
   fileDiffPreload?: boolean | null;
   /** Report.session.respond as last reported (#206), held in memory; null when unknown. */
   respond?: RespondInfo | null;
+  /** The owner's allow for an Admin to respond (#1251); false when not given. */
+  adminRespond?: boolean;
   /** The session's asks without their content, from the respond store. */
   asks?: AskSummary[];
   /** What everyone sees of the session's recording (#353): no text. Null or absent when nothing is chosen or kept. */
@@ -310,13 +313,16 @@ export function sessionView(input: SessionInput, now: number, cfg: DeriveConfig)
     attached: row.attached === null ? null : row.attached === 1,
     hideAt: input.hideAt ?? null,
     owner: row.owner,
+    ownerId: row.owner_id,
     ownerGroup: input.ownerGroup ?? null,
     machine: parse<MachineInfo | null>(row.machine_json, null),
     activityFeed: input.activityFeed ?? null,
     activityOutput: input.activityOutput ?? null,
+    backgroundOutput: input.backgroundOutput ?? null,
     fileDiff: input.fileDiff ?? null,
     fileDiffPreload: input.fileDiffPreload ?? null,
     respond: input.respond ?? null,
+    adminRespond: input.adminRespond ?? false,
     asks: input.asks ?? [],
     ...(input.recording ? { recording: input.recording } : {}),
     clearedFrom: row.cleared_from ?? null,

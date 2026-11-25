@@ -139,16 +139,24 @@ describe("the words", () => {
   });
 
   it("lets only the owner and an Admin read, and only the owner manage", () => {
-    expect(canRead(null, "Ed")).toBe(false);
-    expect(canRead({ signedIn: false, name: null, admin: false }, "Ed")).toBe(false);
-    expect(canRead({ signedIn: true, name: "ed", admin: false }, "Ed")).toBe(true);
-    expect(canRead({ signedIn: true, name: "Ann", admin: false }, "Ed")).toBe(false);
-    expect(canRead({ signedIn: true, name: "Admin", admin: true }, "Ed")).toBe(true);
-    expect(canRead({ signedIn: true, name: null, admin: false }, "Ed")).toBe(false);
-    expect(canManage({ signedIn: true, name: "ED", admin: false } as never, "Ed")).toBe(true);
-    expect(canManage({ signedIn: true, name: "Admin" }, "Admin")).toBe(false);
-    expect(canManage({ signedIn: true, name: null }, "Ed")).toBe(false);
-    expect(canManage(null, "Ed")).toBe(false);
+    expect(canRead(null, 1)).toBe(false);
+    expect(canRead({ signedIn: false, id: null, admin: false }, 1)).toBe(false);
+    expect(canRead({ signedIn: true, id: 1, admin: false }, 1)).toBe(true);
+    expect(canRead({ signedIn: true, id: 2, admin: false }, 1)).toBe(false);
+    expect(canRead({ signedIn: true, id: null, admin: true }, 1)).toBe(true);
+    expect(canRead({ signedIn: true, id: null, admin: false }, 1)).toBe(false);
+    expect(canManage({ signedIn: true, id: 1 }, 1)).toBe(true);
+    expect(canManage({ signedIn: true, id: null }, 1)).toBe(false);
+    expect(canManage(null, 1)).toBe(false);
+  });
+
+  it("never lets a newcomer with a deleted person's name read or manage that person's link", () => {
+    // The link's owner was person 1, since deleted; the newcomer (id 7) may have taken the same name, but an id is never reused.
+    expect(canRead({ signedIn: true, id: 7, admin: false }, 1)).toBe(false);
+    expect(canManage({ signedIn: true, id: 7 }, 1)).toBe(false);
+    // A link whose owner is gone (null) or an older server's (absent) is nobody's.
+    expect(canRead({ signedIn: true, id: 7, admin: false }, null)).toBe(false);
+    expect(canManage({ signedIn: true, id: 7 }, undefined)).toBe(false);
   });
 });
 

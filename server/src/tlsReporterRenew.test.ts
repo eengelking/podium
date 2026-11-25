@@ -15,8 +15,8 @@ import { openSqliteStorage } from './storage/sqlite/index.js';
 import { createLogger } from './logging/logger.js';
 import { describeCert } from './tlsCa.js';
 import { certAuth, type ClientSocket } from './tlsClientAuth.js';
-import { issuePersonCert, type IssuedPersonCert } from './tlsPeople.js';
-import { authorizeRenewal, createReporterRenewRouter, issueForPublicKey, REPORTER_DEFAULTS, type RenewSocket } from './tlsReporterRenew.js';
+import { issuePersonCert, REPORTER_DAYS, type IssuedPersonCert } from './tlsPeople.js';
+import { authorizeRenewal, createReporterRenewRouter, issueForPublicKey, type RenewSocket } from './tlsReporterRenew.js';
 import type { TlsListener } from './tlsServer.js';
 import { makeForgerCa, signClientDated, startTlsForTest } from './tlsTesting.js';
 
@@ -49,7 +49,7 @@ async function setup(o: { lifetimeDays?: number } = {}) {
   let clock = () => Date.now() + 2 * 3_600_000;
   let issuerOn = true;
   let opensslBin: string | undefined;
-  const settings = { lifetimeDays: o.lifetimeDays ?? REPORTER_DEFAULTS.lifetimeDays };
+  const settings = { lifetimeDays: o.lifetimeDays ?? REPORTER_DAYS };
   const dir = path.join(root, 'tls');
   const app = express();
   app.use(

@@ -2,6 +2,17 @@
 // Nothing in this file touches a database.
 import type { EffectiveRight, MessageState } from '../fleet/peerTypes.js';
 
+/**
+ * The name an agent holds while it is live (#1284): no two live agents of one owner hold the same name. `reported` is the name its report gave and `held` the one it holds now, if any;
+ * `taken` holds the folded names every other live agent of the owner holds, and `nameKey` folds one (it is passed in because `rows.ts` cannot be imported here without a cycle). The reported name when it is free, else the name it holds when that is still free and still the reported
+ * name with a number, else the reported name with the first free number from 2 ("Lower Left 2"). A name stays put while it is free, so a card does not rename itself each report.
+ */
+export function settleName(reported: string, held: string | undefined, taken: ReadonlySet<string>, nameKey: (name: string) => string): string {
+  if (!taken.has(nameKey(reported))) return reported;
+  if (held !== undefined && !taken.has(nameKey(held)) && nameKey(held).startsWith(`${nameKey(reported)} `) && /^([2-9]|[1-9]\d+)$/.test(held.slice(reported.length + 1))) return held;
+  for (let n = 2; ; n++) if (!taken.has(nameKey(`${reported} ${n}`))) return `${reported} ${n}`;
+}
+
 /** Notices kept for one orchestrator; the oldest goes first. */
 export const MAX_NOTICES = 20;
 /** The part of a message round trips are counted from. */
@@ -102,7 +113,7 @@ export function shownCount(rows: readonly ShownRow[]): number {
 export const latestOf = (list: readonly number[]): number => list.reduce((m, n) => (n > m ? n : m), Number.NEGATIVE_INFINITY);
 
 /** What a paging read throws for a cursor it did not give out (a person or a script made it up). */
-export const BAD_CURSOR = 'The cursor is not one this server gave out.';
+const BAD_CURSOR = 'The cursor is not one this server gave out.';
 
 /** A paging cursor: the time and insertion number of the oldest row of the page, as `<ms>.<seq>`. A page back starts strictly before it, so the row itself need not exist any more. */
 export const encodeCursor = (at: number, seq: number): string => `${at}.${seq}`;

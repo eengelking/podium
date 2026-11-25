@@ -11,7 +11,7 @@ import type { Fields } from './redact.js';
 const gzipAsync = promisify(gzip);
 
 /** The query args that map Podium's fields onto VictoriaLogs' time, message and stream fields. */
-export const INGEST_ARGS: Record<string, string> = {
+const INGEST_ARGS: Record<string, string> = {
   _time_field: 'timestamp',
   _msg_field: 'message',
   _stream_fields: 'service,host',

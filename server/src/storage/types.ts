@@ -1,7 +1,7 @@
 // The async storage interfaces (#313). Every method of the stores keeps its name, arguments and result, and returns a Promise.
 // Each interface is written out here and imports nothing from an adapter, so another database implements this file alone; an
 // adapter proves it does by being typed against these interfaces, and a signature that drifts is a compile error there.
-import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListResult, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
+import type { AcrossInput, Actor, LinkPauser, PersonLinkOp, AccessOutcome, AnswerOutcome, ConversationSummary, EffectiveRight, LiveOrchestrator, MachineName, MessagePage, MessageRow, MessageTrail, PeerChange, PeerMessageEdit, OwnerConversation, OwnerDefaults, PersonMessageInput, PeerListResult, PeerReporterLookup, PeerRequestRow, Refusal, RightRow, RightsTrail, SendOutcome } from '../fleet/peerTypes.js';
 import type { ModelPricesView, PeerAnswer, PeerLevel, PeerResult, RecordingAdminRow, RecordingBatch, RecordingGrant, RecordingLoopInfo, RecordingRow, RecordingSettings, RecordingState, RecordingView, Report, WallSettingsView } from '../fleet/protocol.js';
 import type { ActivityEntryView } from '../fleet/activity.js';
 import type { ActivityHistoryNote, ActivityHistoryPreview, ActivityHistorySettings, LastPurge, StoredActivityList, StoredDeleteBody, StoredDeleteResult, StoredFilter, StoredTotals } from '../fleet/activityHistoryTypes.js';
@@ -56,10 +56,10 @@ export interface FleetStoreApi {
   costByOwnerSince(since: number, cost?: CostOf): Promise<{ owner: string | null; group: string | null; costUsd: number }[]>;
   /** `costSince` and `costByOwnerSince` from one pass over the sessions, so the total is the sum of the split. */
   spendTotals(since: number, cost?: CostOf): Promise<{ total: number; byOwner: { owner: string | null; group: string | null; costUsd: number }[] }>;
-  /** The group a session owner is in; null for Admin, an unknown name or a person with no group. */
-  groupOfOwner(owner: string | null): Promise<string | null>;
-  /** `groupOfOwner` for many owners at once (#906): a key for every owner asked. */
-  groupsOfOwners(owners: (string | null)[]): Promise<Map<string | null, string | null>>;
+  /** The group a session's owner is in, by the owner's `people.id` (#1284); null for the admin secret, a person who was deleted (no id) or a person with no group. */
+  groupOfOwner(ownerId: number | null): Promise<string | null>;
+  /** `groupOfOwner` for many owners at once (#906): a key for every id asked. */
+  groupsOfOwners(ownerIds: (number | null)[]): Promise<Map<number | null, string | null>>;
   distinctReporterVersions(): Promise<string[]>;
   /** What the database says about itself: its engine and version, the schema version Podium reached and its size (null when it cannot be told) (#862). */
   engineInfo(): Promise<StorageInfo>;
@@ -94,6 +94,8 @@ export interface FleetStoreApi {
   /** The latest sample strictly before second `t`. */
   sampleBefore(sessionId: string, t: number): Promise<SampleRow | undefined>;
   latestSample(sessionId: string): Promise<SampleRow | undefined>;
+  /** `latestSample` for many sessions at once (#750). A session with no sample has no entry. */
+  latestSamplesOf(sessionIds: string[]): Promise<Map<string, SampleRow>>;
   /** Writes the sample for second `t`, replacing one already there (at most one per second). */
   upsertSample(row: SampleRow): Promise<void>;
   /** Writes a sample only if that second has none yet. */
@@ -166,7 +168,7 @@ export type AsyncPeerReporterLookup = Async<PeerReporterLookup>;
 /** Reporters, ignore rules and the forget setting. `peerLookup()` stays synchronous: it reads nothing until a method is called. */
 export interface ReporterStoreApi {
   /** Every key a report from this sender can be known by: its own, and the row that already holds its session (#166). */
-  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]>;
+  keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null; ownerId?: number | null }): Promise<string[]>;
   /** Notes one accepted report: creates the reporter or updates it, and links the session. Resolves with the reporter's key. */
   record(s: ReporterSeen, now: number): Promise<string>;
   /** Reporters as orchestrator messaging needs them (#347). Answers at once; each read through it is async. */
@@ -227,17 +229,18 @@ export interface PeerSettingsStoreApi {
 /** The rights between reporters, the owners' defaults and the requests for access. */
 export interface PeerRightsStoreApi {
   effective(from: string, to: string): Promise<EffectiveRight>;
-  rightsOf(owner: string): Promise<RightRow[]>;
-  defaults(owner: string): Promise<OwnerDefaults>;
-  limits(owner: string, server: PeerLimits): Promise<PeerLimits>;
-  setRight(owner: string, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
-  pauseLink(owner: string | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
+  /** An owner is a person's `people.id` (#1284), never the name: null owns nothing. */
+  rightsOf(ownerId: number | null): Promise<RightRow[]>;
+  defaults(ownerId: number | null): Promise<OwnerDefaults>;
+  limits(ownerId: number | null, server: PeerLimits): Promise<PeerLimits>;
+  setRight(ownerId: number, from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; right: RightRow | null } | Refusal>;
+  pauseLink(ownerId: number | null, a: string, b: string, paused: boolean, actor: Actor): Promise<{ ok: true } | Refusal>;
   pauseReporter(key: string, paused: boolean, actor: Actor): Promise<{ ok: true; links: number } | Refusal>;
-  /** The link from a person (`person:<name>`) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
+  /** The link from a person (`person:<id>`, #1284) to another person's agent's reporter (#1034), or null. A `none` row is a removed link. */
   personLink(personKey: string, toKey: string): Promise<RightRow | null>;
   propose(from: string, to: string, level: PeerLevel, actor: Actor): Promise<{ ok: true; request: PeerRequestRow } | Refusal>;
-  requestAccess(input: { owner: string; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
-  openRequests(owner: string, about?: string): Promise<PeerRequestRow[]>;
+  requestAccess(input: { ownerId: number; fromKey: string; toKey: string; right: 'see' | 'send'; reason: string; by: string; fromSession: string }): Promise<AccessOutcome | Refusal>;
+  openRequests(ownerId: number | null, about?: string): Promise<PeerRequestRow[]>;
 }
 
 /**
@@ -267,36 +270,49 @@ export interface PeerStoreApi {
     message(id: string): Promise<MessageRow | null>;
     send(fromSession: string, to: string, text: string): Promise<SendOutcome | Refusal>;
     result(sessionId: string, id: string, result: PeerResult): Promise<'new' | 'repeat' | 'unknown'>;
-    conversations(filter: { owner?: string; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
+    conversations(filter: { ownerId?: number; since?: number; liveOnly?: boolean }): Promise<ConversationSummary[]>;
     conversation(a: string, b: string): Promise<MessageRow[]>;
     /** The person writes to one of their live agents, alone or into a conversation between two agents (#1034). Refused when the agent is not live (404 when unknown, 409 when it has ended). */
     sendFromPerson(input: PersonMessageInput): Promise<MessageRow | Refusal>;
     /** A person writes to another person's agent (#1034): held for the owner's approval, or sent over an open link; refused over a removed or paused one. */
     sendAcross(input: AcrossInput): Promise<MessageRow | Refusal>;
     /** One page of the owner's conversation, the newest page first. `before` is the `older` of the page after it; a page back starts strictly before it, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
-    page(owner: string, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
+    page(ownerId: number, a: string, b: string, opts: { before?: string | null; limit: number }): Promise<MessagePage>;
+    /** The author changes the text of one of their own direct messages and of the rows it is merged with (#1269). See `PeerMessagesApi.editMessage`; one step, so a delivery cannot split it. */
+    editMessage(id: string, x: PeerMessageEdit): Promise<PeerChange>;
+    /** The author deletes one of their own direct messages and the rows it is merged with (#1269): each stays as a tombstone, and one that was not yet handed over ends `dropped` (why `deleted`). See `PeerMessagesApi.deleteMessage`. */
+    deleteMessage(id: string, x: { author: number; now: number }): Promise<PeerChange>;
     /** Deletes the owner's messages of one conversation (the link stays). Returns how many; 0 for a conversation of another owner. */
-    deleteConversation(owner: string, a: string, b: string): Promise<number>;
-    /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. */
-    ownerConversations(owner: string, opts?: { includeHidden?: boolean }): Promise<OwnerConversation[]>;
+    deleteConversation(ownerId: number, a: string, b: string): Promise<number>;
+    /** The summary of the one conversation between two sessions (either order, whichever owner), or null when they have no messages (#1046). One read of that pair, not of every message. */
+    conversationOf(a: string, b: string): Promise<ConversationSummary | null>;
+    /** Every conversation that exists, each pair of sessions once with its two ids in order (#1309): what the Chat page needs to know which Direct Message threads are there, from one read of the distinct pairs, with no message and no rights read. */
+    conversationPairs(): Promise<[string, string][]>;
+    /** How many conversations each of the people with these ids takes part in, hidden ones left out, keyed by the id (#1046). One grouped read for all of them; the same number as `ownerConversations(id).length`. */
+    conversationCounts(ownerIds: number[]): Promise<Record<number, number>>;
+    /** The owner's conversations newest first, with `hiddenAt`; hidden ones (every agent in them has left) only with `includeHidden`. `pairs` limits it to those pairs, each `<session id>|<session id>` in id order, as in a Direct Message thread's name (#1063); an empty list gives none. */
+    ownerConversations(ownerId: number, opts?: { includeHidden?: boolean; pairs?: string[] }): Promise<OwnerConversation[]>;
     /** Hides the owner's conversation and keeps its messages for the grace period. Returns how many rows it marked; 0 when already hidden. */
-    hideConversation(owner: string, a: string, b: string): Promise<number>;
+    hideConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Shows a hidden conversation again: the same peers are back, and the history with them. Returns how many rows it cleared. */
-    showConversation(owner: string, a: string, b: string): Promise<number>;
+    showConversation(ownerId: number, a: string, b: string): Promise<number>;
     /** Deletes the messages of every conversation hidden longer than the longest resume window of its two agents (#1113), or longer than `graceMs` when neither has one. Returns how many. */
     purgeHidden(now: number, graceMs: number): Promise<number>;
+    /** Tells a live agent something in Podium's own voice (#1283): it is handed over with its next reply as a notice with no sender, until the agent confirms it. Memory only; a session that is not live is not told. */
+    notice(sessionId: string, text: string): Promise<void>;
   };
   /** After every accepted report from a reporter the server recorded. A `done` report lets go of what waited for the session. */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void>;
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void>;
   replyFor(sessionId: string, allowed: boolean): Promise<PeerReply>;
-  answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
-  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
-  removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
+  answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal>;
+  answerPaused(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }>;
+  removeLink(ownerId: number | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal>;
   /** Opens, pauses, resumes or removes the link between a person and another person's agent's reporter (#1034). A removal also drops what still waits on it. The caller checks who may ask. */
   setPersonLink(personKey: string, toKey: string, op: PersonLinkOp, actor: Actor, pausedBy?: LinkPauser): Promise<{ ok: true; right: RightRow | null } | Refusal>;
   /** The owner's defaults, checked against the Admin's limits as they are in the same step. */
-  setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
-  ownerView(owner: string, now: number): Promise<OwnerPeersView>;
+  setDefaults(ownerId: number, patch: Record<string, unknown>, actor: Actor): Promise<{ ok: true; defaults: OwnerDefaults } | Refusal>;
+  /** What My reporters shows of the person with this `people.id`: their reporters, rights, defaults and requests all found by it (#1284). */
+  ownerView(ownerId: number, now: number): Promise<OwnerPeersView>;
   adminView(key: string): Promise<AdminPeersView | null>;
   /** The orchestrator is forgotten, and what still waits for it is dropped. */
   ended(sessionId: string): Promise<void>;
@@ -321,15 +337,18 @@ export interface ChannelMention {
   state: MentionState;
   why: string | null;
   stateAt: number;
+  /** For a mention of another person's agent that waits for that person's approval (#1269): the id of the direct message that holds a copy of the text for them, so an edit or a delete of the channel message reaches it. Server-side only, never shown to a browser. Absent on a mention without a copy and on every row stored before this. */
+  copyId?: string | null;
 }
 
-/** A channel message. The same shape in the group channel and in General; `owner` and `groupId` are set only in the group channel (a table is the audience, so there is no visibility field). */
+/** A channel message. The same shape in the group channel and in a public channel (General included); `ownerId` is set only in the group channel (a table is the audience, so there is no visibility field). `updatedAt` is the time of its newest change, worked out from its other times and its mentions (#1296). */
 export interface ChannelMessage {
   /** `grp_` or `pub_`, the server's 8 hex digits of scope, then 24 hex digits: `grp_3fa9c1d2_9e1b0c47d5a86f3e2b4a7c10`. */
   id: string;
-  /** The group's owner, folded (`nameKey`); null in General. */
-  owner: string | null;
-  groupId: string | null;
+  /** The group's person, by `people.id` (#1284); null in a public channel. */
+  ownerId: number | null;
+  /** The public channel's key (`general` or a channel's name, #1035); null in the group channel. */
+  channel: string | null;
   authorKind: ChatAuthorKind;
   /** The person's name, the session id or the reporter key. */
   authorRef: string;
@@ -342,7 +361,16 @@ export interface ChannelMessage {
   milestone: string | null;
   replyTo: string | null;
   mentions: ChannelMention[];
+  /** The id of the person who wrote it (`people.id`, never reused), or null for a message an agent or a reporter wrote, for a person's message stored before ids were kept that matched nobody, and for one posted without it. The id outlives the person: a message kept after its person is deleted names nobody, so no one matches it. */
+  authorId: number | null;
+  /** When the author last changed the text (#1269); null for a message never edited, and for every message stored before this. */
+  editedAt: number | null;
+  /** When the author deleted it (#1269); null for a message that stands. A deleted message stays as a tombstone: its text is '' and its mentions are [], its place and its author are kept. */
+  deletedAt: number | null;
 }
+
+/** The result of the author changing one of their own channel messages (#1269). `locked`: it has been sent to an agent (a mention of an agent is `waiting`, `working` or `done`). `deleted`: it is already a tombstone. */
+export type ChannelChange = { ok: true; message: ChannelMessage } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
 
 export interface ChannelPostInput {
   authorKind: ChatAuthorKind;
@@ -353,7 +381,9 @@ export interface ChannelPostInput {
   project?: string | null;
   milestone?: string | null;
   replyTo?: string | null;
-  mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null }[];
+  /** The signed-in person's id, for a message a person wrote (#1269). Without it such a message is stored with no author id, and nobody can change it. Ignored for an agent's or a reporter's. */
+  authorId?: number | null;
+  mentions?: { sessionId: string | null; peerKey: string | null; typed: string; state?: MentionState; why?: string | null; copyId?: string | null }[];
 }
 
 /** One page of a channel, oldest first within the page (the newest message last). `older` is the cursor for the page before it, or null when this page starts the channel. */
@@ -362,15 +392,14 @@ export interface ChannelPage {
   older: string | null;
 }
 
-/** Which group channel: one person's group. */
+/** Which group channel: one person's group, by `people.id` (#1284). A group belongs to the person, never to a name: a person who takes a deleted person's name has a group of their own, with none of the earlier one's messages. */
 export interface GroupScope {
-  owner: string;
-  groupId: string;
+  ownerId: number;
 }
 
 /**
  * The channel store of one table. `A` is the scope the table needs: `[GroupScope]` for the group channel (every read and write is scoped to the owner and group,
- * so a member reads only their own), `[]` for General. No method here reads or returns a direct message (`peer_messages`), and none ever will.
+ * so a member reads only their own), `[string]` (the channel's key) for the public audience. No method here reads or returns a direct message (`peer_messages`), and none ever will.
  */
 export interface ChannelStoreApi<A extends unknown[]> {
   /** Stores a message. Throws for an author kind or delivery state that is not one of the listed ones. The text is stored as given; the server has cleaned, redacted and limited it. */
@@ -378,7 +407,19 @@ export interface ChannelStoreApi<A extends unknown[]> {
   /** The newest page first; `before` is the `older` of the page after it. Ordered by time then insertion number; a page back starts strictly before the cursor, so a deleted row cannot break it. Throws for a cursor the server did not give out. */
   page(...args: [...A, { before?: string | null; limit: number }]): Promise<ChannelPage>;
   /** Sets the delivery state of one mention (by its place in `mentions`) and the message's `updatedAt`. Null when there is no such message in this channel or no such mention. */
-  setMention(...args: [...A, string, number, { state: MentionState; why?: string | null }]): Promise<ChannelMessage | null>;
+  setMention(...args: [...A, string, number, { state: MentionState; why?: string | null; copyId?: string | null }]): Promise<ChannelMessage | null>;
+  /** One message of this channel by id, a tombstone too (#1269); null when there is none in this scope (another channel's, another group's, or no such id). Scope-checked as `editMessage` is. */
+  getMessage(...args: [...A, string]): Promise<ChannelMessage | null>;
+  /** The messages that hold a mention still in the `held` state, oldest first (time, then insertion number), each with all its mentions (#1046). With `sessionId`, only those with a held mention of that session. Reads only the rows that can hold one, never a page of the whole channel. */
+  heldMentions(...args: [...A, { sessionId?: string }]): Promise<ChannelMessage[]>;
+  /**
+   * The author changes the text of their own message (#1269). `author` is the person's id (`people.id`); the message must be a person's and carry that id as `authorId`. Names are never compared. The text is stored as
+   * given (the server has cleaned, limited and redacted it). Sets `text`, `editedAt` and `updatedAt`; the mentions, `createdAt`, the insertion number and `replyTo` stay, so the pages do not move.
+   * Decided in one step: not-found (no such message in this channel), not-yours, deleted (already a tombstone), locked (see `lockedByDelivery`).
+   */
+  editMessage(...args: [...A, string, { author: number; text: string; now: number }]): Promise<ChannelChange>;
+  /** The author deletes their own message (#1269), under the same checks as `editMessage`. The row stays as a tombstone with its place, author and links: `text` '' and `mentions` [] (the old text is gone from the row), and `deletedAt` and `updatedAt` set. */
+  deleteMessage(...args: [...A, string, { author: number; now: number }]): Promise<ChannelChange>;
   /** Deletes every message of the channel. Returns how many. */
   clear(...args: A): Promise<number>;
   count(...args: A): Promise<number>;
@@ -386,27 +427,86 @@ export interface ChannelStoreApi<A extends unknown[]> {
   purge(olderThan: number): Promise<number>;
 }
 
-/** One person's counts in one thread (`dm:<a>|<b>` with the two session ids sorted, `group:<group id>`, or `public`). The server keeps them so SSE can carry the counts and no text. */
-export interface ThreadReadState {
-  /** The person, folded (`nameKey`). */
-  person: string;
-  thread: string;
-  /** The cursor of the newest message the person had read, as the last `markRead` gave it; null before any. */
-  lastRead: string | null;
-  unread: number;
-  mentions: number;
+/** What a public channel can be linked to (#1035). */
+export type PublicChannelLinkKind = 'issue' | 'milestone' | 'project';
+
+/** A public channel beside General (#1035). General is built in, has the fixed key `general` and is not one of these rows. */
+export interface PublicChannel {
+  /** The channel's key and id: a lowercase slug, never changed. */
+  name: string;
+  /** At most 280 characters, may be empty. */
+  description: string;
+  /** What the channel is about, or null for a channel about any other topic. At most one channel has a given link. */
+  link: { kind: PublicChannelLinkKind; ref: string } | null;
+  /** The person who opened it, by `people.id` (#1284); null once that person is deleted, so a new person of the same name does not inherit it. */
+  createdById: number | null;
+  /** The opener's name as it was written. */
+  createdByName: string;
+  createdAt: number;
   updatedAt: number;
 }
 
+export interface NewPublicChannel {
+  name: string;
+  description?: string;
+  link?: { kind: PublicChannelLinkKind; ref: string } | null;
+  /** The person's name, kept as the text the page shows. */
+  createdBy: string;
+  /** The person's `people.id`, which is who opened it (#1284); null for the admin secret, which has no person. */
+  createdById: number | null;
+}
+
+/** Why a public channel was not made or changed. `reserved`: `general` or `group`. `name-taken` and `link-taken`: another channel has it (compared without case). `limit-reached`: 50 besides General. */
+export type PublicChannelRefusal = 'invalid' | 'reserved' | 'name-taken' | 'link-taken' | 'limit-reached' | 'not-found';
+
+export type PublicChannelOutcome = { ok: true; channel: PublicChannel } | { ok: false; error: PublicChannelRefusal; message: string };
+
+/**
+ * The public channels beside General (#1035). Their messages are in the public audience's table, keyed by the channel; this is only the list of channels.
+ * A refusal is a value and never a throw.
+ */
+export interface PublicChannelsApi {
+  /** Opens a channel. The name is folded to lowercase, then checked against `^[a-z0-9][a-z0-9-]{0,39}$`; the link's reference is trimmed (at most 100 characters). The limit is checked in the same step as the insert, so two at once cannot pass 50. */
+  create(input: NewPublicChannel, at: number): Promise<PublicChannelOutcome>;
+  /** Every channel beside General, by name. */
+  list(): Promise<PublicChannel[]>;
+  /** One channel by name (any case), or null. Always null for `general`. */
+  get(name: string): Promise<PublicChannel | null>;
+  /** Sets the description (at most 280 characters). */
+  updateDescription(name: string, description: string, at: number): Promise<PublicChannelOutcome>;
+  /** Removes the channel and every message in it in one step. `removed` is false when there was no such channel. */
+  remove(name: string): Promise<{ removed: boolean; messages: number }>;
+  /** How many channels there are beside General. */
+  count(): Promise<number>;
+}
+
+/** One person's counts in one thread (`dm:<a>|<b>` with the two session ids sorted, `group:<group id>`, or `public`). The server keeps them so SSE can carry the counts and no text. */
+export interface ThreadReadState {
+  /** The person, by `people.id` (#1284). */
+  personId: number;
+  thread: string;
+  unread: number;
+  mentions: number;
+}
+
+/** One person a post counts for in a thread, and whether it is also a mention for them. */
+export interface ReadBump {
+  personId: number;
+  mention: boolean;
+}
+
 export interface ChatReadStateApi {
-  /** Zeros (and `updatedAt` 0) for a thread never counted. */
-  get(person: string, thread: string): Promise<ThreadReadState>;
-  /** Every thread the person has a row for, by thread. */
-  list(person: string): Promise<ThreadReadState[]>;
-  /** One more unread message for the person, and one more mention when `mention`. */
-  bump(person: string, thread: string, mention: boolean): Promise<ThreadReadState>;
-  /** The person read up to `upTo` (the cursor of the newest message they saw, or null): unread and mentions go to 0. */
-  markRead(person: string, thread: string, upTo: string | null): Promise<ThreadReadState>;
+  /** Zeros for a thread with no row: a thread read to the end has none, so no row and a row at zero are the same answer (#1296). */
+  get(personId: number, thread: string): Promise<ThreadReadState>;
+  /** Every thread the person has something unread in, by thread. */
+  list(personId: number): Promise<ThreadReadState[]>;
+  /**
+   * One more unread message for each person in one thread, and one more mention for each with `mention`, in a number of statements that does not grow with the people (#1309): a post to General or a public channel counts for everyone but its author.
+   * Returns the new state of each person, in ascending person id (the one order the rows are locked in, so two calls on the same people never wait on each other). A person listed twice is counted twice; an empty list does nothing and returns [].
+   */
+  bumpMany(thread: string, bumps: readonly ReadBump[]): Promise<ThreadReadState[]>;
+  /** The person read the thread: unread and mentions go to 0, and the row goes. Returns the zeros. */
+  markRead(personId: number, thread: string): Promise<ThreadReadState>;
   /** The thread is gone: removes every person's row for it. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Every thread, for any person, that starts with `prefix`, once each, by thread. Used to forget the rows of conversations that no longer exist (#1051). */
@@ -446,37 +546,41 @@ export interface ChatSettingsApi {
  * What an Admin record says: `read` (an Admin read the thread), or one of the Admin's stops that stay on the record for good (#1034): `cleared` (removed all
  * messages), `paused` and `resumed` (a link or a group). Only `read` has a session and a live window; the others are one moment (`lastSeenAt` equals `startedAt`).
  */
-export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName;
+export type AdminReadKind = 'read' | 'cleared' | 'paused' | 'resumed' | 'disconnected' | 'reconnected' | AdminActKindName | AdminStopKindName;
 /** An Admin's stop or delete of something of a person's, kept on the person's `act:` thread (#1078). */
-export type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed';
-export const ADMIN_READ_KINDS: readonly AdminReadKind[] = ['read', 'cleared', 'paused', 'resumed', 'disconnected', 'reconnected', 'recording_stopped', 'recording_deleted', 'activity_deleted', 'session_deleted', 'access_revoked', 'person_deleted', 'reporter_removed'];
+type AdminActKindName = 'recording_stopped' | 'recording_deleted' | 'activity_deleted' | 'session_deleted' | 'access_revoked' | 'person_deleted' | 'reporter_removed' | 'respond_refused';
+/** An Admin's stop on a person's messaging links or on a public channel they opened (#1328): kept with its words in `detail`, owed to the person until they have seen it, and shown in their reporter sessions from the record. */
+export type AdminStopKindName = 'links_paused' | 'links_resumed' | 'link_removed' | 'channel_edited' | 'channel_removed';
 
 export interface AdminReadRow {
   admin: string;
   startedAt: number;
   lastSeenAt: number;
   kind: AdminReadKind;
+  /** The words after the Admin's name for a stop that carries them (#1328): a reporter's or a channel's name, never any message text. Absent when there are none. */
+  detail?: string;
 }
 
 /**
  * The records of an Admin reading a person's group or a Direct Message, one per reading session, so the people in the thread can be told. Never any text.
  *
- * A record names the people it is owed to (`people`, folded names) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
+ * A record names the people it is owed to (`people`, by `people.id`, #1284) and keeps who has seen it (#1051): an Admin's record stays until each of them has, so a
  * retention sweep, the purge of a hidden conversation or a writer deleting a conversation never erases what the person was never shown. A record made
  * with no people (General's, or one made before this was kept) owes nothing and goes by retention alone. "Seen" is `seen`: the person loaded the
  * thread's records, or their own overview for the record of a look at their list.
  */
 export interface ChatAdminReadsApi {
   /**
-   * An Admin read `thread` now. A read within `gapMs` of that Admin's last read of it (names compared folded) is the same session and refreshes its
-   * `lastSeenAt`; a longer gap starts a new record, owed to `people`. `previousSeenAt` is the session's last read before this one, or null when it began now.
+   * An Admin read `thread` now. `admin` is the name shown and `adminId` the Admin's `people.id`, null for the admin secret (#1284): a read within `gapMs` of that Admin's last read of it
+   * (the same id, or for the admin secret the same name) is the same session and refreshes its `lastSeenAt`; a longer gap starts a new record, owed to `people` (their ids).
+   * `previousSeenAt` is the session's last read before this one, or null when it began now.
    */
-  touch(thread: string, admin: string, gapMs: number, people?: string[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
+  touch(thread: string, admin: string, adminId: number | null, gapMs: number, people?: number[]): Promise<{ record: AdminReadRow; started: boolean; previousSeenAt: number | null }>;
   /**
-   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people`. Two
+   * An Admin stopped something on `thread` (removed all its messages, paused or resumed it): one permanent record, never a session, owed to `people` (their ids). Two
    * records of one Admin in the same millisecond are kept apart by moving the later one on by a millisecond.
    */
-  mark(thread: string, admin: string, kind: Exclude<AdminReadKind, 'read'>, people?: string[]): Promise<AdminReadRow>;
+  mark(thread: string, admin: string, adminId: number | null, kind: Exclude<AdminReadKind, 'read'>, people?: number[], detail?: string): Promise<AdminReadRow>;
   /** The thread's records of every kind, oldest first. */
   list(thread: string): Promise<AdminReadRow[]>;
   /** The reading records (never a stop) of these threads last read after `since`, by thread, then oldest first. */
@@ -485,16 +589,155 @@ export interface ChatAdminReadsApi {
   recent(since: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** Every thread that has a record and starts with `prefix`, by name. */
   threads(prefix: string): Promise<string[]>;
-  /** `person` (names compared folded) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
-  seen(thread: string, person: string): Promise<number>;
+  /** The person (`people.id`) has seen the records of `thread`: every record owed to them is marked. Returns how many were not marked before. */
+  seen(thread: string, personId: number): Promise<number>;
   /**
-   * Every record `person` (names compared folded) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
+   * Every record the person (`people.id`) is owed and has not seen, of every kind and thread, newest first (by start, then thread, Admin and kind).
    * The caller decides which of them it can show on a thread and which can only be shown on the person's overview (#1051).
    */
-  unseenFor(person: string): Promise<(AdminReadRow & { thread: string })[]>;
+  unseenFor(personId: number): Promise<(AdminReadRow & { thread: string })[]>;
   /** The thread is gone (a conversation deleted): removes its records that nobody is still owed a look at. Remove all messages does not call this. Returns how many. */
   forget(thread: string): Promise<number>;
   /** Removes the records last read before `olderThan` that nobody is still owed a look at. Returns how many. */
+  purge(olderThan: number): Promise<number>;
+}
+
+/** Who can be in a conversation (#1278, DECISIONS 74): a person, by `people.id`, or an agent, by session id. */
+export type ConversationMemberKind = 'person' | 'agent';
+
+/** A member as given when a conversation is opened or added to. `ref` is the person's `people.id` as text or the agent's session id; `name` is shown. */
+export interface ConversationMemberInput {
+  kind: ConversationMemberKind;
+  ref: string;
+  name: string;
+}
+
+export interface ConversationMember extends ConversationMemberInput {
+  /** The `people.id` of the person who added this member, or null for the opener's own place and for a person deleted since. */
+  addedBy: number | null;
+  joinedAt: number;
+  /** When the member left, or null while they are in. A member who left reads nothing new. */
+  leftAt: number | null;
+}
+
+/** A conversation of two or more members. An agent is in one only when a person added it. */
+export interface Conversation {
+  /** `cnv_`, the server's 8 hex digits of scope, then 24 hex digits. */
+  id: string;
+  createdAt: number;
+  /** Every member, the ones who left included, in the order they joined (then kind, then ref). */
+  members: ConversationMember[];
+  /** When the newest message was written, or `createdAt` when it has none. */
+  lastAt: number;
+  /** The messages it holds, tombstones included. */
+  messages: number;
+}
+
+/** What became of a message handed to one agent of a conversation (#1282): `queued` until the agent takes it, then `delivered`, or `dropped` when it never will. */
+export type ConversationDeliveryState = 'queued' | 'delivered' | 'dropped';
+
+/** One member a message of a conversation went to or named (#1282). A message with no delivery was sent to everyone before this existed, and keeps no delivery line. */
+export interface ConversationDelivery {
+  kind: ConversationMemberKind;
+  /** The person's `people.id` as text, or the agent's session id. */
+  ref: string;
+  name: string;
+  /** True for a member the writer addressed with an @; false for one that took a message sent to everyone. */
+  named: boolean;
+  /** An agent's state; null for a person, who is told by the unread count. */
+  state: ConversationDeliveryState | null;
+  stateAt: number | null;
+}
+
+/** A member a new message is for, as the server decided it: an agent starts `queued`, a person has no state. */
+export interface ConversationTargetInput {
+  kind: ConversationMemberKind;
+  ref: string;
+  name: string;
+  named: boolean;
+}
+
+/** A message of a conversation. */
+export interface ConversationMessage {
+  /** `cmg_`, the server's 8 hex digits of scope, then 24 hex digits. */
+  id: string;
+  conversationId: string;
+  authorKind: ConversationMemberKind;
+  /** The person's `people.id` as text, or the agent's session id. */
+  authorRef: string;
+  authorName: string;
+  /** `people.id` of a person's message, or null for an agent's. */
+  authorId: number | null;
+  text: string;
+  createdAt: number;
+  updatedAt: number;
+  replyTo: string | null;
+  editedAt: number | null;
+  deletedAt: number | null;
+  /** When Podium handed it to an agent of the conversation, or null. A handed message can no longer be changed. */
+  handedAt: number | null;
+  /** Who it went to or named (#1282), ordered by kind then name then ref; empty for a message written before deliveries were kept. */
+  deliveries: ConversationDelivery[];
+}
+
+export interface ConversationPostInput {
+  authorKind: ConversationMemberKind;
+  authorRef: string;
+  authorName: string;
+  /** The writer's `people.id` for a person's message; ignored for an agent's. */
+  authorId?: number | null;
+  text: string;
+  replyTo?: string | null;
+  /** Who the message is for (#1282), stored with it in the same step. Each must be a member now, and not the author; a target that is not throws. Omitted or empty keeps none. */
+  targets?: ConversationTargetInput[];
+}
+
+export interface ConversationPage {
+  messages: ConversationMessage[];
+  /** The cursor of the page before this one, or null when this page starts the conversation. */
+  older: string | null;
+}
+
+/** The result of the author changing one of their own messages. `locked`: it has been handed to an agent. `deleted`: it is already a tombstone. */
+export type ConversationChange = { ok: true; message: ConversationMessage } | { ok: false; reason: 'not-found' | 'not-yours' | 'locked' | 'deleted' };
+
+/**
+ * The conversations of people and agents (#1278, DECISIONS 74), in their own tables (`conversations`, `conversation_members`, `conversation_messages`): a fourth audience,
+ * never copied into, merged with or returned with a channel's or a `peer_messages` row. A member is a person or an agent. Every method that reads and then writes is one step.
+ */
+export interface ConversationsApi {
+  /**
+   * The conversation of exactly these members (the opener included), opened once: when one exists with the same current members it is returned (`created` false), otherwise one is made.
+   * Throws for fewer than two distinct members, more than 50, a member kind that is not `person` or `agent`, an empty ref or name, or no person among them. `createdBy` is who opened it: it is what the other members' `addedBy` records, and nothing else keeps it.
+   */
+  open(input: { members: ConversationMemberInput[]; createdBy: number | null }, at: number): Promise<{ conversation: Conversation; created: boolean }>;
+  get(id: string): Promise<Conversation | null>;
+  /** The id of every conversation, by id. Used by the retention sweep to tell a conversation that is gone from one that exists. */
+  ids(): Promise<string[]>;
+  /** The conversations the member is in now, newest activity first (then id). Never any text. */
+  listFor(member: { kind: ConversationMemberKind; ref: string }): Promise<Conversation[]>;
+  /** Adds members who are not in it (one who left comes back). Null when there is no such conversation. Throws as `open` does for a bad member or more than 50 in all. */
+  addMembers(id: string, members: ConversationMemberInput[], addedBy: number | null, at: number): Promise<Conversation | null>;
+  /** The member leaves. A conversation with no person left in it is deleted with its messages (`deleted` true). Null when there is no such conversation or the member is not in it. */
+  leave(id: string, member: { kind: ConversationMemberKind; ref: string }, at: number): Promise<{ conversation: Conversation | null; deleted: boolean } | null>;
+  /** Stores a message of a member (a person or an agent who is in it now). Null when there is no such conversation or the author is not a member. The text is stored as given; the server has cleaned, redacted and limited it. */
+  post(id: string, input: ConversationPostInput, at: number): Promise<ConversationMessage | null>;
+  /** The newest page first; `before` is the `older` of the page after it. Ordered by time then insertion number. Throws for a cursor the server did not give out. */
+  page(id: string, opts: { before?: string | null; limit: number }): Promise<ConversationPage>;
+  getMessage(id: string, messageId: string): Promise<ConversationMessage | null>;
+  /** The author changes the text of their own message; decided in one step. Not-found, not-yours (the author is `people.id`, never a name), deleted, or locked (handed to an agent). */
+  editMessage(id: string, messageId: string, x: { author: number; text: string; now: number }): Promise<ConversationChange>;
+  /** The author deletes their own message under the same checks; the row stays as a tombstone with no text. */
+  deleteMessage(id: string, messageId: string, x: { author: number; now: number }): Promise<ConversationChange>;
+  /** Podium handed the message to an agent: it can no longer be changed. Null when there is no such message. */
+  markHanded(id: string, messageId: string, at: number): Promise<ConversationMessage | null>;
+  /** What became of the message for one agent it was handed to (#1282). A state only moves forward: `queued` to `delivered` or `dropped`, and a final one stays. Null when the message has no such delivery. */
+  setDelivery(id: string, messageId: string, member: { kind: ConversationMemberKind; ref: string }, state: ConversationDeliveryState, at: number): Promise<ConversationMessage | null>;
+  /** Deletes the conversation, its members, its messages and their deliveries. */
+  remove(id: string): Promise<{ removed: boolean; messages: number }>;
+  /** A person was deleted: they leave every conversation, and each one left with no person is deleted. Returns how many conversations were deleted. */
+  removePerson(personId: number): Promise<number>;
+  /** Retention: deletes the messages created before `olderThan`. Returns how many. A conversation stays, empty. */
   purge(olderThan: number): Promise<number>;
 }
 
@@ -502,14 +745,28 @@ export interface ChatStoreOptions {
   now: () => number;
 }
 
+/** The public audience's store: a channel store with three reads across every channel, each one query, so the server never loops over up to 51 channels (#1213). */
+export type PublicStoreApi = ChannelStoreApi<[string]> & {
+  /** The message count of General and of every public channel, in one grouped query. A channel with no message is absent. */
+  counts(): Promise<Record<string, number>>;
+  /** `heldMentions` over every public channel at once (#1309), each message with its `channel`: what a session that left needs, in one read and not one per channel. Oldest first. */
+  heldMentionsAcross(filter: { sessionId?: string }): Promise<ChannelMessage[]>;
+  /** The person-written messages of every channel that hold a mention of `sessionId` in one of `states`, oldest first (time, then insertion number), each with its `channel`. One query, whichever channels the mentions are in. */
+  mentionsAcross(filter: { sessionId: string; states: MentionState[] }): Promise<ChannelMessage[]>;
+};
+
 /** The Chat page's channel stores and read state (#1034). Built per server, since its clock is its own. */
 export interface ChatStoreApi {
   /** This server's scope: 8 hex digits minted once and kept in `settings`, the middle part of every channel message id. */
   serverScope(): Promise<string>;
   /** The group channel (`group_messages`): a person and their own orchestrators, subagents and forks. */
   readonly group: ChannelStoreApi<[GroupScope]>;
-  /** General (`public_messages`): every signed-in user and reporter. */
-  readonly public: ChannelStoreApi<[]>;
+  /** The public audience (`public_messages`): every signed-in user and reporter. The first argument is the channel's key: `general`, or a channel of `channels` (#1035). A message of any other audience never lands here. */
+  readonly public: PublicStoreApi;
+  /** The public channels beside General (`public_channels`, #1035). */
+  readonly channels: PublicChannelsApi;
+  /** The conversations of people and agents (#1278, DECISIONS 74). */
+  readonly conversations: ConversationsApi;
   readonly readState: ChatReadStateApi;
   /** The records of an Admin reading a thread that is not theirs. */
   readonly adminReads: ChatAdminReadsApi;
@@ -611,13 +868,13 @@ export interface WallSettingsApi {
 }
 
 /** What the Activity history needs from the server that opens it. The rest of its options are plain values and memory reads. */
-export interface ActivityHistoryOptions extends Omit<ActivityHistoryOpts, 'agentsOf' | 'step'> {
+interface ActivityHistoryOptions extends Omit<ActivityHistoryOpts, 'agentsOf' | 'step'> {
   /** The ids of the session's running agents, for the loops the server asks the mod to send. Read from the fleet store, so it is async. */
   agentsOf: (sessionId: string) => Promise<string[]>;
 }
 
 /** What the session recordings need from the server that opens them. */
-export interface RecordingsOptions extends Omit<RecordingsOpts, 'loopsOf' | 'exclusive' | 'compact' | 'step'> {
+interface RecordingsOptions extends Omit<RecordingsOpts, 'loopsOf' | 'exclusive' | 'compact' | 'step'> {
   /** Every loop of the session with the name the layer shows. Read from the fleet store, so it is async. */
   loopsOf: (sessionId: string) => Promise<{ loop: string; name: string }[]>;
 }
@@ -749,8 +1006,6 @@ export interface SessionRecordingsApi {
   /** `exists` says whether the main database still holds the session; it is asked again just before the recording's state goes. */
   dropMissingSessions(exists: (sessionId: string) => Promise<boolean>): Promise<number>;
 }
-
-export type { RecordingMeta };
 
 /** The two services over the activity file. */
 export interface ActivityStorage {

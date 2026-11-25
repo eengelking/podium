@@ -5,13 +5,13 @@ import { readJson, writeJson } from "./storage";
 
 export type Panel = "rail" | "side";
 export const LIMITS: Record<Panel, [number, number]> = { rail: [180, 440], side: [260, 700] };
-export const DEFAULTS: Record<Panel, number> = { rail: 252, side: 340 };
-export const MIN_MAIN = 420;
-export const STEP = 16;
-export const BIG_STEP = 48;
+const DEFAULTS: Record<Panel, number> = { rail: 252, side: 340 };
+const MIN_MAIN = 420;
+const STEP = 16;
+const BIG_STEP = 48;
 const KEY = "podium.panels";
 
-export type Widths = Partial<Record<Panel, number>>;
+type Widths = Partial<Record<Panel, number>>;
 
 /** Clamps a width to its panel's limits and to what leaves the main column MIN_MAIN wide. */
 export function clampWidth(panel: Panel, w: number, containerWidth: number, otherWidth: number): number {

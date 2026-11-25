@@ -4,7 +4,7 @@ import { jsonBody } from '../jsonBody.js';
 import type { Fleet } from './fleet.js';
 import { serverBuild } from './build.js';
 import { checkReporter, serverVersion, supportFor } from './compat.js';
-import { MAIN_LOOP, validateReport } from './protocol.js';
+import { validateReport } from './protocol.js';
 import { everyOf, type ActivityReply } from './activity.js';
 import { HarnessConflict, OwnerConflict } from './ingest.js';
 import { ADMIN_OWNER, nameKey, sourceAddress, keyOf, type PersonRow, type IgnoreRule, type IgnoreTarget, type ReporterSeen } from '../storage/rows.js';
@@ -22,6 +22,7 @@ import type { RespondBridge } from './respondBridge.js';
 import { isNewer } from './updateCheck.js';
 import { refusableOverHttp, type ReporterTransport } from '../tlsHttp.js';
 import { asyncHandler } from './asyncHandler.js';
+import { sendJson } from '../compress.js';
 import { certAuth, type ClientSocket } from '../tlsClientAuth.js';
 
 export interface FleetRouterOptions {
@@ -49,9 +50,11 @@ export interface FleetRouterOptions {
   certs?: { store: PersonCertsApi; trustedIssuers: () => string[] };
   /** Built-in TLS (#589): told which transport each reporter last used, for the Admin's count of reporters on HTTP. */
   transport?: ReporterTransport;
+  /** Gzip /state for a client that accepts it (#745). On when absent; PODIUM_COMPRESSION=off passes false. */
+  compression?: boolean;
 }
 
-export const BODY_LIMIT = '512kb';
+const BODY_LIMIT = '512kb';
 
 /** Who a request's X-Podium-Token says it is. */
 export type Identity = { kind: 'person'; person: PersonRow } | { kind: 'admin' } | { kind: 'open' };
@@ -96,7 +99,7 @@ async function noteReporter(opts: FleetRouterOptions, logger: Logger, seen: Repo
 }
 
 /** The key a sender is known by, and any other row that already holds its session, for the ignore check. */
-async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null; reporterName?: string }): Promise<{ key: string; otherKeys: string[] }> {
+async function keyTarget(opts: FleetRouterOptions, s: { kind: 'mod' | 'hooks'; machineId: string | null; source: string | null; sessionId: string; owner?: string | null; ownerId?: number | null; reporterName?: string }): Promise<{ key: string; otherKeys: string[] }> {
   const own = keyOf(s);
   try {
     const keys = (await opts.reporters?.keysFor(s)) ?? [own];
@@ -123,6 +126,8 @@ async function refuseIgnored(opts: FleetRouterOptions, logger: Logger, fleet: Fl
 }
 
 const ownerOf = (id: Identity): string | null => (id.kind === 'person' ? id.person.name : id.kind === 'admin' ? ADMIN_OWNER : null);
+/** The person's `people.id`, which binds what they report to them (#1284); null for the admin secret and for a server with no sign-in. */
+const ownerIdOf = (id: Identity): number | null => (id.kind === 'person' ? id.person.id : null);
 
 /** Rows per page on `GET /history` (#195): the choices the page offers, and the default. */
 export const HISTORY_PAGE_SIZES = [25, 50, 100];
@@ -244,7 +249,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (
       result.report.reporter.hostSurface !== SIMULATOR_SURFACE &&
       (await refuseIgnored(opts, logger, fleet, req, res, {
-        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', reporterName: result.report.reporter.name, machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id) })),
+        ...(await keyTarget(opts, { kind: asHooks ? 'hooks' : 'mod', reporterName: result.report.reporter.name, machineId, source: machineOf(req), sessionId: result.report.session.id, owner: ownerOf(id), ownerId: ownerIdOf(id) })),
         source: machineOf(req),
         version: result.report.reporter.version,
       }))
@@ -252,7 +257,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       return;
     }
     try {
-      const out = await fleet.ingest(result.report, ownerOf(id));
+      const out = await fleet.ingest(result.report, ownerOf(id), ownerIdOf(id));
       if (id.kind === 'person') await opts.people?.touch(id.person.id, machineOf(req), fleet.now(), result.report.machine); // only a report that was stored counts
       const r = result.report;
       // The simulator (`npm run podium:sim`) says so in hostSurface; it is never listed, so a run leaves no reporter row behind (#168).
@@ -267,6 +272,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
             machineName: r.machine?.name ?? null,
             source: machineOf(req),
             owner: ownerOf(id),
+            ownerId: ownerIdOf(id),
             credential: credentialOf(id),
             version: r.reporter.version,
             engineVersion: r.reporter.engineVersion,
@@ -278,7 +284,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         );
         if (key) opts.transport?.note(key, !refusableOverHttp(req), fleet.now());
         // Orchestrator messaging (#347) knows a session by its reporter, and only a person's own reporter takes part.
-        if (key && id.kind === 'person' && !asHooks) await fleet.noteOrchestrator(out.sessionId, key, id.person.name, r);
+        if (key && id.kind === 'person' && !asHooks) await fleet.noteOrchestrator(out.sessionId, key, id.person.name, id.person.id, r);
       }
       logger.debug('report.accepted', `podium: report for session ${out.sessionId}`, {
         session_id: out.sessionId,
@@ -289,7 +295,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         status: result.report.session.status,
         reporter_version: result.report.reporter.version,
       });
-      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...(await adminNoticesOf(fleet, out.sessionId)), recording: await fleet.recordings.grant(out.sessionId) });
+      res.json({ ok: true, serverTime: fleet.now(), ackedEvents: result.report.events.length, sessionId: out.sessionId, liveSessions: await fleet.visibleCount(), serverVersion: serverVersion(), serverBuild: serverBuild(), reporterSupport: supportFor(result.report.reporter.name), reporterCompat: checkReporter(result.report.reporter.version, result.report.reporter.name), watch: await fleet.watchedLoops(out.sessionId), watchOutput: fleet.activity.watchedOutput(out.sessionId), watchBackground: fleet.activity.watchedBackground(out.sessionId), ...(await replyFor(fleet, opts.token ?? null, out.sessionId)), ...(await peerReplyFor(fleet, opts.token ?? null, out.sessionId, id)), ...(await adminNoticesOf(fleet, out.sessionId)), recording: await fleet.recordings.grant(out.sessionId) });
     } catch (err) {
       if (err instanceof HarnessConflict) {
         logger.warn('report.conflict', `podium: refused a report for session ${result.report.session.id}: it belongs to another harness`, {
@@ -328,7 +334,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       const id = identityOf(res);
       const hookSession = typeof req.body?.session_id === 'string' ? (req.body.session_id as string) : '';
       if (await refuseIgnored(opts, logger, fleet, req, res, { ...(await keyTarget(opts, { kind: 'hooks', machineId: null, source: machineOf(req), sessionId: hookSession })), source: machineOf(req), version: 'hooks' })) return;
-      const out = await fleet.ingestHook(req.body, ownerOf(id));
+      const out = await fleet.ingestHook(req.body, ownerOf(id), ownerIdOf(id));
       if (!out.ok) {
         logger.warn('hook.rejected', `podium: rejected hook payload at ${out.path}: ${out.error}`, {
           reason: out.error,
@@ -344,7 +350,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
       const hookKey = await noteReporter(
         opts,
         logger,
-        { kind: 'hooks', machineId: null, machineName: null, source: machineOf(req), owner: ownerOf(id), credential: credentialOf(id), version: 'hooks', engineVersion: null, sessionId: out.sessionId },
+        { kind: 'hooks', machineId: null, machineName: null, source: machineOf(req), owner: ownerOf(id), ownerId: ownerIdOf(id), credential: credentialOf(id), version: 'hooks', engineVersion: null, sessionId: out.sessionId },
         fleet.now(),
       );
       if (hookKey) opts.transport?.note(hookKey, !refusableOverHttp(req), fleet.now());
@@ -366,8 +372,9 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     }
   }));
 
-  router.get('/state', asyncHandler(async (_req, res) => {
-    res.json(await fleet.state());
+  // Gzipped for a client that accepts it (#745). The stream below is not: see SPEC 7.6.
+  router.get('/state', asyncHandler(async (req, res) => {
+    await sendJson(req, res, await fleet.state(), opts.compression ?? true);
   }));
 
   router.get('/stream', asyncHandler(async (req, res) => {
@@ -389,7 +396,9 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
         if (res.writableEnded || res.destroyed) throw new Error('closed');
         res.write(chunk);
       },
-      end: () => res.end(),
+      // destroy, not end: `end` waits for a client that is not reading, and the queue is what is being dropped (#748).
+      end: () => res.destroy(),
+      queued: () => res.writableLength,
     });
     // null: the hub filled while this connect waited its turn (the check above ran before the wait), or the client vanished while being added.
     if (id === null) {
@@ -432,8 +441,8 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
     if (!respondAccess || !(await respondAccess.agentRead(req, res, 'live', id, agentId))) return;
     // With the Admin's flag off (Admin > Settings > Feature flags) no lease is taken; the panel keeps asking and says so.
     let body: ActivityReply;
-    if (!fleet.activity.on) body = { entries: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };
-    else if (!fleet.isLive(id)) body = { entries: [], since: null, live: false, enabled: true, serverTime: fleet.now() };
+    if (!fleet.activity.on) body = { entries: [], background: [], since: null, live: fleet.isLive(id), enabled: false, serverTime: fleet.now() };
+    else if (!fleet.isLive(id)) body = { entries: [], background: [], since: null, live: false, enabled: true, serverTime: fleet.now() };
     else body = { ...fleet.activity.watch(id, agentId, everyOf(req.query.every)), live: true, enabled: true, serverTime: fleet.now() };
     // What is stored for this loop, as counts. Present only under a keep policy and when the loop has entries, so under the
     // default policy the reply is exactly what it was. `canRead` is the viewer's own sign-in; it never refuses the request.
@@ -448,7 +457,7 @@ export function createFleetRouter(fleet: Fleet, opts: FleetRouterOptions = {}): 
   router.delete('/sessions/:id', requireToken, asyncHandler(async (req, res) => {
     const id = identityOf(res);
     // The admin secret deletes any session; the owner is told who did it (#1078). A server with no sign-in has no Admin to name.
-    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.name : undefined, id.kind === 'admin' ? 'Admin' : undefined);
+    const out = await fleet.deleteSessionAs(req.params.id, id.kind === 'person' ? id.person.id : undefined, id.kind === 'admin' ? { name: 'Admin', id: null } : undefined);
     if (out === 'unknown') {
       res.status(404).json({ ok: false, error: 'unknown session', path: '$.id' });
       return;

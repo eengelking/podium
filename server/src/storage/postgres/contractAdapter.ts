@@ -3,9 +3,15 @@
 import pg from 'pg';
 import type { ContractAdapter, SchemaNames } from '../contractAdapter.js';
 import type { Storage } from '../types.js';
+import { countCalls } from '../statementCount.js';
+import { PgDb } from './conn.js';
 import { openPostgresStorage } from './index.js';
 import { openUpgradedPostgres } from './upgradeTesting.js';
+import { postgresSamplesPerf } from './samplesPerf.js';
 import { TEST_PG, createTestDatabase, type TestDatabase } from './testing.js';
+
+// Every statement the stores send goes through `PgDb.statement` (#1309).
+countCalls(PgDb.prototype, ['statement']);
 
 const target = (td: TestDatabase): string => td.url.replace(/^postgres:\/\//, '');
 
@@ -23,6 +29,21 @@ export function postgresContractAdapter(): ContractAdapter {
       },
     };
   };
+  /** A fresh database with every table made, the Activity ones too (they are built on demand), read through a connection by `read` and dropped. */
+  const onFresh = async <T>(read: (c: pg.Client) => Promise<T>): Promise<T> => {
+    const td = await createTestDatabase();
+    const storage = await openPostgresStorage(target(td), 0);
+    storage.activity({ history: { now: () => 0, settings: () => ({ policy: 'default' }) as never, isLive: () => true, authOn: true, agentsOf: async () => [] }, recordings: { now: () => 0, settings: () => ({}) as never, flagOn: () => false, authOn: true, isLive: () => true, loopsOf: async () => [] } });
+    const c = new pg.Client({ connectionString: td.url });
+    await c.connect();
+    try {
+      return await read(c);
+    } finally {
+      await c.end();
+      await storage.close();
+      await td.drop();
+    }
+  };
   return {
     name: 'postgres',
     serverVar: 'PODIUM_TEST_PG',
@@ -31,18 +52,22 @@ export function postgresContractAdapter(): ContractAdapter {
       const td = await createTestDatabase();
       return track(td, await openPostgresStorage(target(td), 0));
     },
-    openUpgraded: async (rows, reporters, sessions, messages, rights, adminReads) => {
-      const { storage, td } = await openUpgradedPostgres(rows, reporters, sessions, messages, rights, adminReads);
+    openUpgraded: async (rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras, chat, daily) => {
+      const { storage, td } = await openUpgradedPostgres(rows, reporters, sessions, messages, rights, adminReads, publicMessages, extras, chat, daily);
       return track(td, storage);
     },
-    schema: async () => {
-      const td = await createTestDatabase();
-      const storage = await openPostgresStorage(target(td), 0);
-      // The Activity store is built on demand, so ask for it before reading the catalog.
-      storage.activity({ history: { now: () => 0, settings: () => ({ policy: 'default' }) as never, isLive: () => true, authOn: true, agentsOf: async () => [] }, recordings: { now: () => 0, settings: () => ({}) as never, flagOn: () => false, authOn: true, isLive: () => true, loopsOf: async () => [] } });
-      const c = new pg.Client({ connectionString: td.url });
-      await c.connect();
-      try {
+    layouts: () =>
+      onFresh(async (c) => {
+        // A table that is unlogged, partitioned or made with a storage option (a fill factor and the like), in either schema.
+        const rows = await c.query(
+          "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname IN ('podium', 'podium_activity') AND c.relkind IN ('r', 'p') AND (c.relkind = 'p' OR c.relispartition OR c.relpersistence <> 'p' OR c.reloptions IS NOT NULL) ORDER BY c.relname",
+        );
+        return (rows.rows as { relname: string }[]).map((r) => r.relname);
+      }),
+    // None: PostgreSQL keeps a key beside its row and has no layout that stores it once, so no table needs another (DECISIONS 78).
+    physical: [],
+    schema: () =>
+      onFresh(async (c) => {
         const out: SchemaNames = { tables: {}, indexes: [] };
         const cols = await c.query("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema IN ('podium', 'podium_activity') ORDER BY table_name, column_name");
         for (const r of cols.rows as { table_name: string; column_name: string }[]) {
@@ -53,12 +78,8 @@ export function postgresContractAdapter(): ContractAdapter {
         const idx = await c.query("SELECT indexname FROM pg_indexes WHERE schemaname IN ('podium', 'podium_activity') AND indexname NOT IN (SELECT conname FROM pg_constraint) ORDER BY indexname");
         out.indexes = (idx.rows as { indexname: string }[]).map((r) => r.indexname);
         return out;
-      } finally {
-        await c.end();
-        await storage.close();
-        await td.drop();
-      }
-    },
+      }),
+    samplesPerf: postgresSamplesPerf,
     known: [
       // Accepted by the maintainer (#1007): no typed validation layer is built. A NaN is not in this list: both adapters store it as NULL.
       { id: 'non-integer number', issue: '#1007', why: 'a fraction, an infinity or a number of 1e21 or more is sent to an integer column or compared with one: PostgreSQL throws and SQLite accepts it (the report validator and the query-number check refuse it before any store is called, so this is not reachable over HTTP)', input: (x) => typeof x === 'number' && !Number.isNaN(x) && !Number.isSafeInteger(x) },

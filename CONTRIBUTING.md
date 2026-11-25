@@ -56,7 +56,8 @@ Its output, `dist-dev/`, is git-ignored. `npm run plugin:build` and `plugin:dev`
 ```sh
 npm test               # server, UI, simulator and podiumctl tests (vitest)
 npm run test:coverage  # the same tests with coverage; writes server/coverage and frontend/coverage (lcov, gitignored); slower, so its test timeout is 20 s
-npm run build          # UI and server build, scripts type-check
+npm run build          # UI and server build, scripts type-check; also fails on an unused import or local (`noUnusedLocals`, tests included)
+npm run knip           # fails on an unused file, dependency or export, and names it (CI runs it on every PR)
 npm run plugin:build    # build dist-dev/<harness>/ with the dev stamp, for trying the reporter from your checkout; fails if it is not self-contained
 npm run plugin:build:release  # the release build: empties dist/ and builds every harness there with no stamp (only release-prep commits it)
 npm run plugin:dist:check     # fails unless the tracked dist/ is exactly what a clean build of plugin/ produces (CI runs it on a PR into main)
@@ -65,10 +66,10 @@ npm run test:core                 # the tests in plugin/core/, with no harness C
 npm run test:mod:claudecode       # build the plugin with its tests into .build-test/, then `claude plugin test` on it (needs Claude Code)
 npm run typecheck:mod:claudecode  # the mod against Claude Code's plugin API declarations (needs Claude Code)
 npm run podium:smoke   # end to end: server, simulator, SSE, directly and through Vite
-npm run e2e            # the Cypress suite, in containers (Podman or Docker): Podium's own image and the pinned cypress/included image; installs nothing
-E2E_DB=postgres npm run e2e  # the same suite with PostgreSQL behind the server (CI runs every database)
-E2E_DB=mariadb npm run e2e   # the same suite with MariaDB behind the server
-bash scripts/e2e-all.sh --shards 2 --out <folder outside the repo>  # every database at once, each split into 2 runs (--help says how to choose the count)
+npm run e2e:fast       # the Cypress suite, in containers (Podman or Docker), split into shards at once; the run to use. Installs nothing
+npm run e2e:fast -- --db "sqlite postgres mariadb"  # the same on several databases at once (the shard count follows the machine and the databases, at most 3; --shards N overrides)
+npm run e2e            # the serial reference run: one server, every spec in turn, for a failure that only shows sharded
+# scripts/e2e-all.sh is what e2e:fast calls (one run per database and shard); scripts/e2e-up.sh is the engine it starts for each
 scripts/podium-soak.sh --help   # load and restart check
 scripts/podium-golden.mjs --help # capture one build's answers and rows, and diff two captures (a refactor that must change no behavior, #313)
 node scripts/promise-misuse.mjs server/tsconfig.json --tests  # find a Promise used as a value or left floating, such as a store call without await (#809; also in npm test)
@@ -81,24 +82,36 @@ node scripts/page-shot.mjs --help      # load a page at a set width (400 px) in 
 node scripts/podium-peers-seed.mjs --help  # seed a throwaway server with a person, reporters and messages to look at
 ```
 
+**Unused code** is checked two ways (#1210). `noUnusedLocals` is on in every `tsconfig.json`, so `npm run build` (and `npm run typecheck:mod:opencode`
+and `:claudecode` for the reporters) fails on an unused import or local, test files included; delete the name, and where the call has an effect
+the test needs, keep the call and drop only the name. `npm run knip` reads `knip.jsonc`, which lists the entry points (a test file is one, so a symbol
+only a test uses counts as used) and reports an unused file, dependency or export with its file and name. Fix a finding by deleting the symbol or dropping
+`export` from it. To keep something on purpose, add it to `knip.jsonc` in the section it belongs to, with the reason on the line above; use it only for a name
+that is reached some way knip cannot follow (a path in a manifest, a module loaded by a string, a host-supplied package), never to silence a finding.
+
 `page-shot.mjs` is how to see a UI change at a narrow width in the built app. Start a throwaway server on its own port and database
 (`PORT=4391 PODIUM_DB=/tmp/x.sqlite PODIUM_TOKEN=secret node server/dist/index.js` after `npm run build`), seed it, and run
 `node scripts/page-shot.mjs --url 'http://127.0.0.1:4391/#/me/reporters' --width 400`. It needs Chrome or Chromium and Node 22 or later.
 
 **The end-to-end suite** (`e2e/`, decision 48) drives the built console in a real browser. `npm run e2e` builds Podium's image, starts it on a
 private container network beside the pinned `cypress/included` container, seeds it with fixed data, runs every spec and removes every container,
-network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). Run
-one folder with `npm run e2e -- -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
+network and volume it made; no port opens on your machine and Cypress is never installed (the first run pulls the image, about 2.5 GB). `npm run e2e:fast` is the same suite split into shards that run side by side, and the run to use: the count is chosen from your machine and the number of databases (at most 3, at most the engine's CPUs divided by the databases, at most its memory in GB divided by 2 times the databases; it prints the count and why, and `--shards N` overrides it), and `--db "sqlite postgres mariadb"` runs several databases at once. Keep the serial `npm run e2e` for a failure that only shows sharded or a machine too small to shard. Run
+one spec with `npm run e2e:fast -- --db sqlite --shards 1 -- --spec "cypress/e2e/wall/**"`. In CI the `E2E` workflow (`.github/workflows/e2e.yml`) runs on the release PR (`development` to `main`) and on a manual "Run workflow", not on a PR into `development`. It runs `scripts/e2e-all.sh --shards 3` on every database at once, about 15 minutes in all (`docs/e2e/COVERAGE.md`, "Read a CI failure", says how to read a failing shard). To read a failure, find the spec and test title in the Cypress output, and look at the screenshots in `e2e/results/` (CI's run uploads an `e2e-failure` artifact (a screenshot per failure and the server log with the admin secret scrubbed; kept 7
 days). A change to a feature comes with its specs: `docs/e2e/COVERAGE.md` maps every feature to its spec, explains how to add one and the
 test-id convention, and the `/podium-e2e-update` skill does the update. `npm test` fails when that map names a file, route or test id that no longer exists.
 
 **The tests of the adapters that need a database server** (PostgreSQL in `server/src/storage/postgres/`, decision 53; MariaDB in `server/src/storage/mariadb/`, #823) run against the server each one's variable names (`PODIUM_TEST_PG`, `PODIUM_TEST_MARIADB`), and so does the storage contract that every adapter passes (`server/src/storage/adapters.test.ts`, #1008). Without a variable `npm test` fails and says which adapter has no server, because a run that leaves one out is not a pass. To run without one on purpose, set `PODIUM_TEST_ONLY` to the kinds to run (for example `sqlite,postgres`): the run then prints which adapters were NOT RUN, and that is not a pass for a pull request. If a variable is set and no server answers, the run fails.
 
-`scripts/test-db.sh [vitest args]` does it all for you (#891, #823): it starts a throwaway container for every database that has a test server, all at once, with a placeholder password on a free local port, sets each variable, runs the server suite and removes every container after. Each database runs on the one version Podium tests, PostgreSQL 17 and MariaDB 11.4 (the supported databases are SQLite, built in, PostgreSQL 17 and MariaDB 11.x, tested on 11.4); `--image KIND=REF` runs another version, which is untested. The databases, their images and their variables are one table, `scripts/db-adapters.mjs`, so a new adapter is one entry there. Each test file makes its own database on each server and drops it after, so a server can be shared and the tests can run in parallel. To start one by hand instead, use a container with a placeholder password of your own, and never point a variable at a database you care about:
+`npm run test:all` (`scripts/test-all.mjs`, #1295) runs every test suite from one command, one after another, each through the command that already runs it, under the machine's database lock taken once for the run, and ends with one `TEST ALL RESULT:` line (`server=PASS frontend=PASS core=PASS mod:opencode=PASS mod:claudecode=NOT RUN e2e=PASS`) with each suite's counts. It takes `--suite`, `--db`, `--shards`, `--out`, `--fail-fast` and, with exactly one suite named, arguments after `--`. A suite that cannot run here (`mod:claudecode` without the Claude Code CLI) is NOT RUN with the reason, and a run that is narrowed or has one is LIMITED and not a pass. The harness suites come from `package.json`, and `scripts/test-all.test.ts` fails when a harness's script pair has no suite. The rest of this section is the server suite alone:
+
+`npm run test:db` does it all for you (`scripts/test-db.mjs`, #1294, #891, #823): it starts a throwaway container for every database that has a test server, all at once, with a placeholder password on a free local port, sets each variable, runs the server suite and removes every container after, with its data volume (`rm -f -v`, because the database images declare one and each run would leave it behind), also when a run fails or is stopped. Each database runs on the one version Podium tests, PostgreSQL 17 and MariaDB 11.4 (the supported databases are SQLite, built in, PostgreSQL 17 and MariaDB 11.x, tested on 11.4); `--image KIND=REF` runs another version, which is untested. `--db "KIND [KIND...]"` picks the databases, `--scope adapters` runs only the tests that depend on a database server, `--shards N` runs vitest's `--shard i/N` one after another on the same containers (a full run takes about four minutes on a laptop, so it is off by default), `--out DIR` holds each run's log and JSON report (default a folder under your temp folder), and everything after `--` goes to vitest. It ends with one `DB TEST RESULT:` line, for example `sqlite=PASS postgres=PASS mariadb=PASS`, and each database's files and tests. A run that leaves a database out (`--db`, or `PODIUM_TEST_ONLY` as CI does) says LIMITED and what was NOT RUN, and is not a pass for a pull request. The databases, their images and their variables are one table, `scripts/db-adapters.mjs`, so a new adapter is one entry there. It takes the machine's database lock first (`scripts/db-lock.sh`, one per user in your temp folder): only one database job runs at a time, so a second `npm run test:db` or `npm run e2e:fast` waits its turn and prints who it waits for. A lock whose holder is gone is taken over, CI takes none, `PODIUM_DB_LOCK=off` skips it, and `PODIUM_DB_LOCK_TIMEOUT_S=N` gives up with exit 3 after N seconds. Each test file makes its own database on each server and drops it after, so a server can be shared and the tests can run in parallel. To start one by hand instead, use a container with a placeholder password of your own, and never point a variable at a database you care about:
 
 ```sh
-scripts/test-db.sh                                       # the whole server suite on every adapter
-scripts/test-db.sh src/storage/adapters.test.ts          # one file (the path is from server/)
+npm run test:all                                         # every suite (server on every adapter, frontend, core, each harness, e2e), one lock, one TEST ALL RESULT: line
+npm run test:all -- --suite "core server" --db sqlite     # a narrowed run: LIMITED, not a pass
+npm run test:db                                          # the whole server suite on every adapter
+npm run test:db -- src/storage/adapters.test.ts -t contract   # one file and a test name (the path is from server/)
+npm run test:db -- --db "sqlite postgres" --scope adapters    # only what needs a server, MariaDB left out (LIMITED)
 podman run -d --name podium-test-mariadb -e MARIADB_ROOT_PASSWORD=change-me -e MARIADB_DATABASE=podium_test -p 53306:3306 docker.io/library/mariadb:11.4
 export PODIUM_TEST_MARIADB=mariadb://root:change-me@127.0.0.1:53306/podium_test
 podman rm -f podium-test-mariadb                         # when you are done
@@ -140,7 +153,8 @@ Which checks a change runs depends on where it sits. A change to `plugin/core/` 
 ### The nightly
 
 `.github/workflows/nightly.yml` publishes a snapshot of `development` every day at 06:00 UTC (and on demand, from the Actions
-tab, with Run workflow). It checks out `development`, runs `npm test` and `npm run build`, and only if both pass creates the tag
+tab, with Run workflow). It checks out `development`, runs `npm test` on a GitHub-hosted runner with a PostgreSQL 17 and a MariaDB 11.4
+service container, so every adapter's tests run (#1178), and `npm run build`, and only if both pass creates the tag
 `nightly-YYYY-MM-DD` and a GitHub **prerelease** with a source tarball of that commit. Then it deletes every earlier `nightly-*`
 release and tag, so one nightly exists at a time. A day with no new commit on `development`, or a red `development`, publishes
 and deletes nothing. A nightly is unreleased and may be broken. It is never marked latest, so `releases/latest` and the in-app
@@ -188,8 +202,8 @@ own conversation. Other docs should link to the spec section instead of restatin
 | `CHANGELOG.md` | One entry per release |
 
 Update the docs that describe your change in the same PR. For anything a user would notice, add a changelog fragment:
-a file `changelog.d/<issue-or-slug>.<type>.md` that holds the text of one entry (`added`, `changed`, `deprecated`, `removed` or
-`fixed`; see `changelog.d/README.md`). Do not edit `CHANGELOG.md` in a feature or fix PR. Two PRs then never touch the same file,
+a file `changelog.d/<issue-or-slug>.<type>.md` that holds the text of one entry (`added`, `changed`, `deprecated`, `removed`,
+`fixed` or `standards`; see `changelog.d/README.md`). Do not edit `CHANGELOG.md` in a feature or fix PR. Two PRs then never touch the same file,
 and the release-prep PR folds the fragments into it (DECISIONS 67).
 
 A change to the UI also follows the standards in `docs/standards/`, and starts with a mockup that links
@@ -412,7 +426,7 @@ for an existing issue first. If you are reporting several problems with one caus
 useful than one per symptom.
 
 For a bug report, paste the output of `/podium` along with `podiumctl status`. Run `/podium` inside the
-Claude Code session that shows the problem (it is a Claude Code command, not a shell one like `podiumctl`).
+Claude Code or OpenCode session that shows the problem (it is a command of the session, not a shell one like `podiumctl`).
 It shows the connection state, the `Versions:` line and the report counts, so we can tell whether the mod is
 connected, refused (HTTP 401) or out of step with the server. It does not print your token, but check what you
 paste and remove any token or other secret before posting.

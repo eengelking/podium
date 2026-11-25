@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./admin/admin.css";
 import "./chat.css";
-import { PageHeader, Panel, Section } from "./admin/Page";
+import { Panel, Section } from "./admin/Page";
 import { ago } from "./admin/ReportersTab";
 import { LEVEL_ICON, PausedTag, Segmented } from "./components/PeerRights";
 import { rightsModel } from "./peers";
@@ -114,15 +114,11 @@ function StateTag({ link, paused = link.paused === true }: { link: TrafficLink; 
 const initialView = (): View => (globalThis.matchMedia?.("(max-width: 640px)")?.matches ? "table" : "map");
 
 export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; sessions: Record<string, SessionView>; peers: MyPeers; api: TrafficApi; now: number }) {
-  const { me, peersOn, api } = props;
+  const { peersOn, api } = props;
   const [range, setRange] = useState<TrafficRange>("live");
   const [view, setView] = useState<View>(initialView);
   const traffic = useTraffic(api, peersOn, range);
   const links = traffic.data?.enabled ? traffic.data.conversations : [];
-  const owners = [...new Set(links.map((l) => l.owner))];
-  let lead = "Messages between orchestrators, on every machine that reports here.";
-  if (owners.length === 1) lead = `Messages between ${owners[0]}'s orchestrators, on every machine that reports here.`;
-  else if (owners.length > 1) lead = "Messages between each person's own orchestrators, on every machine that reports here.";
 
   let body: React.ReactNode;
   if (!peersOn || traffic.data?.enabled === false) {
@@ -156,7 +152,7 @@ export function TrafficPage(props: { me: RespondMe | null; peersOn: boolean; ses
     <main className="adminv" aria-label="Traffic">
       <div className="apage">
         <div className="apage-in">
-          <PageHeader title="Traffic" lead={lead} />
+          <h1 className="vh">Traffic</h1>
           <div className="ch-nav" role="note" data-testid="traffic-deprecated">
             <b>Traffic is retired.</b> Chat replaces it: the same conversations are Direct Messages there, and Pause link and Remove link are in the menu on each one. <a href="#/chat">Open Chat</a>
           </div>
@@ -364,8 +360,8 @@ function pausedByRights(peers: MyPeers, l: TrafficLink): boolean {
 
 function ConversationPanel(p: WhoProps & { link: TrafficLink; onSaid: (s: string) => void }) {
   const { link, me, api } = p;
-  const readable = canRead(me, link.owner);
-  const manage = canManage(me, link.owner);
+  const readable = canRead(me, link.ownerId);
+  const manage = canManage(me, link.ownerId);
   const conv = useConversation(api, link, readable, p.tick);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);

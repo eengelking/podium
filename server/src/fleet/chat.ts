@@ -2,22 +2,35 @@
 // overview the Chat page opens with, and runs the two housekeeping jobs (a conversation hiding and returning as its agents leave and come back, and the
 // retention purge). The two sides stay apart on purpose: see `chatChannels.ts` and `chatDirect.ts`.
 import { nameKey } from '../storage/rows.js';
-import type { AdminReadRow, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
+import type { AdminReadRow, AdminStopKindName, ChatSettingsApi, ChatStoreApi } from '../storage/types.js';
 import { ACT_PREFIX } from './adminActs.js';
-import { AdminReads, LIST_PHRASE, listThread } from './chatAdminReads.js';
+import { asyncHandler } from './asyncHandler.js';
+import { AdminReads, listSubject, listThread } from './chatAdminReads.js';
 import type { AdminNotice } from './chatAdminNotices.js';
 import { ChannelChat } from './chatChannels.js';
 import { ChatCore } from './chatCore.js';
+import { ConversationChat, conversationOfThread, type ConversationInfo } from './chatConversations.js';
 import { DirectChat, type DirectInfo } from './chatDirect.js';
 import type { MessageTrail } from './peerTypes.js';
-import { CHANNEL_NAMES, fail, isPersonId, personId, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail } from './chatTypes.js';
+import { PublicChannels } from './chatPublic.js';
+import { GENERAL, GROUP, channelName, channelOfThread, channelThread, fail, isPersonId, personId, type AdminReading, groupThread, publicThread, type ChatEvent, type ChatHost, type ChatViewer, type Fail, type PersonRef } from './chatTypes.js';
+import type { ChannelFlags, PublicChannel } from '../storage/types.js';
 
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 
 export interface ChannelInfo {
-  id: 'general' | 'group';
+  /** `general`, `group`, or a public channel's name (#1035). */
+  id: string;
+  /** `public` for General and a channel someone opened, `group` for My group. */
+  kind: 'public' | 'group';
   name: string;
+  /** What the channel is for; empty for General and My group, which have none. */
+  description: string;
+  /** What a public channel is about (an issue, a milestone or a project), or null. */
+  link: { kind: 'issue' | 'milestone' | 'project'; ref: string } | null;
+  /** The person who opened a public channel, as written; null for General and My group, and for a channel nobody opened. */
+  openedBy: string | null;
   thread: string;
   unread: number;
   mentions: number;
@@ -28,10 +41,10 @@ export interface ChannelInfo {
   disconnected: boolean;
   /** The Admins reading this channel now (My group only; General is never read-recorded). Empty when no one is. */
   adminReading: AdminReading[];
-  can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean };
+  can: { pause: boolean; pauseEveryone: boolean; disconnect: boolean; removeAll: boolean; editDescription: boolean; removeChannel: boolean };
 }
 
-export interface AgentInfo {
+interface AgentInfo {
   sessionId: string;
   name: string;
   machine: string;
@@ -47,10 +60,13 @@ export interface Overview {
   enabled: true;
   serverTime: number;
   /** `actor` is the name the Admin is recorded under (their own, or "Admin secret"), the one a pause, a reading or a stop carries, so the page can tell which are theirs. */
-  me: { name: string; actor: string; admin: boolean; person: boolean };
+  /** `id` is the viewer's `people.id` (null for the admin secret): the console decides whose a message is by it, never by `name` (#1284). */
+  me: { id: number | null; name: string; actor: string; admin: boolean; person: boolean };
   settings: { maxChars: number; perMinute: number; retainDays: number; graceHours: number; everyone: boolean };
   channels: ChannelInfo[];
   directs: DirectInfo[];
+  /** The viewer's conversations of people and agents (#1278), newest first. An Admin who browses gets only those with an agent in them. Names, counts and times. */
+  conversations: ConversationInfo[];
   agents: AgentInfo[];
   /** `directs` is set only when an Admin browses another person (#1034): how many Direct Messages that person takes part in, for the picker. */
   people: { name: string; you: boolean; directs?: number }[];
@@ -89,23 +105,40 @@ const CURSOR_SHAPE = /^[A-Za-z0-9._:-]{1,64}$/;
 export class ChatService {
   readonly core: ChatCore;
   readonly channels: ChannelChat;
+  /** Opening, describing and removing a public channel (#1035). */
+  readonly publicChannels: PublicChannels;
   readonly direct: DirectChat;
+  /** The conversations of people and agents (#1278, DECISIONS 74). */
+  readonly conversations: ConversationChat;
   readonly adminReads: AdminReads;
 
   constructor(host: ChatHost, store: ChatStoreApi) {
     this.core = new ChatCore(host, store);
     this.adminReads = new AdminReads(this.core);
     this.channels = new ChannelChat(this.core, this.adminReads);
+    this.publicChannels = new PublicChannels(this.core, this.adminReads);
     this.direct = new DirectChat(this.core, this.adminReads);
-    this.adminReads.resolve = (thread) => this.direct.subjectOf(thread);
+    this.conversations = new ConversationChat(this.core, this.adminReads);
+    this.adminReads.resolve = (thread) => (conversationOfThread(thread) ? this.conversations.subjectOf(thread) : this.direct.subjectOf(thread));
     // A person's @ of another person's agent (#1034): the channel asks the direct-message side, and hears back what came of it.
     this.core.across = (v, sessionId, text, opts) => this.direct.across(v, sessionId, text, opts);
-    this.core.hearAcross((u) => void this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err)));
+    this.core.hearAcross((u) => this.core.also(this.channels.acrossUpdate(u).catch((err: unknown) => host.warn('a mention in Chat could not be updated', err))));
+  }
+
+  /**
+   * What Chat's routes use in place of `asyncHandler`: the same error handling plus one action of Chat's (#1296), so the consoles are sent one event for each scope
+   * the route changed, once it is done, and when it throws too. The route files bind it as `chatHandler`.
+   */
+  readonly handler = (fn: Parameters<typeof asyncHandler>[0]): ReturnType<typeof asyncHandler> => asyncHandler((req, res, next) => this.core.batch(() => fn(req, res, next)));
+
+  /** A task of the fleet's that moves several sessions at once (the sweep): the consoles hear of it as one action, as of one session's. */
+  batch<T>(task: () => Promise<T>): Promise<T> {
+    return this.core.batch(task);
   }
 
   /** What became of a message between people, from the peer store's own trail: the mention the person wrote moves, and both sides' consoles are told. */
   peerTrail(t: MessageTrail): void {
-    this.direct.peerTrail(t);
+    this.core.also(this.core.batch(async () => this.direct.peerTrail(t)).catch((err: unknown) => this.core.host.warn('a message between people could not be followed in Chat', err)));
   }
 
   /** The Admin's Chat limits and the channels' flags. */
@@ -121,9 +154,9 @@ export class ChatService {
     return this.adminReads.noticesFor(sessionId);
   }
 
-  /** An Admin paused, resumed or removed links of a person's reporters: the person's live sessions are told (#1077). Returns how many sessions were. */
-  toldLinkStop(admin: string, owner: string, what: string): number {
-    return this.adminReads.toldLinkStop(admin, owner, what);
+  /** An Admin paused, resumed or removed links of a person's reporters (#1077): kept owed to the person and shown in their reporter sessions (#1328). Returns how many live sessions show it now. */
+  stopOwed(admin: { name: string; id: number | null }, ownerId: number, kind: AdminStopKindName, what: string): Promise<number> {
+    return this.adminReads.stopOwed(admin, ownerId, kind, what);
   }
 
   /** An Admin reads a conversation between agents outside Chat: recorded before the text is answered, and its people are told (#1072). False when there is none. */
@@ -150,52 +183,94 @@ export class ChatService {
     const key = nameKey(raw);
     const subject = (await this.core.persons()).find((p) => p.key === key);
     if (!subject) return fail(404, `There is no person named ${raw.slice(0, 80)}.`);
-    if (viewer.personId !== null && nameKey(viewer.name) === key) return this.overview(viewer);
+    if (viewer.personId !== null && subject.id === viewer.personId) return this.overview(viewer);
     // The person's list is theirs: an Admin looking at it is recorded and the person is told, in the console and in podium-reporter (#1051). It names
     // who they talk to and how many messages, never what they say. Recorded before it is answered; the Admin log gets `chat_admin_browse` once a session.
-    await this.adminReads.note(viewer, { scope: 'list', thread: listThread(key), owners: [key], phrase: LIST_PHRASE, person: subject.name });
-    return this.overview(viewer, subject.name);
+    // The person is the one with this id (#1284): the record and the notice are found by it, so a person who takes a deleted person's name is told of nothing.
+    await this.adminReads.note(viewer, listSubject(subject.id, subject.name));
+    return this.overview(viewer, { id: subject.id, name: subject.name });
   }
 
-  async overview(viewer: ChatViewer, browsing?: string): Promise<Overview> {
+  /** Everyone the Admin's picker lists, each with their conversation count from one read for all of them (#1046). */
+  private async peopleWithCounts(): Promise<{ name: string; you: boolean; directs: number }[]> {
+    const persons = await this.core.persons();
+    const counts = await this.direct.countsOf(persons.map((p) => p.name));
+    return persons.map((p) => ({ name: p.name, you: false, directs: counts[p.name] ?? 0 }));
+  }
+
+  /** One channel as the overview lists it. `meta` is the public channel's row, null for General and My group. */
+  private async info(
+    viewer: ChatViewer,
+    id: string,
+    meta: PublicChannel | null,
+    ctx: { subject: PersonRef | null; flagPersonId: number | null; counts: Map<string, { unread: number; mentions: number }>; totals?: Record<string, number>; known: Record<string, ChannelFlags> | undefined },
+  ): Promise<ChannelInfo> {
+    const isGroup = id === GROUP;
+    // My group is only listed for a person (or the person an Admin browses), so the subject is there whenever it is asked for (#1284).
+    const group = isGroup ? (ctx.subject as PersonRef) : null;
+    const thread = group ? groupThread(group.id) : channelThread(id);
+    const flags = await this.channels.flagsOf(id, group, ctx.flagPersonId, ctx.known);
+    const c = ctx.counts.get(thread);
+    const person = viewer.personId !== null;
+    return {
+      id,
+      kind: isGroup ? 'group' : 'public',
+      name: channelName(id),
+      description: meta?.description ?? '',
+      link: meta?.link ?? null,
+      openedBy: meta ? meta.createdByName || null : null,
+      thread,
+      unread: c?.unread ?? 0,
+      mentions: c?.mentions ?? 0,
+      messages: !isGroup && ctx.totals ? (ctx.totals[id] ?? 0) : await this.channels.total(id, group),
+      ...flags,
+      adminReading: [],
+      can: isGroup
+        ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: true, editDescription: false, removeChannel: false }
+        : { pause: person, pauseEveryone: viewer.admin, disconnect: person, removeAll: viewer.admin, editDescription: meta !== null && this.publicChannels.canEdit(viewer, meta), removeChannel: meta !== null && viewer.admin },
+    };
+  }
+
+  /** A public channel as the viewer sees it in the overview: the reply to opening or describing one (#1035). */
+  async channelEntry(viewer: ChatViewer, c: PublicChannel): Promise<ChannelInfo> {
+    const person = viewer.personId !== null;
+    const counts = new Map((viewer.personId !== null ? await this.core.store.readState.list(viewer.personId) : []).map((r) => [r.thread, r]));
+    return this.info(viewer, c.name, c, { subject: person ? { id: viewer.personId as number, name: viewer.name } : null, flagPersonId: viewer.personId, counts, known: undefined });
+  }
+
+  /** The overview of the viewer's own Chat, or (an Admin browsing) of `browsing`, a person by id (#1284). */
+  async overview(viewer: ChatViewer, browsing?: PersonRef): Promise<Overview> {
     const person = viewer.personId !== null;
     const host = this.core.host;
-    const who = browsing ?? viewer.name;
-    const key = nameKey(who);
+    // Whose Chat this is: the browsed person, else the viewer when they are a person; none for the admin secret, which has no group, counts or agents of its own.
+    const subject: PersonRef | null = browsing ?? (viewer.personId !== null ? { id: viewer.personId, name: viewer.name } : null);
+    const who = subject?.name ?? viewer.name;
     const limits = await this.core.limits();
-    const counts = new Map((person && !browsing ? await this.core.store.readState.list(viewer.name) : []).map((r) => [r.thread, r]));
-    const channel = async (id: 'general' | 'group'): Promise<ChannelInfo> => {
-      const thread = id === 'general' ? publicThread : groupThread(who);
-      const flags = await this.channels.flagsOf(id, id === 'group' ? key : null, person || browsing ? key : null);
-      const c = counts.get(thread);
-      return {
-        id,
-        name: CHANNEL_NAMES[id],
-        thread,
-        unread: c?.unread ?? 0,
-        mentions: c?.mentions ?? 0,
-        messages: await this.channels.total(id, id === 'group' ? key : null),
-        ...flags,
-        adminReading: [],
-        can: id === 'group' ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: true } : { pause: person, pauseEveryone: viewer.admin, disconnect: person, removeAll: viewer.admin },
-      };
-    };
-    const agents: AgentInfo[] = person || browsing
+    const counts = new Map((viewer.personId !== null && !browsing ? await this.core.store.readState.list(viewer.personId) : []).map((r) => [r.thread, r]));
+    const known = await this.core.store.settings.allFlags();
+    // Every public channel's message count in one query (#1213); group keeps its own.
+    const totals = await this.core.store.public.counts();
+    const entry = (id: string, meta: PublicChannel | null) => this.info(viewer, id, meta, { subject, flagPersonId: subject?.id ?? null, counts, totals, known });
+    const agents: AgentInfo[] = subject
       ? host.liveIds().flatMap((id) => {
           const o = host.peers.messages.live(id);
-          return o && nameKey(o.owner) === key
+          return o && o.ownerId === subject.id
             ? [{ sessionId: o.sessionId, name: o.name, machine: o.machine, reporterKey: o.reporterKey, address: `${o.name}@${o.machine}`, status: o.status, waitReason: o.waitReason, peers: o.peers === true }]
             : [];
         })
       : [];
-    const channels = [await channel('general'), ...(person || browsing ? [await channel('group')] : [])];
+    const channels = [await entry(GENERAL, null)];
+    for (const c of await this.core.store.channels.list()) channels.push(await entry(c.name, c));
+    if (subject) channels.push(await entry(GROUP, null));
     const directs = browsing ? await this.direct.listAbout(viewer, who) : await this.direct.list(viewer);
+    const conversations = browsing ? await this.conversations.listAbout(viewer, who) : await this.conversations.list(viewer);
     // The Admins reading right now, named, for the people in the thread. A reading whose time has passed is never reported.
-    const list = person || browsing ? listThread(who) : null;
-    const hidden = person || browsing ? await this.direct.hiddenOf(viewer, who, browsing !== undefined) : [];
-    const live = await this.adminReads.liveFor([...(person || browsing ? [groupThread(who)] : []), ...(list ? [list] : []), ...directs.map((d) => d.thread), ...hidden.map((d) => d.thread)]);
-    for (const c of channels) if (c.id === 'group') c.adminReading = live.get(c.thread) ?? [];
+    const list = subject ? listThread(subject.id) : null;
+    const hidden = subject ? await this.direct.hiddenOf(viewer, who, browsing !== undefined) : [];
+    const live = await this.adminReads.liveFor([...(subject ? [groupThread(subject.id)] : []), ...(list ? [list] : []), ...directs.map((d) => d.thread), ...conversations.map((c) => c.thread), ...hidden.map((d) => d.thread)]);
+    for (const c of channels) if (c.id === GROUP) c.adminReading = live.get(c.thread) ?? [];
     for (const d of directs) d.adminReading = live.get(d.thread) ?? [];
+    for (const c of conversations) c.adminReading = live.get(c.thread) ?? [];
     // A conversation that left the list (every agent in it has ended) is still read by an Admin who opened it, so it comes back while that is live (#1051).
     for (const d of hidden) {
       d.adminReading = live.get(d.thread) ?? [];
@@ -203,21 +278,22 @@ export class ChatService {
     }
     // Who looked at the person's own list, and who is looking now. An Admin browsing sees neither: it is the person's to see. Loading it is seeing it.
     const listReading = list && !browsing ? (live.get(list) ?? []) : [];
-    const listReads = list && !browsing ? await this.listReadsOf(list, viewer.name) : [];
-    if (list && !browsing && viewer.personId !== null) await this.adminReads.seen(list, viewer.name);
-    const goneReads = list && !browsing && viewer.personId !== null ? await this.goneReadsOf(viewer.name) : [];
+    const listReads = list && !browsing && viewer.personId !== null ? await this.listReadsOf(list, viewer.personId) : [];
+    if (list && !browsing && viewer.personId !== null) await this.adminReads.seen(list, viewer.personId);
+    const goneReads = list && !browsing && viewer.personId !== null ? await this.goneReadsOf(viewer.personId, viewer.name) : [];
     return {
       enabled: true,
       serverTime: host.now(),
-      me: { name: viewer.name, actor: viewer.actor, admin: viewer.admin, person },
+      me: { id: viewer.personId, name: viewer.name, actor: viewer.actor, admin: viewer.admin, person },
       settings: { maxChars: limits.maxChars, perMinute: limits.perMinute, retainDays: limits.retainDays, graceHours: limits.graceHours, everyone: limits.everyone },
       channels,
       directs,
+      conversations,
       agents: agents.sort((a, b) => a.address.localeCompare(b.address)),
       people: browsing
-        ? await Promise.all((await this.core.persons()).map(async (p) => ({ name: p.name, you: false, directs: await this.direct.countOf(p.name) })))
-        : (await this.core.persons()).map((p) => ({ name: p.name, you: p.key === nameKey(viewer.name) })),
-      approvals: person && !browsing ? await this.direct.approvalsFor(viewer.name) : 0,
+        ? await this.peopleWithCounts()
+        : (await this.core.persons()).map((p) => ({ name: p.name, you: p.id === viewer.personId })),
+      approvals: person && !browsing ? await this.direct.approvalsFor(viewer.personId) : 0,
       listReading,
       listReads,
       goneReads,
@@ -225,9 +301,9 @@ export class ChatService {
   }
 
   /** The person's unseen records of conversations that are gone, named and marked seen: loading the overview with them on it is seeing them. */
-  private async goneReadsOf(name: string): Promise<GoneRead[]> {
+  private async goneReadsOf(pid: number, name: string): Promise<GoneRead[]> {
     const exist = await this.direct.threads();
-    const unseen = (await this.adminReads.unseenFor(name)).filter((r) => r.thread.startsWith(ACT_PREFIX) || (r.thread.startsWith('dm:') && !exist.has(r.thread)));
+    const unseen = (await this.adminReads.unseenFor(pid)).filter((r) => r.thread.startsWith(ACT_PREFIX) || (r.thread.startsWith('dm:') && !exist.has(r.thread)));
     // "Seen" is marked per thread, so a thread is shown whole or not at all: whole threads, newest first, while they fit in GONE_RECORDS (the
     // first is always whole, however long). A thread left for the next load stays unseen, so a record the person was not shown is never lost.
     const byThread = new Map<string, typeof unseen>();
@@ -241,8 +317,8 @@ export class ChatService {
     }
     const out: GoneRead[] = [];
     // An Admin's stop or delete of the person's own things (#1078) has no other party; the console words it from the kind.
-    for (const r of shown) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: r.thread.startsWith(ACT_PREFIX) ? '' : await this.partyNames(r.thread, name) });
-    for (const thread of marked) await this.adminReads.seen(thread, name);
+    for (const r of shown) out.push({ admin: r.admin, startedAt: r.startedAt, kind: r.kind, with: r.thread.startsWith(ACT_PREFIX) ? '' : await this.partyNames(r.thread, pid, name) });
+    for (const thread of marked) await this.adminReads.seen(thread, pid);
     return out;
   }
 
@@ -250,51 +326,72 @@ export class ChatService {
    * The records of a look at the person's list to show, oldest first: the newest LIST_RECORDS, and from the oldest unseen one when that is older. "Seen" is
    * marked for the whole list thread, so a record the person was not shown must never be cut off while the thread is marked (#1051).
    */
-  private async listReadsOf(list: string, name: string): Promise<AdminReadRow[]> {
+  private async listReadsOf(list: string, personId: number): Promise<AdminReadRow[]> {
     const records = await this.adminReads.list(list);
-    const unseen = new Set((await this.adminReads.unseenFor(name)).filter((r) => r.thread === list).map(readKey));
+    const unseen = new Set((await this.adminReads.unseenFor(personId)).filter((r) => r.thread === list).map(readKey));
     const first = records.findIndex((r) => unseen.has(readKey(r)));
     return records.slice(Math.max(0, first < 0 ? records.length - LIST_RECORDS : Math.min(first, records.length - LIST_RECORDS)));
   }
 
   /** The other end of a conversation that is gone, for `name`: the ends that are not theirs, or both when both are (two of their own agents). */
-  private async partyNames(thread: string, name: string): Promise<string> {
-    const key = nameKey(name);
+  private async partyNames(thread: string, pid: number, name: string): Promise<string> {
     const persons = await this.core.persons();
     const ends = await Promise.all(
       thread.slice('dm:'.length).split('|').map(async (id) => {
-        if (isPersonId(id)) return { mine: id === personId(name), name: persons.find((p) => p.key === id.slice('person:'.length))?.name ?? id.slice('person:'.length) };
+        // A person's end of a conversation is `person:<id>` (#1284), so it is mine by id; an agent's owner is found by id too.
+        if (isPersonId(id)) return { mine: id === personId(pid), name: persons.find((p) => id === personId(p.id))?.name ?? id.slice('person:'.length) };
         const s = await this.core.host.sessionOf(id);
-        return { mine: !!s?.owner && nameKey(s.owner) === key, name: s?.name ?? 'an agent' };
+        return { mine: s?.ownerId != null && s.ownerId === pid, name: s?.name ?? 'an agent' };
       }),
     );
     const others = ends.filter((e) => !e.mine);
     return (others.length ? others : ends).map((e) => e.name).join(' and ');
   }
 
-  /** The person read up to `upTo` in a thread of theirs. */
+  /** The person read a thread of theirs: both counts go to 0. `upTo` is checked for its shape and then ignored, because no cursor is kept (#1296). */
   async markRead(viewer: ChatViewer, thread: unknown, upTo: unknown): Promise<{ ok: true; unread: number; mentions: number } | Fail> {
     if (viewer.personId === null) return fail(403, 'The admin secret has no unread counts of its own.');
     if (typeof thread !== 'string' || (upTo !== null && upTo !== undefined && typeof upTo !== 'string')) return fail(400, 'thread must be a string and upTo a string or null.');
     // What was read up to is a cursor (`<ms>.<seq>`) or a message id: short, and made of letters, digits and . : _ - only (#1051).
     if (typeof upTo === 'string' && !CURSOR_SHAPE.test(upTo)) return fail(400, 'upTo must be the cursor or id of a message, at most 64 characters.');
-    const mine = thread === publicThread || thread === groupThread(viewer.name) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread)));
+    // A public channel's thread is `public:<name>`, and only one that exists (a name in the exact form the channel is kept under) is a thread of anyone's (#1035).
+    const named = channelOfThread(thread);
+    const mine = thread === publicThread || thread === groupThread(viewer.personId) || (named !== null && (await this.core.store.channels.get(named))?.name === named) || (thread.startsWith('dm:') && (await this.direct.owns(viewer, thread))) || (thread.startsWith('convo:') && (await this.conversations.owns(viewer, thread)));
     if (!mine) return fail(403, 'That is not one of your threads.');
-    const row = await this.core.store.readState.markRead(viewer.name, thread, upTo ?? null);
-    this.core.signal({ scope: thread === publicThread ? 'public' : thread.startsWith('dm:') ? 'dm' : 'group', owner: nameKey(viewer.name), unread: row.unread, mentions: row.mentions });
+    // `upTo` is checked above and then not kept: nothing reads a cursor back, so the counts are what is stored (#1296).
+    const row = await this.core.store.readState.markRead(viewer.personId, thread);
+    this.core.signal(thread === publicThread || named !== null ? 'public' : thread.startsWith('dm:') || thread.startsWith('convo:') ? 'dm' : 'group');
     return { ok: true, unread: row.unread, mentions: row.mentions };
   }
 
   // ---- The fleet tells Chat when a session leaves or returns --------------------------------------------------------
 
-  /** A session left the live set (ended, dropped or deleted). */
-  async sessionLeft(sessionId: string, owner: string | null): Promise<void> {
+  /**
+   * A session left the live set (ended, dropped or deleted). `final` is an end that cannot be undone (the session finished or was deleted), as against a lost heartbeat
+   * that a report may undo (#1283): a final end concludes the Direct Messages the agent is in, and any other only hides them.
+   */
+  sessionLeft(sessionId: string, owner: string | null, ownerId: number | null = null, final = false, cleared = false): Promise<void> {
+    return this.core.batch(() => this.left(sessionId, owner, ownerId, final, cleared));
+  }
+
+  /** `cleared`: the end was a `/clear`, after which the agent goes on under a new session id (#1340), so what is told says it was cleared and did not end. */
+  private async left(sessionId: string, owner: string | null, ownerId: number | null, final: boolean, cleared: boolean): Promise<void> {
     this.seen.delete(sessionId);
+    if (final) {
+      // Each side on its own, so a failure of one does not skip the other.
+      for (const [what, run] of [['direct messages', () => this.direct.conclude(sessionId, cleared)], ['conversations', () => this.conversations.conclude(sessionId, cleared)]] as const) {
+        try {
+          await run();
+        } catch (err) {
+          this.core.host.warn(`concluding the ${what} of a session that ended`, err);
+        }
+      }
+    }
     if (!owner) return;
-    await this.channels.sessionLeft(sessionId, owner);
+    await this.channels.sessionLeft(sessionId, ownerId === null ? null : { id: ownerId, name: owner });
     await this.direct.sessionChanged(sessionId, owner);
     // An agent that left without ever being on the wall sent no stream message either, so an open page is told its list changed (#1112).
-    this.core.signal({ scope: 'group', owner: nameKey(owner) });
+    this.core.signal('group');
   }
 
   /** The live sessions whose hidden conversations were already shown again, so a report (every few seconds) costs a lookup and not a scan of the conversations. */
@@ -306,15 +403,21 @@ export class ChatService {
    */
   async sessionSeen(sessionId: string, owner: string): Promise<void> {
     if (this.seen.has(sessionId)) return;
-    await this.direct.sessionSeen(sessionId, owner);
-    this.seen.add(sessionId);
-    // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
-    // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
-    this.core.signal({ scope: 'group', owner: nameKey(owner) });
+    await this.core.batch(async () => {
+      await this.direct.sessionSeen(sessionId, owner);
+      this.seen.add(sessionId);
+      // The list of People and agents is the live set, and the stream says nothing of a session that has done nothing (it stays off the wall), so an
+      // open Chat page is told here that its list changed (#1112). Once per time live, never per report, and counts nothing: only a change counter.
+      this.core.signal('group');
+    });
   }
 
   /** The hourly housekeeping: conversations against the live set, then retention for both channels and the hidden conversations. */
-  async maintain(): Promise<void> {
+  maintain(): Promise<void> {
+    return this.core.batch(() => this.housekeeping());
+  }
+
+  private async housekeeping(): Promise<void> {
     const limits = await this.core.store.settings.get();
     await this.direct.reconcile();
     const now = this.core.host.now();
@@ -322,13 +425,16 @@ export class ChatService {
     const directMessages = await this.direct.purge(limits.graceHours * HOUR_MS);
     // A reading's record goes with its conversation, and by the channels' retention days.
     const threads = await this.direct.threads();
-    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, threads);
+    const convoThreads = await this.conversations.existing();
+    await this.adminReads.maintain(now - limits.retainDays * DAY_MS, new Set([...threads, ...convoThreads]));
+    const conversationMessages = await this.conversations.purge(now - limits.retainDays * DAY_MS);
     // The counts of a conversation that is gone (its hidden grace period ended, or its session was deleted) go with it (#1051).
     for (const thread of await this.core.store.readState.threads('dm:')) if (!threads.has(thread)) await this.core.store.readState.forget(thread);
+    for (const thread of await this.core.store.readState.threads('convo:')) if (!convoThreads.has(thread)) await this.core.store.readState.forget(thread);
     this.core.forgetIdle();
-    if (channelMessages || directMessages) {
-      this.core.onEvent({ kind: 'purged', channelMessages, directMessages });
-      this.core.signal({ scope: 'public', owner: null });
+    if (channelMessages || directMessages || conversationMessages) {
+      this.core.onEvent({ kind: 'purged', channelMessages: channelMessages + conversationMessages, directMessages });
+      this.core.signal('public');
     }
   }
 }

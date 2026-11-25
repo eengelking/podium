@@ -8,13 +8,14 @@
 // letters whose case or sort order differs between databases. A method added to `types.ts` is not ignored: `contractMethods.ts` lists every
 // method, and the guard in `adapters.test.ts` fails for one that no case or target calls.
 import { describe, expect, it } from 'vitest';
-import { PeopleError } from './rows.js';
+import { ID_MAX, PeopleError } from './rows.js';
 import { session } from './contract.js';
 import { onEachAdapter, sameOnAll, type Openers } from './contractSame.js';
+import type { KnownDefect } from './contractAdapter.js';
 import type { Storage } from './types.js';
 
 /** A small seeded generator (mulberry32): the same seed gives the same program on every machine. */
-export function rng(seed: number): () => number {
+function rng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
@@ -28,12 +29,12 @@ type Rand = () => number;
 const pick = <T>(r: Rand, xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
 
 /** Numbers a database may treat differently: fractions, the edges of 32 and 53 bits, signs, NaN and the infinities. */
-export const EDGE_NUMBERS: readonly number[] = [
+const EDGE_NUMBERS: readonly number[] = [
   0, 1, -1, 2, 1.5, -1.5, 0.1, 1e-7, 2 ** 31 - 1, 2 ** 31, -(2 ** 31) - 1, 2 ** 32, 2 ** 53 - 1, 2 ** 53, 1e15 + 0.5, 1e21, Number.MAX_VALUE, Number.MIN_VALUE, -0, Number.NaN, Infinity, -Infinity,
 ];
 
 /** Strings a database may store, compare or sort differently. */
-export const EDGE_STRINGS: readonly string[] = [
+const EDGE_STRINGS: readonly string[] = [
   '', ' ', 'a', 'A', 'a b', 'a  b', 'a\0b', '\0', 'a\tb\nc\r', '\u0001\u001f\u007f', '\ud800', 'x\udc00y', '😀', 'é', 'é', 'İ', 'i', 'I', 'ı', 'ß', 'SS', 'ǅ', 'ǆ', 'Σ', 'ς', 'σ',
   'résumé', 'Zebra', 'apple', 'Apple', '_a', '%', 'a%b', "o'brien", '"q"', '\\', 'x'.repeat(1000), 'y'.repeat(70_000), '日本語',
 ];
@@ -43,9 +44,10 @@ const int = (r: Rand): number => (r() < 0.5 ? pick(r, [0, 1, 2, 3, 100, -1]) : M
 const str = (r: Rand): string => (r() < 0.6 ? pick(r, EDGE_STRINGS) : `s${Math.floor(r() * 6)}`);
 const key = (r: Rand): string => `k${Math.floor(r() * 4)}`;
 const ID = ['s1', 's2', 's3', 'S1'] as const;
-const id = (r: Rand): string => (r() < 0.2 ? str(r) : pick(r, ID));
+// An id is at most ID_MAX characters, the longest every store takes (#1177); the wire cuts one to 200 before a store sees it.
+const id = (r: Rand): string => (r() < 0.2 ? str(r).slice(0, ID_MAX) : pick(r, ID));
 
-export interface Target {
+interface Target {
   name: string;
   /** Arguments for one call. */
   args(r: Rand): unknown[];
@@ -53,7 +55,7 @@ export interface Target {
 }
 
 /** The calls the program is made of. Every one takes only values a caller can send, so a divergence here is a divergence a screen can reach. */
-export const TARGETS: readonly Target[] = [
+const TARGETS: readonly Target[] = [
   { name: 'people.log', args: (r) => [str(r), str(r), str(r), num(r), r() < 0.5 ? str(r) : null], run: (s, a) => s.people.log(...(a as [string, string, string, number, string | null])) },
   { name: 'people.listLog', args: (r) => [{ page: int(r), pageSize: pick(r, [0, 1, 2, 5, 1000, -1]) }], run: (s, a) => s.people.listLog(a[0] as { page: number; pageSize: number }) },
   { name: 'people.createGroup', args: (r) => [str(r), num(r)], run: (s, a) => s.people.createGroup(a[0] as string, a[1] as number) },
@@ -68,7 +70,7 @@ export const TARGETS: readonly Target[] = [
   { name: 'fleet.deleteSession', args: (r) => [id(r)], run: (s, a) => s.fleet.deleteSession(a[0] as string) },
   { name: 'fleet.costSince', args: (r) => [num(r)], run: (s, a) => s.fleet.costSince(a[0] as number) },
   { name: 'fleet.spendTotals', args: (r) => [num(r)], run: (s, a) => s.fleet.spendTotals(a[0] as number) },
-  { name: 'fleet.groupOfOwner', args: (r) => [r() < 0.2 ? null : str(r)], run: (s, a) => s.fleet.groupOfOwner(a[0] as string | null) },
+  { name: 'fleet.groupOfOwner', args: (r) => [r() < 0.2 ? null : Math.floor(r() * 5)], run: (s, a) => s.fleet.groupOfOwner(a[0] as number | null) },
   {
     name: 'reporters.record',
     args: (r) => [{ kind: pick(r, ['mod', 'hooks'] as const), machineId: r() < 0.3 ? null : key(r), machineName: r() < 0.3 ? null : str(r), source: str(r), owner: r() < 0.3 ? null : str(r), credential: 'person', version: str(r), engineVersion: null, sessionId: id(r) }, num(r)],
@@ -82,7 +84,7 @@ export const TARGETS: readonly Target[] = [
 export interface Step { target: string; args: unknown[] }
 
 /** `length` calls chosen from the targets by the seed. */
-export function program(seed: number, length: number): Step[] {
+function program(seed: number, length: number): Step[] {
   const r = rng(seed);
   return Array.from({ length }, () => {
     const t = pick(r, TARGETS);
@@ -91,7 +93,7 @@ export function program(seed: number, length: number): Step[] {
 }
 
 /** Renders a value for a report, keeping what JSON hides: NaN, the infinities, -0, undefined and a lone surrogate. */
-export function show(v: unknown): string {
+function show(v: unknown): string {
   if (typeof v === 'number') return Object.is(v, -0) ? '-0' : String(v);
   if (typeof v === 'string') return JSON.stringify(v.length > 60 ? `${v.slice(0, 40)}…(${v.length} chars)` : v);
   if (v === undefined) return 'undefined';
@@ -117,7 +119,7 @@ function norm(v: unknown): unknown {
   return v;
 }
 
-export interface Outcome { ok?: unknown; threw?: string }
+interface Outcome { ok?: unknown; threw?: string }
 
 async function runProgram(open: () => Promise<Storage>, steps: Step[]): Promise<Outcome[]> {
   const s = await open();
@@ -156,7 +158,7 @@ async function firstDivergence(o: Openers, steps: Step[]): Promise<{ at: number;
 }
 
 /** Removes steps while the programs still disagree, so the report shows the fewest calls that do. */
-export async function shrink(o: Openers, steps: Step[]): Promise<Step[]> {
+async function shrink(o: Openers, steps: Step[]): Promise<Step[]> {
   let cur = steps;
   for (let chunk = Math.ceil(cur.length / 2); chunk >= 1; chunk = Math.floor(chunk / 2)) {
     for (let i = 0; i < cur.length; ) {
@@ -181,7 +183,7 @@ const anyValue = (v: unknown, test: (x: unknown) => boolean): boolean =>
 const { PODIUM_DIFF_STRICT: STRICT_ENV, PODIUM_DIFF_SEED: SEED_ENV } = process.env; // destructured: podiumctl's settings test lists what the server reads, and these are for tests only
 const STRICT = STRICT_ENV === '1';
 
-export const seedOf = (): number => (SEED_ENV ? Number(SEED_ENV) >>> 0 : Math.floor(Math.random() * 2 ** 32));
+const seedOf = (): number => (SEED_ENV ? Number(SEED_ENV) >>> 0 : Math.floor(Math.random() * 2 ** 32));
 
 /** Wraps a case about one adapter: when the case is in the adapter's `known` list it may fail (a warning) and must not pass (remove the entry). */
 function trackedCase(o: Openers, id: string, body: (s: Storage, adapter: string) => Promise<void>): (s: Storage, adapter: string) => Promise<void> {
@@ -199,6 +201,33 @@ function trackedCase(o: Openers, id: string, body: (s: Storage, adapter: string)
   };
 }
 
+export type Divergence = NonNullable<Awaited<ReturnType<typeof firstDivergence>>>;
+
+/** The listed defect (`known` with an `input`) of one of these adapters whose input is in the arguments of these steps. */
+function trackedBy(o: Openers, adapters: string[], steps: Step[]): KnownDefect | undefined {
+  if (STRICT) return undefined;
+  return o.adapters.filter((x) => adapters.includes(x.name)).flatMap((x) => x.known).find((k) => k.input && steps.some((step) => anyValue(step.args, k.input!)));
+}
+
+/**
+ * Says what a divergence is. A call that carries an input a `known` list names is a known difference and costs the comparison that found it (#1201): shrinking
+ * it would open a database on every adapter for every trial, and 39 of 40 random programs reach one. Any other divergence is shrunk, so a new defect still
+ * reports the fewest calls that show it; a shrunk program that holds a listed input is still listed.
+ */
+export async function settleDivergence(o: Openers, steps: Step[], d: Divergence, replaySeed: number): Promise<{ tracked: KnownDefect | undefined; report: string }> {
+  const at = steps.slice(0, d.at + 1);
+  const early = trackedBy(o, [d.a, d.b], [steps[d.at]!]);
+  const small = early ? at : await shrink(o, at);
+  const e = early ? d : (await firstDivergence(o, small))!;
+  const report = [
+    `${e.a} and ${e.b} disagree (seed ${replaySeed}, replay with PODIUM_DIFF_SEED=${replaySeed}), after ${small.length} call(s)${early ? ' (not shrunk: a listed difference)' : ''}:`,
+    ...small.map((x, i) => `  ${i === e.at ? '>' : ' '} ${x.target}(${x.args.map(show).join(', ')})`),
+    `  ${e.a}: ${show(e.want)}`,
+    `  ${e.b}: ${show(e.got)}`,
+  ].join('\n');
+  return { tracked: early ?? trackedBy(o, [e.a, e.b], small.slice(0, e.at + 1)), report };
+}
+
 export function differentialCases(o: Openers): void {
   describe('differential', () => {
     const seed = seedOf();
@@ -210,15 +239,7 @@ export function differentialCases(o: Openers): void {
         const steps = program(seed + n, LENGTH);
         const d = await firstDivergence(o, steps);
         if (!d) continue;
-        const small = await shrink(o, steps.slice(0, d.at + 1));
-        const e = (await firstDivergence(o, small))!;
-        const tracked = STRICT ? undefined : o.adapters.filter((x) => x.name === e.a || x.name === e.b).flatMap((x) => x.known).find((k) => k.input && small.slice(0, e.at + 1).some((step) => anyValue(step.args, k.input!)));
-        const report = [
-          `${e.a} and ${e.b} disagree (seed ${seed + n}, replay with PODIUM_DIFF_SEED=${seed + n}), after ${small.length} call(s):`,
-          ...small.map((x, i) => `  ${i === e.at ? '>' : ' '} ${x.target}(${x.args.map(show).join(', ')})`),
-          `  ${e.a}: ${show(e.want)}`,
-          `  ${e.b}: ${show(e.got)}`,
-        ].join('\n');
+        const { tracked, report } = await settleDivergence(o, steps, d, seed + n);
         if (tracked) { console.warn(`TRACKED by ${tracked.issue} (${tracked.why}):\n${report}`); continue; }
         throw new Error(report);
       }
@@ -246,13 +267,13 @@ export function differentialCases(o: Openers): void {
         await s.people.setAdminReporting(false);
         await rec('admin reporting after', s.people.adminReportingAllowed());
         await rec('any reporter', s.reporters.hasAny());
-        const key = await rec('record', s.reporters.record({ kind: 'mod', machineId: 'm1', machineName: 'box', source: '127.0.0.1', owner: 'ed', credential: 'person', version: '0.1.0', engineVersion: null, sessionId: 's1' }, 50));
+        const key = await rec('record', s.reporters.record({ kind: 'mod', machineId: 'm1', machineName: 'box', source: '127.0.0.1', owner: 'ed', ownerId: 11, credential: 'person', version: '0.1.0', engineVersion: null, sessionId: 's1' }, 50));
         await rec('any reporter after', s.reporters.hasAny());
         const p = s.peers({ now: () => 60, flagOn: () => true, startedAt: 0 });
         await rec('flag', p.flagOn());
         await rec('get', p.reporters.get(key));
-        await rec('of owner', p.reporters.ofOwner('ED'));
-        await rec('of owner seen', p.reporters.ofOwnerSeen('ed', 60));
+        await rec('of owner', p.reporters.ofOwner(11));
+        await rec('of owner seen', p.reporters.ofOwnerSeen(11, 60));
       });
       expect(t.get('admin reporting at first')).toBe(true);
       expect(t.get('admin reporting after')).toBe(false);

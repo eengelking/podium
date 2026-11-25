@@ -32,7 +32,6 @@ async function setup(tlsOn = true, openssl?: string) {
   const names = serverNames('127.0.0.1', []);
   const material = await ensureTls({ dir, names });
   const storage = openSqliteStorage(':memory:');
-  const db = storage.sqliteHandle;
   const people = storage.people;
   const settings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
     await settings.load();
@@ -218,7 +217,6 @@ describe('rotating and retiring the CA (#588)', () => {
     if (legacy) writeLegacyCa(dir);
     const material = await ensureTls({ dir, names });
     const storage = openSqliteStorage(':memory:');
-    const db = storage.sqliteHandle;
     const people = storage.people;
     const settings = new LiveTlsSettings(storage.tlsSettings, storage.tx);
     await settings.load();

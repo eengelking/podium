@@ -5,8 +5,191 @@
 // SQLite, whatever locale the database was created with. Case-insensitive keys are stored folded (`name_lower`) or folded with
 // `podium_lower`, which folds ASCII letters only, as SQLite's `lower()` does.
 import { PgDb } from './conn.js';
+import { flagScopeWithId, listWithIds, OWED_FILLED_KEY, owedIds, peerPersonKey, personKey, threadWithId, type PersonIndex } from '../chatRows.js';
+import { CHAT_IDS_DONE_KEY, keepOwnerSettings, OWNED_PEER_TABLES, OWNER_EVIDENCE_TABLES, PEER_IDS_DONE_KEY, PERSON_END_COLUMNS, personEndRewrite, personFirstDay, renameLinkEnd } from '../peerOwnerIds.js';
+import { nameKey } from '../rows.js';
 
-export interface Step { version: number; sql: string }
+type DB = PgDb;
+
+export interface Step { version: number; sql: string; after?: (db: PgDb) => Promise<void> }
+
+/**
+ * Gives the person-written messages that exist the id of their author (#1269), by the author's folded name against `people.name_lower`, which `nameKey` also writes. It is JS
+ * because SQL cannot fold a name the way `nameKey` does (it collapses runs of spaces and lowercases every letter, where the database's `lower()` is ASCII only). A message whose
+ * author matches no person keeps no id, and nobody can change it. Agents' and reporters' messages keep none. Only rows without an id are written, so a run that is repeated adds nothing.
+ */
+async function fillAuthorIds(db: DB): Promise<void> {
+  const ids = new Map((await db.all<{ id: number; name_lower: string }>('SELECT id, name_lower FROM people ORDER BY id')).map((r) => [r.name_lower, Number(r.id)]));
+  if (ids.size === 0) return;
+  for (const table of ['group_messages', 'public_messages']) {
+    for (const r of await db.all<{ author_ref: string }>(`SELECT DISTINCT author_ref FROM ${table} WHERE author_kind = 'person' AND author_id IS NULL ORDER BY author_ref`)) {
+      const id = ids.get(nameKey(r.author_ref));
+      if (id !== undefined) await db.run(`UPDATE ${table} SET author_id = ? WHERE author_kind = 'person' AND author_ref = ? AND author_id IS NULL`, [id, r.author_ref]);
+    }
+  }
+  for (const r of await db.all<{ from_session: string; owner: string }>("SELECT DISTINCT from_session, owner FROM peer_messages WHERE author = 'person' AND author_id IS NULL ORDER BY from_session, owner")) {
+    const id = ids.get(peerPersonKey(r.from_session, r.owner));
+    if (id !== undefined) await db.run("UPDATE peer_messages SET author_id = ? WHERE author = 'person' AND from_session = ? AND owner = ? AND author_id IS NULL", [id, r.from_session, r.owner]);
+  }
+}
+
+/** Gives every session that exists an agent id, oldest first, then binds each stored message to the agents of its two sessions (#1284). See SQLite's `fillAgentIds`. */
+async function fillAgentIds(db: DB): Promise<void> {
+  await db.run('INSERT INTO agent_ids (session_id) SELECT id FROM sessions ORDER BY started_at, id ON CONFLICT (session_id) DO NOTHING');
+  await db.run('UPDATE peer_messages SET from_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.from_session) WHERE from_agent IS NULL');
+  await db.run('UPDATE peer_messages SET to_agent = (SELECT id FROM agent_ids WHERE session_id = peer_messages.to_session) WHERE to_agent IS NULL');
+}
+
+/** The people by folded name, with the time each was made, for the upgrade steps that bind rows to a person's id. */
+async function peopleIndex(db: DB): Promise<PersonIndex> {
+  return new Map((await db.all<{ id: number; name_lower: string; created_at: number }>('SELECT id, name_lower, created_at FROM people ORDER BY id')).map((r) => [r.name_lower, { id: Number(r.id), createdAt: Number(r.created_at) }]));
+}
+
+/** True the first time it is called for `key` (an upgrade step's mark, `PEER_IDS_DONE_KEY` or `CHAT_IDS_DONE_KEY`), and writes the mark; false after, so the step's rewrite of name keys runs once. */
+async function firstRun(db: DB, key: string): Promise<boolean> {
+  if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [key])) return false;
+  await db.run("INSERT INTO settings (key, value) VALUES (?, '1')", [key]);
+  return true;
+}
+
+/** Gives the sessions and reporters that exist the id of their owner (#1284), by the owner's folded name against `people.name_lower`, and only a person who existed when the row was written. See SQLite's `fillOwnerIds`. Only rows without an id are written. */
+async function fillOwnerIds(db: DB): Promise<void> {
+  const people = await peopleIndex(db);
+  if (people.size === 0) return;
+  for (const [table, at] of [['sessions', 'started_at'], ['reporters', 'first_seen_at']] as const) {
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner IS NOT NULL AND owner_id IS NULL ORDER BY owner`)) {
+      const p = people.get(nameKey(r.owner));
+      if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`, [p.id, r.owner, p.createdAt]);
+    }
+  }
+}
+
+/**
+ * Binds the peer-messaging tables to a person by id (#1284), as SQLite's `fillPeerOwnerIds` does: the rights, requests and messages that exist get the id of their owner by the owner's folded
+ * name against `people.name_lower`, a row whose owner matches no person keeps none, a person's end of a link (`person:<name>`) becomes `person:<id>` for a row written since the person was made
+ * (or `person:gone:<name>` for an older row, #1292), and the owner defaults are rekeyed by the id only for a person who provably owns them (`keepOwnerSettings`), every other row dropped. A row is only given to a person who existed when it was written, and the step runs once (`PEER_IDS_DONE_KEY`); see SQLite's.
+ */
+async function fillPeerOwnerIds(db: DB): Promise<void> {
+  if (!(await firstRun(db, PEER_IDS_DONE_KEY))) return;
+  const people = await peopleIndex(db);
+  for (const { table, at } of OWNED_PEER_TABLES) {
+    // order-insensitive: each owner name is written on its own rows, whatever the order.
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL ORDER BY owner`)) {
+      const p = people.get(nameKey(r.owner));
+      if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND ${at} >= ?`, [p.id, r.owner, p.createdAt]);
+    }
+  }
+  // The link names first, while the session columns still say which end is the person. A row older than the person gets the gone end (#1292).
+  const links = await db.all<{ link: string; from_session: string; to_session: string }>("SELECT DISTINCT link, from_session, to_session FROM peer_messages WHERE substr(from_session, 1, 7) = 'person:' OR substr(to_session, 1, 7) = 'person:' ORDER BY link, from_session, to_session");
+  const setLink = 'UPDATE peer_messages SET link = ? WHERE link = ? AND (from_session = ? OR to_session = ?) AND sent_at >= ? AND sent_at < ?';
+  for (const l of links) {
+    const end = l.from_session.startsWith('person:') ? l.from_session : l.to_session;
+    const w = personEndRewrite(end, people);
+    if (w === null) continue;
+    const live = renameLinkEnd(l.link, end, w.to);
+    const old = renameLinkEnd(l.link, end, w.earlier);
+    if (live !== null) await db.run(setLink, [`~${live}`, l.link, l.from_session, l.to_session, w.since, Number.MAX_SAFE_INTEGER]);
+    if (old !== null) await db.run(setLink, [`~${old}`, l.link, l.from_session, l.to_session, 0, w.since]);
+  }
+  await db.run("UPDATE peer_messages SET link = substr(link, 2) WHERE substr(link, 1, 1) = '~'");
+  for (const { table, columns, at } of PERSON_END_COLUMNS) {
+    for (const col of columns) {
+      // order-insensitive: each old key is moved to its new one, through a marker, so a new key is never taken for an old one.
+      let moved = false;
+      for (const { k } of await db.all<{ k: string }>(`SELECT DISTINCT ${col} AS k FROM ${table} WHERE substr(${col}, 1, 7) = 'person:' ORDER BY ${col}`)) {
+        const w = personEndRewrite(k, people);
+        if (w === null) continue;
+        const move = `UPDATE ${table} SET ${col} = ? WHERE ${col} = ? AND ${at} >= ? AND ${at} < ?`;
+        await db.run(move, [`~${w.to}`, k, w.since, Number.MAX_SAFE_INTEGER]);
+        await db.run(move, [`~${w.earlier}`, k, 0, w.since]);
+        moved = true;
+      }
+      if (moved) await db.run(`UPDATE ${table} SET ${col} = substr(${col}, 2) WHERE substr(${col}, 1, 8) = '~person:'`);
+    }
+  }
+  // An owner's defaults have no time, so they are kept only for a person who provably owns them (#1292, `keepOwnerSettings`); every other row is dropped and the person has the server's defaults.
+  const ownIds = new Set<number>();
+  const olderNames = new Set<string>();
+  for (const table of OWNER_EVIDENCE_TABLES) {
+    // order-insensitive: the rows are folded into sets.
+    for (const r of await db.all<{ id: number }>(`SELECT DISTINCT owner_id AS id FROM ${table} WHERE owner_id IS NOT NULL ORDER BY owner_id`)) ownIds.add(Number(r.id));
+    // order-insensitive: the rows are folded into sets.
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id IS NULL AND owner IS NOT NULL ORDER BY owner`)) olderNames.add(nameKey(r.owner));
+  }
+  const settings = await db.all<{ owner_lower: string; trust: number; on_request: string; new_send: string; limits_json: string | null }>('SELECT owner_lower, trust, on_request, new_send, limits_json FROM peer_owner_settings WHERE owner_id IS NULL ORDER BY owner_lower');
+  await db.run('DELETE FROM peer_owner_settings WHERE owner_id IS NULL');
+  for (const s of settings) {
+    const id = keepOwnerSettings(s.owner_lower, people, ownIds, olderNames);
+    if (id !== null) await db.run('INSERT INTO peer_owner_settings (owner_lower, owner_id, trust, on_request, new_send, limits_json) VALUES (?, ?, ?, ?, ?, ?)', [String(id), id, s.trust, s.on_request, s.new_send, s.limits_json]);
+  }
+}
+
+/**
+ * Binds the Chat data the older server kept under a person's NAME to the person's id (#1284), as SQLite's `fillChatPersonIds` does: see it for what is rewritten and why a row whose name matches no person
+ * (or whose person did not exist yet when it was written) keeps no id. The step runs once (`CHAT_IDS_DONE_KEY`), so a name in a thread name is never an id it wrote before, an all-digit name included.
+ */
+async function fillChatPersonIds(db: DB): Promise<void> {
+  if (!(await firstRun(db, CHAT_IDS_DONE_KEY))) return;
+  const people = await peopleIndex(db);
+  if (people.size === 0) return;
+  for (const r of await db.all<{ owner: string }>('SELECT DISTINCT owner FROM group_messages WHERE owner_id IS NULL ORDER BY owner')) {
+    const p = people.get(nameKey(r.owner));
+    if (p) await db.run('UPDATE group_messages SET owner_id = ? WHERE owner = ? AND owner_id IS NULL AND created_at >= ?', [p.id, r.owner, p.createdAt]);
+  }
+  for (const p of people.values()) {
+    for (const table of ['group_messages', 'public_messages']) await db.run(`UPDATE ${table} SET author_id = NULL WHERE author_id = ? AND created_at < ?`, [p.id, p.createdAt]);
+  }
+  for (const r of await db.all<{ name: string; created_by: string; created_at: number }>("SELECT name, created_by, created_at FROM public_channels WHERE created_by_id IS NULL AND created_by <> '' ORDER BY name")) {
+    const p = people.get(nameKey(r.created_by));
+    if (p && p.createdAt <= Number(r.created_at)) await db.run('UPDATE public_channels SET created_by_id = ? WHERE name = ?', [p.id, r.name]);
+  }
+  for (const r of await db.all<{ thread: string }>('SELECT DISTINCT thread FROM chat_admin_reads ORDER BY thread')) {
+    const to = threadWithId(r.thread, people);
+    if (to) await db.run('UPDATE chat_admin_reads SET thread = ? WHERE thread = ?', [to, r.thread]);
+  }
+  const state = await db.all<{ person: string; thread: string; last_read: string | null; unread: number; mentions: number; updated_at: number }>('SELECT person, thread, last_read, unread, mentions, updated_at FROM chat_read_state WHERE person_id IS NULL ORDER BY person, thread');
+  await db.run('DELETE FROM chat_read_state WHERE person_id IS NULL');
+  for (const r of state) {
+    const p = people.get(nameKey(r.person));
+    const thread = threadWithId(r.thread, people);
+    if (!p || thread === '') continue;
+    await db.run('INSERT INTO chat_read_state (person, person_id, thread, last_read, unread, mentions, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING', [personKey(p.id), p.id, thread ?? r.thread, r.last_read, Number(r.unread), Number(r.mentions), Number(r.updated_at)]);
+  }
+  const owed = await db.all<{ person_key: string; thread: string; admin_key: string; started_at: number }>('SELECT person_key, thread, admin_key, started_at FROM chat_admin_owed WHERE person_id IS NULL ORDER BY person_key, thread, admin_key, started_at');
+  await db.run('DELETE FROM chat_admin_owed WHERE person_id IS NULL');
+  for (const r of owed) {
+    const p = people.get(nameKey(r.person_key));
+    if (!p) continue;
+    const thread = threadWithId(r.thread, people);
+    await db.run('INSERT INTO chat_admin_owed (person_key, person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING', [personKey(p.id), p.id, thread || r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  for (const r of await db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' OR seen <> '[]' ORDER BY thread, started_at, admin_key")) {
+    const ps = listWithIds(r.people, people);
+    const ss = listWithIds(r.seen, people);
+    if (ps !== null || ss !== null) await db.run('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [ps ?? r.people, ss ?? r.seen, r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  for (const r of await db.all<{ key: string }>("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key")) {
+    const to = flagScopeWithId(r.key.slice('chat.flag.'.length), people);
+    if (to === null) continue;
+    if (to === '') await db.run('DELETE FROM settings WHERE key = ?', [r.key]);
+    else await db.run('UPDATE settings SET key = ? WHERE key = ?', [`chat.flag.${to}`, r.key]);
+  }
+}
+
+/** The daily tables that carry a person (#1284): their rows are bound to `people.id` by `owner_id`, with 0 for no person. */
+const OWNED_DAILY = ['usage_daily', 'failures_daily', 'skills_daily', 'person_places_daily', 'person_sessions_daily'] as const;
+
+/** Gives the daily rows that exist the id of their owner (#1284), and takes the group off the rows whose owner matches no person. See SQLite's `fillDailyOwnerIds`. Only rows with no id are written, so a step run again adds nothing. */
+async function fillDailyOwnerIds(db: DB): Promise<void> {
+  const people = await peopleIndex(db);
+  for (const table of OWNED_DAILY) {
+    for (const r of await db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} WHERE owner_id = 0 ORDER BY owner`)) {
+      const p = people.get(nameKey(r.owner));
+      if (p) await db.run(`UPDATE ${table} SET owner_id = ? WHERE owner = ? AND owner_id = 0 AND day >= ?`, [p.id, r.owner, personFirstDay(p.createdAt)]);
+    }
+    if (table !== 'failures_daily' && table !== 'skills_daily') await db.run(`UPDATE ${table} SET group_name = '' WHERE owner_id = 0 AND group_name <> ''`);
+  }
+}
 
 /** `TXT` is text under the byte-order collation; `INT` is a 64-bit integer (times are milliseconds); `REAL` is a double. */
 const typed = (sql: string): string => sql.replace(/\bTXT\b/g, 'TEXT COLLATE "C"').replace(/\bINT\b/g, 'BIGINT').replace(/\bREAL\b/g, 'DOUBLE PRECISION');
@@ -14,6 +197,18 @@ const typed = (sql: string): string => sql.replace(/\bTXT\b/g, 'TEXT COLLATE "C"
 /** The schema the main stores live in, and the one the Activity history and recordings live in (their own pool and lock). */
 export const MAIN_SCHEMA = 'podium';
 export const ACTIVITY_SCHEMA = 'podium_activity';
+
+/**
+ * Once, fills `chat_admin_owed` from the `people` and `seen` lists of the Admin records made before it (#1061), because SQL cannot split a JSON list the same way on every database. It is a step of its own, so that
+ * `chat_admin_reads.seen`, which only this reads, can go in the step after (#1296). A mark in `settings` is written last, so a fill that stopped runs again and adds nothing twice.
+ */
+async function fillOwed(db: DB): Promise<void> {
+  if (await db.get('SELECT 1 AS x FROM settings WHERE key = ?', [OWED_FILLED_KEY])) return;
+  for (const r of await db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>("SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads WHERE people <> '[]' ORDER BY thread, started_at, admin_key")) {
+    for (const p of owedIds(r)) await db.run('INSERT INTO chat_admin_owed (person_id, thread, admin_key, started_at) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING', [p, r.thread, r.admin_key, Number(r.started_at)]);
+  }
+  await db.run('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING', [OWED_FILLED_KEY, '1']);
+}
 
 export const MAIN_STEPS: Step[] = [
   {
@@ -371,6 +566,235 @@ CREATE TABLE answers_daily (
 );
 `),
   },
+  {
+    version: 19,
+    // An index on the sample time (#755), as SQLite migration 43 keeps it: the fleet-wide token and cost queries and the retention delete read by time alone.
+    sql: 'CREATE INDEX samples_t ON samples(t);',
+  },
+  {
+    version: 20,
+    // Who an Admin record is still owed to (#1061), as SQLite migration 44 keeps it: one row per person and record while the person has not seen it, so a person's
+    // unseen records are read by the person and not found by parsing the lists of every record. The store fills it once from the records already there.
+    sql: typed(`
+CREATE TABLE chat_admin_owed (
+  person_key TXT NOT NULL, thread TXT NOT NULL, admin_key TXT NOT NULL, started_at INT NOT NULL,
+  PRIMARY KEY (person_key, thread, admin_key, started_at)
+);
+CREATE INDEX chat_admin_owed_record ON chat_admin_owed(thread, admin_key, started_at);
+`),
+  },
+  {
+    version: 21,
+    // Public channels beside General (#1035), as SQLite migration 45 keeps them: a channel key on `public_messages` (every message already there is General's) and the
+    // list of the other channels, with one channel per link through a unique key over the folded `<kind>:<reference>` (NULL when there is no link).
+    sql: typed(`
+ALTER TABLE public_messages ADD COLUMN channel TXT NOT NULL DEFAULT 'general';
+CREATE INDEX public_messages_in_channel ON public_messages(channel, created_at, seq);
+CREATE TABLE public_channels (
+  name TXT PRIMARY KEY, description TXT NOT NULL DEFAULT '', link_kind TXT, link_ref TXT, link_key TXT UNIQUE,
+  created_by TXT NOT NULL, created_by_name TXT NOT NULL, created_at INT NOT NULL, updated_at INT NOT NULL
+);
+`),
+  },
+  {
+    version: 22,
+    // A person edits or deletes their own Chat message (#1269), as SQLite migration 46 keeps it: when the text last changed and when the author deleted it, NULL for every
+    // message already there, on the two channel tables and on `peer_messages` (so a direct message needs no later step). `author_id` is the writer's `people.id`, with no foreign key
+    // (a message kept after its person is deleted names nobody); `fillAuthorIds` gives the ones that exist their author's id, in the same transaction.
+    sql: typed(`
+ALTER TABLE group_messages ADD COLUMN edited_at INT;
+ALTER TABLE group_messages ADD COLUMN deleted_at INT;
+ALTER TABLE group_messages ADD COLUMN author_id INT;
+ALTER TABLE public_messages ADD COLUMN edited_at INT;
+ALTER TABLE public_messages ADD COLUMN deleted_at INT;
+ALTER TABLE public_messages ADD COLUMN author_id INT;
+ALTER TABLE peer_messages ADD COLUMN edited_at INT;
+ALTER TABLE peer_messages ADD COLUMN deleted_at INT;
+ALTER TABLE peer_messages ADD COLUMN author_id INT;
+`),
+    after: fillAuthorIds,
+  },
+  {
+    version: 23,
+    // The conversations of people and agents (#1278, DECISIONS 74), as SQLite migration 47 keeps them: `conversations` with `members_key` (a hash of who is in it now, an index and not a
+    // unique key), `conversation_members` and `conversation_messages`, a fourth audience beside the channels and `peer_messages` and never merged with them.
+    sql: typed(`
+CREATE TABLE conversations (id TXT PRIMARY KEY, created_by INT, created_at INT NOT NULL, members_key TXT NOT NULL);
+CREATE INDEX conversations_members ON conversations(members_key);
+CREATE TABLE conversation_members (
+  conversation_id TXT NOT NULL, member_kind TXT NOT NULL, member_ref TXT NOT NULL, member_name TXT NOT NULL, added_by INT, joined_at INT NOT NULL, left_at INT,
+  PRIMARY KEY (conversation_id, member_kind, member_ref)
+);
+CREATE INDEX conversation_members_ref ON conversation_members(member_kind, member_ref);
+CREATE TABLE conversation_messages (
+  id TXT PRIMARY KEY, conversation_id TXT NOT NULL, author_kind TXT NOT NULL, author_ref TXT NOT NULL, author_name TXT NOT NULL, author_id INT, text TXT NOT NULL,
+  created_at INT NOT NULL, updated_at INT NOT NULL, reply_to TXT, seq INT NOT NULL, edited_at INT, deleted_at INT, handed_at INT
+);
+CREATE INDEX conversation_messages_page ON conversation_messages(conversation_id, created_at, seq);
+CREATE INDEX conversation_messages_created ON conversation_messages(created_at);
+`),
+  },
+  {
+    version: 24,
+    // Every agent has an id the server gives it, never reused (#1284), as SQLite migration 48 keeps it: an identity key that is never handed out twice, one row per session id, and the
+    // agent each direct message was written by and aimed at (NULL for a person's end). `fillAgentIds` gives the sessions that exist ids, oldest first, and the messages those of their sessions.
+    sql: typed(`
+CREATE TABLE agent_ids (id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, session_id TXT NOT NULL UNIQUE);
+ALTER TABLE peer_messages ADD COLUMN from_agent INT;
+ALTER TABLE peer_messages ADD COLUMN to_agent INT;
+`),
+    after: fillAgentIds,
+  },
+  {
+    version: 25,
+    // A session and a reporter belong to a person by id, never by name (#1284), as SQLite migration 49 keeps it: `owner_id` is `people.id` (no foreign key), NULL for the admin secret's rows and
+    // for a row whose owner matches no person. `fillOwnerIds` gives the others their person's id.
+    sql: typed(`
+ALTER TABLE sessions ADD COLUMN owner_id INT;
+ALTER TABLE reporters ADD COLUMN owner_id INT;
+`),
+    after: fillOwnerIds,
+  },
+  {
+    version: 26,
+    // The peer-messaging tables belong to a person by id, never by name (#1284), as SQLite migration 50 keeps it: `owner_id` is `people.id` on the rights, requests and messages (NULL for a row whose owner
+    // matches no person), and the owner defaults are found by it. `fillPeerOwnerIds` gives the others their person's id, rewrites a person's end of a link to `person:<id>`, and rekeys the defaults.
+    sql: typed(`
+ALTER TABLE peer_rights ADD COLUMN owner_id INT;
+ALTER TABLE peer_requests ADD COLUMN owner_id INT;
+ALTER TABLE peer_messages ADD COLUMN owner_id INT;
+ALTER TABLE peer_owner_settings ADD COLUMN owner_id INT;
+CREATE INDEX peer_owner_settings_owner_id ON peer_owner_settings(owner_id);
+`),
+    after: fillPeerOwnerIds,
+  },
+  {
+    version: 27,
+    // Chat belongs to a person by id, never by name (#1284), as SQLite migration 51 keeps it: `group_messages.owner_id`, `person_id` on the read counts and on what an Admin record is owed (the older
+    // name key beside it now holds `#<id>`), and `public_channels.created_by_id`, all with no foreign key and NULL where the name matched no person. `fillChatPersonIds` gives the rest their person's id.
+    sql: typed(`
+ALTER TABLE group_messages ADD COLUMN owner_id INT;
+CREATE INDEX group_messages_owner ON group_messages(owner_id, created_at, seq);
+ALTER TABLE chat_read_state ADD COLUMN person_id INT;
+CREATE INDEX chat_read_state_person ON chat_read_state(person_id, thread);
+ALTER TABLE chat_admin_owed ADD COLUMN person_id INT;
+CREATE INDEX chat_admin_owed_person ON chat_admin_owed(person_id, thread);
+ALTER TABLE public_channels ADD COLUMN created_by_id INT;
+`),
+    after: fillChatPersonIds,
+  },
+  {
+    version: 28,
+    // The daily rows that name a person are bound to the person by id (#1284), as SQLite migration 52 keeps it: `owner_id` is `people.id` (no foreign key), 0 is no person, and a row's key gains it so a
+    // person deleted and a newcomer who takes the name keep apart their rows of one day. `fillDailyOwnerIds` gives the rows of people that exist their id and takes the group off the others.
+    sql: typed(`
+ALTER TABLE usage_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE usage_daily DROP CONSTRAINT usage_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, model, project);
+ALTER TABLE failures_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE failures_daily DROP CONSTRAINT failures_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, class, tool);
+ALTER TABLE person_sessions_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE person_sessions_daily DROP CONSTRAINT person_sessions_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, harness);
+ALTER TABLE skills_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE skills_daily DROP CONSTRAINT skills_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, harness, skill);
+ALTER TABLE person_places_daily ADD COLUMN owner_id INT NOT NULL DEFAULT 0;
+ALTER TABLE person_places_daily DROP CONSTRAINT person_places_daily_pkey, ADD PRIMARY KEY (day, owner_id, owner, harness, project, branch);
+`),
+    after: fillDailyOwnerIds,
+  },
+  {
+    version: 29,
+    // Who a message of a conversation was for, and what became of it (#1282), as SQLite migration 53 keeps it: one row per member a message went to or named; `named` is 1 for a member the writer
+    // addressed with an @; `state` is an agent's `queued`, `delivered` or `dropped` and NULL for a person. A message with no row was sent to everyone and keeps no delivery line.
+    sql: typed(`
+CREATE TABLE conversation_deliveries (
+  conversation_id TXT NOT NULL, message_id TXT NOT NULL, member_kind TXT NOT NULL, member_ref TXT NOT NULL, member_name TXT NOT NULL, named INT NOT NULL, state TXT, state_at INT,
+  PRIMARY KEY (conversation_id, message_id, member_kind, member_ref)
+);
+`),
+  },
+  {
+    version: 30,
+    // Every fact in one place (#1296): the columns and indexes nothing reads go, and `updated_at` is worked out where a message is read. See SQLite migration 54.
+    sql: typed(`
+DROP INDEX IF EXISTS group_messages_channel;
+ALTER TABLE group_messages DROP COLUMN IF EXISTS owner, DROP COLUMN IF EXISTS group_id, DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE conversation_messages DROP COLUMN IF EXISTS updated_at;
+ALTER TABLE public_channels DROP COLUMN IF EXISTS created_by;
+ALTER TABLE peer_messages DROP COLUMN IF EXISTS handed;
+DROP INDEX IF EXISTS peer_requests_owner;
+ALTER TABLE conversations DROP COLUMN IF EXISTS created_by;
+`),
+  },
+  {
+    version: 31,
+    // A person's counts in a thread, keyed by `(person_id, thread)` (#1296). Rows at zero or with no person go first. See SQLite migration 55.
+    sql: typed(`
+DELETE FROM chat_read_state WHERE person_id IS NULL OR (unread = 0 AND mentions = 0);
+ALTER TABLE chat_read_state DROP CONSTRAINT chat_read_state_pkey;
+ALTER TABLE chat_read_state ALTER COLUMN person_id SET NOT NULL;
+ALTER TABLE chat_read_state ADD PRIMARY KEY (person_id, thread);
+DROP INDEX IF EXISTS chat_read_state_person;
+ALTER TABLE chat_read_state DROP COLUMN IF EXISTS person, DROP COLUMN IF EXISTS last_read, DROP COLUMN IF EXISTS updated_at;
+`),
+  },
+  {
+    version: 32,
+    // A delivery is found by its message (#1296): `conversation_id` was the message's own conversation said again, and the key that led with it left the purge no way in but a scan. See SQLite migration 56,
+    // which also lays its table out another way (DECISIONS 78); there is nothing to do for that here.
+    sql: typed(`
+ALTER TABLE conversation_deliveries DROP CONSTRAINT conversation_deliveries_pkey;
+ALTER TABLE conversation_deliveries DROP COLUMN conversation_id;
+ALTER TABLE conversation_deliveries ADD PRIMARY KEY (message_id, member_kind, member_ref);
+`),
+  },
+  {
+    version: 33,
+    // What an Admin record is owed to, found by the person's id (#1296): `person_key` and `chat_admin_owed_person` go, and the key is `(person_id, thread, admin_key, started_at)`. A row with no person is not kept. Then the lists of the
+    // records made before this table existed fill it, once (`fillOwed`), which needs the `seen` list the next step drops. See SQLite migration 57, which also lays its table out another way (DECISIONS 78).
+    sql: typed(`
+DELETE FROM chat_admin_owed WHERE person_id IS NULL;
+ALTER TABLE chat_admin_owed DROP CONSTRAINT chat_admin_owed_pkey;
+ALTER TABLE chat_admin_owed ALTER COLUMN person_id SET NOT NULL;
+ALTER TABLE chat_admin_owed ADD PRIMARY KEY (person_id, thread, admin_key, started_at);
+DROP INDEX IF EXISTS chat_admin_owed_person;
+ALTER TABLE chat_admin_owed DROP COLUMN IF EXISTS person_key;
+`),
+    after: fillOwed,
+  },
+  {
+    version: 34,
+    // An Admin record no longer keeps the list of who has seen it (#1296). See SQLite migration 58.
+    sql: 'ALTER TABLE chat_admin_reads DROP COLUMN IF EXISTS seen;',
+  },
+  {
+    version: 35,
+    // Two reads that scanned a table read an index now (#1296): the next `seq` of five tables, and `peer_messages` by `owner_id`, in the order its readers sort in. See SQLite migration 60.
+    sql: `
+CREATE INDEX peer_messages_counter ON peer_messages(seq);
+CREATE INDEX group_messages_counter ON group_messages(seq);
+CREATE INDEX public_messages_counter ON public_messages(seq);
+CREATE INDEX conversation_messages_counter ON conversation_messages(seq);
+CREATE INDEX peer_requests_counter ON peer_requests(seq);
+CREATE INDEX peer_messages_owner ON peer_messages(owner_id, sent_at, seq);
+`,
+  },
+  {
+    version: 36,
+    // An owner's defaults are found by the person's id alone, which is the key now (#1296). A row with no `owner_id` is dropped, and so are the rows of an `owner_id` that has more than one. See SQLite migration 61.
+    sql: `
+DELETE FROM peer_owner_settings WHERE owner_id IS NULL OR owner_id IN (SELECT owner_id FROM peer_owner_settings GROUP BY owner_id HAVING COUNT(*) > 1);
+DROP INDEX IF EXISTS peer_owner_settings_owner_id;
+ALTER TABLE peer_owner_settings DROP COLUMN IF EXISTS owner_lower;
+ALTER TABLE peer_owner_settings ALTER COLUMN owner_id SET NOT NULL;
+ALTER TABLE peer_owner_settings ADD PRIMARY KEY (owner_id);
+`,
+  },
+  {
+    version: 37,
+    // An Admin's stop on a person's links or public channel keeps its words with its record (#1328). See SQLite migration 62.
+    sql: typed(`ALTER TABLE chat_admin_reads ADD COLUMN IF NOT EXISTS detail TXT NOT NULL DEFAULT '';`),
+  },
 ];
 
 export const ACTIVITY_STEPS: Step[] = [
@@ -422,6 +846,7 @@ export async function migrate(db: PgDb, schema: string, steps: readonly Step[]):
     if (have.has(step.version)) continue;
     await db.tx(async () => {
       await db.exec(step.sql);
+      await step.after?.(db);
       await db.run(`INSERT INTO ${schema}.schema_migrations (version, applied_at) VALUES (?, ?)`, [step.version, Date.now()]);
     });
     version = Math.max(version, step.version);

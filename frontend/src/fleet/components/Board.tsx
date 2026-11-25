@@ -1,7 +1,7 @@
 // The kanban board (#346): every session's plan steps by state, read-only. A card opens its orchestrator's page.
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { BOARD_COLUMNS, buildBoard, CARDS_PER_PAGE, EMPTY_COLUMN, groupBySession, orderCards, planFigures, type BoardCard, type BoardColumn, type PlanFigures } from "../board";
-import { filterByPeople, meKey, peopleActive } from "../people";
+import { filterByPeople, meFilter, peopleActive, type MeRef } from "../people";
 import { readJson, writeJson } from "../storage";
 import { GOTCHAS_URL, type Kpis, type SessionView } from "../types";
 import { cssVar, FAMILY_COLOR } from "./Chips";
@@ -89,7 +89,7 @@ function InfoNote({ label, children }: { label: string; children: React.ReactNod
 }
 
 /** Orchestrators and subagents live, running and waiting, the plans, and the cards (#450). The orchestrator and subagent figures are the ones the server derives for the Fleet page (Kpis), so the two pages cannot disagree; the plan and card figures come from the sessions the page receives. The filters and the Plans | All switch never change any of them. */
-export function RunningCounts({ id, hidden, kpis, filtered, plans }: { id?: string; hidden?: boolean; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
+function RunningCounts({ id, hidden, kpis, filtered, plans }: { id?: string; hidden?: boolean; kpis: Kpis | null; filtered: boolean; plans: PlanFigures }) {
   const tiles: { label: string; value: number | undefined; cap: string }[] = [
     { label: "Orchestrators live", value: kpis?.live, cap: "forks excluded" },
     { label: "Orchestrators running", value: kpis?.running, cap: "" },
@@ -119,7 +119,7 @@ function KpiTab(props: { collapsed: boolean; controls: string; onToggle: () => v
 }
 
 /** What the page says when no card is on it, in each mode (#426). */
-export function blankText(sessions: number, plansOnly: boolean): string {
+function blankText(sessions: number, plansOnly: boolean): string {
   if (!sessions) return "No sessions are active.";
   return plansOnly ? `None of the ${sessions} active sessions has open steps. Switch to All to list them.` : `None of the ${sessions} active sessions has a task list yet. They are listed below.`;
 }
@@ -132,7 +132,7 @@ export function Board(props: {
   /** True when the fleet page already hides sessions (a people filter, detached sessions), so the counts cover more than the cards. */
   narrowed?: boolean;
   /** Who is signed in, or null: the My orchestrators | Everyone switch is offered only to a signed-in person. */
-  me: string | null;
+  me: MeRef | null;
   onOpen: (sessionId: string) => void;
 }) {
   const [prefs, setPrefs] = useState(loadPrefs);
@@ -155,7 +155,7 @@ export function Board(props: {
   const meOn = prefs.me && !!props.me;
   const visible = useMemo(() => {
     let list = props.sessions;
-    if (meOn) list = filterByPeople(list, { person: meKey(props.sessions, props.me), group: null });
+    if (meOn) list = filterByPeople(list, meFilter(props.me!));
     if (group && groups.includes(group)) list = list.filter((s) => s.ownerGroup === group);
     return list;
   }, [props.sessions, props.me, meOn, group, groups]);
@@ -249,7 +249,7 @@ export function Board(props: {
   return (
     <section className="kb" aria-label="Board" ref={root}>
       <div className="kb-head">
-        <h2>Board</h2>
+        <h2 className="vh">Board</h2>
         <span className="kb-seg" role="group" aria-label="Sessions shown">
           <button type="button" aria-pressed={plansOnly} onClick={() => setPref({ view: "plans" })}>
             Plans

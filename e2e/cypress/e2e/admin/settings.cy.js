@@ -10,7 +10,9 @@ describe('admin: settings', () => {
   // Whatever a test turned off is turned on again here, so a failing test cannot leave a flag off for the next one.
   // My usage page (#726) is off on a seeded server too.
   const MY_USAGE = 'my-usage';
-  afterEach(() => cy.setFlags({ ...Object.fromEntries(FLAGS.map((f) => [f, true])), [CHAT_EVERYONE]: false, [MY_USAGE]: false }));
+  // Background shell output in the activity modal (#897) is off on a seeded server too.
+  const BACKGROUND = 'background-output';
+  afterEach(() => cy.setFlags({ ...Object.fromEntries(FLAGS.map((f) => [f, true])), [CHAT_EVERYONE]: false, [MY_USAGE]: false, [BACKGROUND]: false }));
 
   it('has one switch row per feature flag, with its name, its id in mono and a description', () => {
     cy.get('h2#admin-features-h').should('have.text', 'Feature flags');
@@ -41,6 +43,21 @@ describe('admin: settings', () => {
     cy.adminPage('Settings');
     cy.settingSwitch(`feature-${MY_USAGE}`).should('have.attr', 'aria-checked', 'true').click().should('have.attr', 'aria-checked', 'false');
     cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[MY_USAGE]).to.eq(false));
+  });
+
+  it('starts Background shell output in the activity modal off, with its warning bar only while it is on, and the server keeps it (#897)', () => {
+    cy.contains('.srow', 'Background shell output in the activity modal').should('contain.text', BACKGROUND).and('contain.text', 'Needs the Agent activity feed on');
+    cy.settingSwitch(`feature-${BACKGROUND}`).should('have.attr', 'aria-checked', 'false');
+    // The warning bar under Bash output is the only one while this flag is off; each flag that holds output has its own.
+    cy.get('[role=note]').filter(':contains("Output holds whatever a command printed")').should('have.length', 1);
+    cy.settingSwitch(`feature-${BACKGROUND}`).click().should('have.attr', 'aria-checked', 'true');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[BACKGROUND]).to.eq(true));
+    cy.get('[role=note]').filter(':contains("Output holds whatever a command printed")').should('have.length', 2);
+    cy.reload();
+    cy.adminPage('Settings');
+    cy.settingSwitch(`feature-${BACKGROUND}`).should('have.attr', 'aria-checked', 'true').click().should('have.attr', 'aria-checked', 'false');
+    cy.request('/api/fleet/state').its('body.features').should((features) => expect(features[BACKGROUND]).to.eq(false));
+    cy.get('[role=note]').filter(':contains("Output holds whatever a command printed")').should('have.length', 1);
   });
 
   it('turns a flag off and on again, and the server keeps it', () => {
@@ -130,6 +147,7 @@ describe('admin: settings', () => {
 
   it('has a switch for each wall notice, the background sessions and the machine in card titles', () => {
     cy.settingSwitch('notice-background-sessions').should('exist');
+    cy.settingSwitch('notice-concluded-direct-messages').should('have.attr', 'aria-checked', 'true');
     cy.settingSwitch('background').should('have.attr', 'aria-checked', 'false');
     cy.settingSwitch('card-title-machine').should('have.attr', 'aria-checked', 'false');
   });

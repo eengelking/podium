@@ -1,7 +1,7 @@
 // What the storage tests need from an adapter (#1008). Every adapter registers one (the `testing` loader of its kind in `index.ts`), and
 // the contract, the upgrade cases and the differential test all run over the list of them, so a new adapter is added in one place and no
 // adapter is the reference for another. Types only: this file names no database.
-import type { LegacyAdminRead, LegacyMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from './contractUpgrade.js';
+import type { LegacyAdminRead, LegacyChat, LegacyDaily, LegacyExtras, LegacyMessage, LegacyPublicMessage, LegacyReporter, LegacyRequest, LegacyRight, LegacySession } from './contractUpgrade.js';
 import type { Storage } from './types.js';
 
 /** What an adapter's database holds, by name: each table with its columns, and the indexes. Names only; the types differ between databases. */
@@ -23,6 +23,42 @@ export interface KnownDefect {
   input?: (value: unknown) => boolean;
 }
 
+/**
+ * A way one adapter lays a table out on disk that another does not, which no store call can see (DECISIONS 78). It is declared in the adapter's own folder, with the table, the option,
+ * the reason, the gain as measured and the contract case that proves the data is the same, and `adapters.test.ts` reads each adapter's layouts from its database and fails for one that is
+ * declared and not there or there and not declared. It never covers a table, column, index, key, constraint, default, collation, order, value or error, or durability or isolation.
+ */
+export interface PhysicalDifference {
+  id: string;
+  table: string;
+  /** What is set, in the adapter's own words. */
+  option: string;
+  why: string;
+  issue: string;
+  /** What it saves, as measured. */
+  gain: string;
+  /** The contract case that holds the data the same: a file in `server/src/storage/` and the title of the case in it. */
+  case: { file: string; title: string };
+}
+
+/**
+ * A throwaway database of one adapter with the `samples` table to measure (#755), for `scripts/podium-perf-samples-index.ts`. The SQL that seeds the table, drops
+ * and creates the index and reads its size is the adapter's own, so nothing outside the adapter folders writes SQL or imports a driver.
+ */
+export interface SamplesPerf {
+  /** The value of PODIUM_DB that opens this database as a Storage. */
+  podiumDb: string;
+  /** Fills `samples` with `sessions` sessions of one sample a second for `seconds` seconds, the newest at second `endSec`. */
+  seed(sessions: number, seconds: number, endSec: number): Promise<void>;
+  dropIndex(): Promise<void>;
+  createIndex(): Promise<void>;
+  /** Bytes the `samples_t` index takes as the database reports them, or null when it cannot say. */
+  indexBytes(): Promise<number | null>;
+  rows(): Promise<number>;
+  /** Closes the connection and removes the database. */
+  close(): Promise<void>;
+}
+
 export interface ContractAdapter {
   /** The registry name of the kind. Failures name it. */
   name: string;
@@ -33,9 +69,15 @@ export interface ContractAdapter {
   /** A fresh, empty storage. Its `close()` also removes whatever the adapter made for it. */
   open(): Promise<Storage>;
   /** A storage over a database made at the oldest supported schema and holding the given rows, opened (and so migrated). Closing it removes what was made. */
-  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[]): Promise<Storage>;
+  openUpgraded(rows: LegacyRequest[], reporters?: LegacyReporter[], sessions?: LegacySession[], messages?: LegacyMessage[], rights?: LegacyRight[], adminReads?: LegacyAdminRead[], publicMessages?: LegacyPublicMessage[], extras?: LegacyExtras, chat?: LegacyChat, daily?: LegacyDaily[]): Promise<Storage>;
   /** The names of the tables, columns and indexes of a freshly opened database, both the main and the Activity one. Read from the database itself, not from the code that makes it. */
   schema(): Promise<SchemaNames>;
+  /** A throwaway database with the `samples` table to measure (#755). Optional: only the measurement script asks for it. */
+  samplesPerf?(): Promise<SamplesPerf>;
+  /** The tables of a freshly opened database whose layout is not the database's default, read from the database itself (DECISIONS 78). */
+  layouts(): Promise<string[]>;
+  /** The physical differences this adapter declares. Empty when there are none. Each is read back by `layouts`. */
+  physical: PhysicalDifference[];
   /** Defects of this adapter that another issue owns. Empty when there are none. */
   known: KnownDefect[];
   /** Removes anything a failed test left behind. Called once after the adapter's suites. */

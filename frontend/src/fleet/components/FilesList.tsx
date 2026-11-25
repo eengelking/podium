@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { DiffPreloader } from "../diffPreload";
+import { ownsSession } from "../respond";
 import { usePageVisible } from "../usePageVisible";
 import type { ChangedFile, FilesReport, SessionView } from "../types";
 import { useRespond, type RespondContext } from "../useRespond";
@@ -7,7 +8,7 @@ import { FileDiffModal } from "./FileDiffModal";
 import { PageNav } from "./PageNav";
 
 /** Files shown per page; the reporter sends at most 200, so there are at most ten pages. */
-export const FILES_PER_PAGE = 20;
+const FILES_PER_PAGE = 20;
 
 const LETTER: Record<ChangedFile["status"], string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 const MINUS = "−";
@@ -53,10 +54,7 @@ function Counts({ added, removed }: { added: number; removed: number }) {
 }
 
 /** The fields of a session the diff gate reads. */
-export type DiffSession = Pick<SessionView, "id" | "owner" | "fileDiff" | "fileDiffPreload" | "status">;
-
-/** Whether a name is the same person's, as the server compares them: case-insensitively. */
-const sameName = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+export type DiffSession = Pick<SessionView, "id" | "owner" | "ownerId" | "fileDiff" | "fileDiffPreload" | "status">;
 
 /**
  * Whether this viewer may open a file's diff on this session (#319, SPEC 8.1): `open`, a line saying why not, or `none`
@@ -66,7 +64,8 @@ export function diffAccess(s: DiffSession | undefined, ctx: RespondContext | nul
   if (!s || !ctx?.diffOn || !ctx.me?.enabled || (s.status !== "running" && s.status !== "waiting")) return { kind: "none" };
   if (!ctx.me.signedIn) return { kind: "why", text: "Sign in to open diffs." };
   if (s.owner === null) return { kind: "why", text: "This session has no owner, so no one can open its diffs." };
-  if (!ctx.me.name || !sameName(ctx.me.name, s.owner)) return { kind: "why", text: `Only ${s.owner} can open diffs.` };
+  // By id, never by name: a newcomer who takes a deleted person's name is not the owner.
+  if (!ownsSession(s, ctx.me)) return { kind: "why", text: `Only ${s.owner} can open diffs.` };
   if (s.fileDiff !== true) return { kind: "why", text: "Turn on the fileDiff option of podium-reporter on this machine to open diffs." };
   return { kind: "open" };
 }

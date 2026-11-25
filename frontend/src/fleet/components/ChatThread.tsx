@@ -1,19 +1,32 @@
 // Chat's thread (#1034, mockup/podium-chat.html): the header, who may read it, who is in it, the newest messages at the bottom with
 // "Earlier messages" above, and the box under them. A message's text is always a text node, never HTML. The feed keeps the
 // reader's place when something is selected or a menu opens; it goes to the newest message on opening a thread and after a send.
-import { useLayoutEffect, useRef, type ReactNode } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   adminPauseOf,
   adminWho,
   AUTHOR_CHIP_TITLE,
+  authorKey,
   authorMarks,
   channelDelivery,
+  continuesRun,
+  dayLabel,
   liveReaders,
   dmDelivery,
   crossLine,
   dmName,
   mentionChip,
   messageParts,
+  sameDay,
   stamp,
   type ChatChannel,
   type AdminRead,
@@ -22,121 +35,564 @@ import {
   type Party,
 } from "../chatData";
 import type { Selection, ThreadMessage, ThreadRead } from "../useChat";
-import type { SessionView } from "../types";
-import { AdminPauseBanner, AdminTags, ReadOnlyBanner, ReadingBanner, RecordLine } from "./ChatAdmin";
-import { ChMsg, ChNo, ChClock, ChWarn, DeliveryGlyph, TagGlyph } from "./ChatIcons";
-import { ChatMenu, agentMenu, type MenuAct } from "./ChatMenu";
-import { agentState, STATE_WORD } from "./ChatSidebar";
-import { StateIcon } from "./Chips";
-import { Monogram, YouTag } from "./People";
+import type { ModelFamily, SessionView } from "../types";
+import {
+  AdminPauseBanner,
+  AdminTags,
+  ReadOnlyBanner,
+  ReadingBanner,
+  RecordLine,
+} from "./ChatAdmin";
+import {
+  ChLink,
+  ChNo,
+  ChClock,
+  ChTrash,
+  ChWarn,
+  DeliveryGlyph,
+  TagGlyph,
+} from "./ChatIcons";
+import { linkWords } from "./ChatForms";
+import { ChatMenu, agentMenu, messageMenu, personMenu, type MenuAct, type MenuAt, type MenuSpec } from "./ChatMenu";
+import { useOwnMessageNav } from "./useOwnMessageNav";
+import { agentState } from "./ChatSidebar";
+import { ChatAvatar, ChatAvatarPair } from "./ChatAvatar";
+import { ChatMembersPanel, ChatMembersStack, membersOf } from "./ChatMembers";
+import { ModelChip, StateIcon, type StateKind } from "./Chips";
+import { Modal } from "./Modal";
+import { familyName } from "../logic";
+import { hm } from "../trafficData";
+import { ChatIntro } from "./ChatIntro";
 import { channelTag, dmTag } from "../chatData";
 
 /** The messages and the Admin's records in time order: a record comes after every message sent before it. Earlier pages not loaded hide the records older than the oldest message shown. */
-function recordsAmong(messages: ThreadMessage[], reads: AdminRead[], hasEarlier: boolean): ({ m: ThreadMessage; rec?: undefined } | { rec: AdminRead; m?: undefined })[] {
+function recordsAmong(
+  messages: ThreadMessage[],
+  reads: AdminRead[],
+  hasEarlier: boolean,
+): (
+  { m: ThreadMessage; rec?: undefined } | { rec: AdminRead; m?: undefined }
+)[] {
   const first = messages[0]?.at ?? 0;
-  const recs = reads.filter((r) => !hasEarlier || r.startedAt >= first).sort((a, b) => a.startedAt - b.startedAt);
-  const out: ({ m: ThreadMessage; rec?: undefined } | { rec: AdminRead; m?: undefined })[] = [];
+  const recs = reads
+    .filter((r) => !hasEarlier || r.startedAt >= first)
+    .sort((a, b) => a.startedAt - b.startedAt);
+  const out: (
+    { m: ThreadMessage; rec?: undefined } | { rec: AdminRead; m?: undefined }
+  )[] = [];
   let i = 0;
   for (const m of messages) {
-    while (i < recs.length && recs[i]!.startedAt < m.at) out.push({ rec: recs[i++]! });
+    while (i < recs.length && recs[i]!.startedAt < m.at)
+      out.push({ rec: recs[i++]! });
     out.push({ m });
   }
   while (i < recs.length) out.push({ rec: recs[i++]! });
   return out;
 }
 
+/** A block that scrolls sideways has to take focus so the arrow keys scroll it, though it is not a control. */
+const FOCUSABLE = { tabIndex: 0 };
+
+/** How long the list stays "off" after it draws something that is not announced. */
+const QUIET_MS = 150;
+
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
-function Text({ text }: { text: string }) {
+type MeId = Pick<ChatOverview["me"], "id">;
+
+/** Whether the viewer wrote this message: a channel says so itself; a Direct Message is yours when its author's person id is yours. Never by name: a newcomer may take a deleted person's name. */
+function mineOf(m: ThreadMessage, me: MeId): boolean {
+  if (m.channel) return m.channel.mine;
+  const d = m.direct!;
+  return d.from.kind === "person" && typeof me.id === "number" && d.from.personId === me.id;
+}
+
+/** The fields of a message both kinds share (#1269). */
+const bodyOf = (m: ThreadMessage) => (m.channel ?? m.direct)!;
+const deletedOf = (m: ThreadMessage): boolean => !!bodyOf(m).deletedAt;
+/** Whether one of your own messages has a menu: it stands, and the server either lets you change it or says why not. */
+const hasMenu = (m: ThreadMessage, me: MeId): boolean => mineOf(m, me) && !deletedOf(m) && (bodyOf(m).canChange === true || !!bodyOf(m).changeWhy);
+/** Why one of your own messages cannot be edited or deleted now, or "" when it can. */
+function whyNot(m: ThreadMessage): string {
+  const b = bodyOf(m);
+  if (b.deletedAt) return "There is nothing left to change.";
+  if (b.canChange === true) return "";
+  return b.changeWhy ?? "This message cannot be changed.";
+}
+/** The note a deleted message leaves in its place. */
+const tombstone = (m: ThreadMessage, me: MeId): string => `This message was deleted by ${mineOf(m, me) ? "You" : m.channel ? m.channel.authorName : m.direct!.from.name} at ${hm(bodyOf(m).deletedAt ?? 0)}.`;
+const noPeriod = (s: string): string => { let n = s.length; while (n > 0 && ".!?".includes(s[n - 1]!)) n--; return s.slice(0, n); };
+
+/** Who sent a message, for the menu on its avatar: a person, or an agent with its session. You have none. The key is the one the members panel's row for the same sender has, behind `t:`. */
+interface Sender {
+  key: string;
+  person: boolean;
+  name: string;
+  ref: string;
+}
+
+function senderOf(m: ThreadMessage, me: MeId): Sender | null {
+  if (mineOf(m, me)) return null;
+  if (m.channel) {
+    const c = m.channel;
+    return c.authorKind === "person"
+      ? { key: `mp:${c.authorName}`, person: true, name: c.authorName, ref: c.authorName }
+      : { key: `h:${c.authorRef}`, person: false, name: c.authorName, ref: c.authorRef };
+  }
+  const f = m.direct!.from;
+  return f.kind === "person"
+    ? { key: `mp:${f.name}`, person: true, name: f.name, ref: f.name }
+    : { key: `h:${f.sessionId ?? ""}`, person: false, name: f.name, ref: f.sessionId ?? "" };
+}
+
+type Row =
+  | { k: "msg"; m: ThreadMessage }
+  | { k: "rec"; rec: AdminRead }
+  | { k: "day"; at: number }
+  | { k: "new" };
+
+/** The rows of the list: the messages and records in time order, a day divider before the first message of each day, and the New line before the first unread one. */
+function rowsOf(
+  items: ReturnType<typeof recordsAmong>,
+  newId: string | null,
+): Row[] {
+  const rows: Row[] = [];
+  let prev: number | null = null;
+  for (const it of items) {
+    if (it.rec) {
+      rows.push({ k: "rec", rec: it.rec });
+      continue;
+    }
+    if (prev === null || !sameDay(prev, it.m.at))
+      rows.push({ k: "day", at: it.m.at });
+    prev = it.m.at;
+    if (it.m.id === newId) rows.push({ k: "new" });
+    rows.push({ k: "msg", m: it.m });
+  }
+  return rows;
+}
+
+/** A fenced block: plain text in a monospace block that scrolls sideways, with the language word and a Copy button (the clipboard can be refused). */
+function CodeBlock({ text, lang }: { text: string; lang?: string }) {
+  const [state, setState] = useState<"idle" | "copied" | "manual">("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => void (timer.current && clearTimeout(timer.current)),
+    [],
+  );
+  const done = (next: "copied" | "manual") => {
+    setState(next);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setState("idle"), 2500);
+  };
+  const copy = () => {
+    const clip =
+      typeof navigator === "undefined" ? undefined : navigator.clipboard;
+    if (!clip) return done("manual");
+    clip.writeText(text).then(
+      () => done("copied"),
+      () => done("manual"),
+    );
+  };
+  return (
+    <div className="ch-code" data-testid="chat-code">
+      <div className="ch-code-h">
+        <span className="ch-code-lang">{lang ?? ""}</span>
+        <button type="button" className="btn sm ch-copy" onClick={copy}>
+          {state === "copied"
+            ? "Copied"
+            : state === "manual"
+              ? "Select and copy"
+              : "Copy"}
+        </button>
+      </div>
+      <pre
+        {...FOCUSABLE}
+        role="region"
+        aria-label={lang ? `Code, ${lang}` : "Code"}
+      >
+        <code>{text}</code>
+      </pre>
+    </div>
+  );
+}
+
+export function Text({ text }: { text: string }) {
+  const parts = messageParts(text);
   return (
     <>
-      {messageParts(text).map((p, i) =>
-        p.kind === "mention" ? (
-          <span key={i} className="ch-mention">
-            {p.text}
-          </span>
-        ) : p.kind === "redacted" ? (
-          <span key={i} className="rd" title="Replaced on the sending machine. The original never left it.">
-            {p.text}
-          </span>
-        ) : (
-          p.text
-        ),
-      )}
+      {parts.map((p, i) => {
+        if (p.kind === "code")
+          return <CodeBlock key={i} text={p.text} lang={p.lang} />;
+        if (p.kind === "mention")
+          return (
+            <span key={i} className="ch-mention">
+              {p.text}
+            </span>
+          );
+        if (p.kind === "inline")
+          return (
+            <code key={i} className="ch-inline">
+              {p.text}
+            </code>
+          );
+        if (p.kind === "redacted")
+          return (
+            <span
+              key={i}
+              className="rd"
+              title="Replaced on the sending machine. The original never left it."
+            >
+              {p.text}
+            </span>
+          );
+        // The line break that sits against a block is the block's own edge, not a blank line.
+        let t = p.text;
+        if (parts[i - 1]?.kind === "code") t = t.replace(/^\r?\n/, "");
+        if (parts[i + 1]?.kind === "code") t = t.replace(/\r?\n$/, "");
+        return t ? t : null;
+      })}
     </>
   );
 }
 
-function Message({ m, all, me, now, paused, owner, across, heldBy, people, machineOf }: { m: ThreadMessage; all: ThreadMessage[]; me: string; now: number; paused: boolean; owner: string; across: boolean; heldBy?: string; people: readonly string[]; machineOf: (ref: string) => string | null }) {
+/** One of your messages being edited (#1269): the composer's box in place of its text, Save and Cancel. Enter saves, Shift+Enter adds a line, Escape cancels. */
+export function Editor({ initial, error, busy, onSave, onCancel }: { initial: string; error: string | null; busy: boolean; onSave: (text: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState(initial);
+  const ta = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const t = ta.current;
+    if (!t) return;
+    t.focus();
+    t.setSelectionRange(t.value.length, t.value.length);
+  }, []);
+  const save = () => {
+    if (!busy && text.trim()) onSave(text);
+  };
+  return (
+    <div className="ed-box" data-testid="chat-edit">
+      <div className="ch-box">
+        <textarea
+          ref={ta}
+          rows={2}
+          aria-label="Edit your message"
+          value={text}
+          readOnly={busy}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            // The keys of the box are the box's: they never reach the message list around it.
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              e.stopPropagation();
+              save();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              onCancel();
+            }
+          }}
+        />
+        <div className="cr-tools">
+          <span className="hint">
+            <kbd>Enter</kbd> to save · <kbd>Esc</kbd> to cancel
+          </span>
+          <button type="button" className="btn sm" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn pri sm" disabled={busy || !text.trim()} aria-busy={busy || undefined} onClick={save}>
+            Save
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div className="err" role="alert">
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The confirmation before a message is deleted (#1269): an alert dialog that quotes it, says who loses it and that it cannot be undone.
+ * Cancel has the focus first; Left, Right, Up and Down move between Cancel and Delete message; a refusal shows inside it.
+ */
+export function DeleteMessageDialog({ text, who, error, busy, onCancel, onDelete }: { text: string; who: string; error: string | null; busy: boolean; onCancel: () => void; onDelete: () => void }) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  const del = useRef<HTMLButtonElement>(null);
+  const arrows = (e: globalThis.KeyboardEvent): boolean => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return false;
+    e.preventDefault();
+    const acts = [cancel.current, del.current];
+    acts[(Math.max(acts.indexOf(document.activeElement as HTMLButtonElement), 0) + 1) % acts.length]?.focus();
+    return true;
+  };
+  return (
+    <Modal titleId="del-h" title="Delete this message?" className="ed-confirm" role="alertdialog" describedBy="del-b" initialFocus={cancel} onKey={arrows} onClose={onCancel}>
+      <div className="mb" id="del-b">
+        <p className="ed-q">{text}</p>
+        <p>{who} This cannot be undone.</p>
+        {error && (
+          <div className="err" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="acts">
+          <button type="button" className="btn" ref={cancel} onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="button" className="btn bad" ref={del} disabled={busy} aria-busy={busy || undefined} onClick={onDelete}>
+            Delete message
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** What every row does, as one object that keeps its identity and acts on the thread's latest props, so a row that is not drawn again is never stale (#1311). */
+interface MessageActs {
+  onSave: (id: string, text: string) => void;
+  onCancel: (id: string) => void;
+  onContext: (m: ThreadMessage, e: MouseEvent<HTMLElement>) => void;
+  onSender: (m: ThreadMessage, at: MenuAt) => void;
+}
+
+/** What a row replies to: "you", the author's name, or "an earlier message" when the original is not loaded. */
+function replyOf(m: ThreadMessage, byId: ReadonlyMap<string, ThreadMessage>): string | null {
+  const to = m.channel?.replyTo;
+  if (!to) return null;
+  const target = byId.get(to)?.channel;
+  return target ? (target.mine ? "you" : target.authorName) : "an earlier message";
+}
+
+/** The session of the agent that wrote a message, or null for a person and for you. */
+function agentRefOf(m: ThreadMessage, mine: boolean): string | null {
+  if (mine) return null;
+  if (m.channel) return m.channel.authorKind !== "person" ? m.channel.authorRef : null;
+  return m.direct!.from.kind === "agent" ? (m.direct!.from.sessionId ?? "") : null;
+}
+
+/** One message. Its props are the message object and plain values, never an object new on each render, so `memo` skips it unless it or what it shows changed (#1311). */
+const Message = memo(function Message({
+  m,
+  re,
+  meId,
+  meName,
+  now,
+  paused,
+  owner,
+  across,
+  heldBy,
+  people,
+  machine,
+  agent,
+  family,
+  model,
+  cont,
+  tab,
+  idx,
+  marked,
+  editing,
+  menu,
+  sender,
+  acts,
+}: {
+  m: ThreadMessage;
+  re: string | null;
+  meId: MeId["id"];
+  meName: string;
+  now: number;
+  paused: boolean;
+  owner: string;
+  across: boolean;
+  heldBy?: string;
+  people: readonly string[];
+  machine: string | null;
+  /** An agent author's state, and its model when the console has its session; null for anyone else. */
+  agent: StateKind | null;
+  family: ModelFamily | null;
+  model: string | null;
+  cont: boolean;
+  /** The roving tab stop and index of this message (one stop for the whole list, #1231). */
+  tab: number;
+  idx: number;
+  /** Its menu or delete confirmation is open, so the row stays marked (#1269). */
+  marked: boolean;
+  editing: { error: string | null; busy: boolean } | null;
+  /** Whether a right-click opens a menu on the message, and on its avatar. */
+  menu: boolean;
+  sender: boolean;
+  acts: MessageActs;
+}) {
+  const me = { id: meId, name: meName };
   const c = m.channel;
   const d = m.direct;
-  const mine = c ? c.mine : d ? d.from.kind === "person" && d.from.name.toLowerCase() === me.toLowerCase() : false;
+  const mine = mineOf(m, me);
   const name = mine ? "You" : c ? c.authorName : d!.from.name;
-  let re: string | null = null;
-  if (c?.replyTo) {
-    const target = all.find((x) => x.id === c.replyTo)?.channel;
-    re = target ? (target.mine ? "you" : target.authorName) : "an earlier message";
-  }
-  const dl = c ? channelDelivery(c) : dmDelivery(d!, paused, owner, undefined, across, heldBy);
+  const dl = c
+    ? channelDelivery(c)
+    : dmDelivery(d!, paused, owner, undefined, across, heldBy);
   const text = (c ?? d)!.text;
-  const marks = c && !mine ? authorMarks(c, people, machineOf(c.authorRef)) : null;
+  const marks = c && !mine ? authorMarks(c, people, machine) : null;
+  // The avatar: you are the inverted disc, another person a ring and a disc, an agent a tile in its model's color with its state.
+  const avatar = agent !== null ? (
+    <ChatAvatar
+      kind="agent"
+      name={name}
+      size={40}
+      family={family ?? undefined}
+      state={agent}
+    />
+  ) : (
+    <ChatAvatar
+      kind={mine ? "you" : "person"}
+      name={mine ? me.name : name}
+      size={40}
+    />
+  );
+  const when = new Date(m.at).toLocaleString();
+  const failed = dl.icon === "no";
+  const body = bodyOf(m);
+  const gone = !!body.deletedAt;
   return (
-    <li className={`txt${mine ? " mine" : ""}${re ? " reply" : ""}`} data-testid="chat-message">
-      <span className="at" title={new Date(m.at).toLocaleString()}>
-        {stamp(m.at, now)}
-      </span>
-      <span className="k" role="img" aria-label="Message" title="Message">
-        <ChMsg />
-      </span>
-      <span className="body">
-        <span className={`who${mine ? " me" : ""}`}>
-          <bdi>{name}</bdi>
-          {marks && (
-            <>
-              {" "}
-              <span className="chip" title={AUTHOR_CHIP_TITLE}>
-                {marks.chip}
-              </span>
-              {marks.warns.map((w) => (
-                <span key={w.text}>
+    <li
+      className={`ch-msg${mine ? " mine" : ""}${cont ? " cont" : " first"}${re ? " reply" : ""}${marked ? " menu-open ch-sel" : ""}${editing ? " editing" : ""}`}
+      data-testid="chat-message"
+      aria-haspopup={menu ? "menu" : undefined}
+      onContextMenu={menu ? (e) => acts.onContext(m, e) : undefined}
+      tabIndex={tab}
+      data-roving={idx}
+    >
+      {cont ? (
+        <span className="ch-gut" aria-hidden="true" title={when}>
+          {hm(m.at)}
+        </span>
+      ) : (
+        // A right-click on the avatar opens its sender's menu at the pointer. The keyboard reaches it from the message (Enter, the ContextMenu key, Shift+F10).
+        <span
+          className="ch-gut"
+          onContextMenu={
+            sender
+              ? (e) => {
+                  e.preventDefault();
+                  acts.onSender(m, { x: e.clientX, y: e.clientY, from: e.currentTarget.closest("li") });
+                }
+              : undefined
+          }
+        >
+          {avatar}
+        </span>
+      )}
+      <div className="ch-col">
+        {!cont && (
+          <div className="ch-mh">
+            <span className={`who${mine ? " me" : ""}`}>
+              <bdi>{name}</bdi>
+              {marks && (
+                <>
                   {" "}
-                  <span className="chip warn" title={w.title}>
-                    <ChWarn />
-                    {w.text}
+                  <span className="chip" title={AUTHOR_CHIP_TITLE}>
+                    {marks.chip}
                   </span>
+                  {marks.warns.map((w) => (
+                    <span key={w.text}>
+                      {" "}
+                      <span className="chip warn" title={w.title}>
+                        <ChWarn />
+                        {w.text}
+                      </span>
+                    </span>
+                  ))}
+                </>
+              )}
+              {c?.authorOwner && !mine && (
+                <span className="re">
+                  {" "}
+                  orchestrator of <bdi>{c.authorOwner}</bdi>
                 </span>
-              ))}
-            </>
-          )}
-          {re && (
-            <span className="re">
-              {" "}
+              )}
+              {re && (
+                <span className="re">
+                  {" "}
+                  replying to <bdi>{re}</bdi>
+                </span>
+              )}
+            </span>
+            {family && (
+              <ModelChip
+                family={family}
+                model={model}
+                label={`Agent · ${familyName(family, model)}`}
+              />
+            )}
+            <span className="at" title={when}>
+              {stamp(m.at, now)}
+            </span>
+          </div>
+        )}
+        {cont && re && (
+          <div className="ch-mh">
+            <span className="who re">
               replying to <bdi>{re}</bdi>
             </span>
-          )}
-        </span>
-        <Text text={text} />
-        {c && c.mentions.length > 0 && (
+          </div>
+        )}
+        {gone ? (
+          <div className="ed-del">
+            <ChTrash />
+            {tombstone(m, me)}
+          </div>
+        ) : editing ? (
+          <Editor initial={text} error={editing.error} busy={editing.busy} onSave={(t) => acts.onSave(m.id, t)} onCancel={() => acts.onCancel(m.id)} />
+        ) : (
+          <div className="ch-tx">
+            <Text text={text} />
+            {body.editedAt ? (
+              <span className="ed-edited" title={new Date(body.editedAt).toLocaleString()}>
+                edited {hm(body.editedAt)}
+              </span>
+            ) : null}
+          </div>
+        )}
+        {!gone && c && c.mentions.length > 0 && (
           <div className="ch-st">
             {c.mentions.map((x, i) => {
               const chip = mentionChip(x);
               return (
-                <span key={`${x.typed}${i}`} className={`s${chip.kind === "done" ? " done" : chip.kind === "wait" ? " wait" : chip.kind === "bad" ? " bad" : ""}`}>
-                  {chip.kind === "done" ? <StateIcon kind="done" /> : chip.kind === "run" ? <StateIcon kind="running" /> : chip.kind === "wait" ? <ChClock /> : <ChNo />}
+                <span
+                  key={`${x.typed}${i}`}
+                  className={`s${chip.kind === "done" ? " done" : chip.kind === "wait" ? " wait" : chip.kind === "bad" ? " bad" : ""}`}
+                >
+                  {chip.kind === "done" ? (
+                    <StateIcon kind="done" />
+                  ) : chip.kind === "run" ? (
+                    <StateIcon kind="running" />
+                  ) : chip.kind === "wait" ? (
+                    <ChClock />
+                  ) : (
+                    <ChNo />
+                  )}
                   <span>{chip.text}</span>
                 </span>
               );
             })}
           </div>
         )}
-        <span className={`ds${dl.wait ? " wait" : ""}`}>
-          <DeliveryGlyph icon={dl.icon} />
-          <span>{dl.text}</span>
-        </span>
-      </span>
+        {!gone && (
+        <div className="ch-st">
+          <span
+            className={`s ds${dl.wait ? " wait" : ""}${failed ? " bad" : ""}`}
+          >
+            <DeliveryGlyph icon={dl.icon} />
+            <span>{dl.text}</span>
+          </span>
+        </div>
+        )}
+      </div>
     </li>
   );
-}
+});
 
 export interface ThreadProps {
   sel: Selection;
@@ -153,14 +609,34 @@ export interface ThreadProps {
   /** Moves to the newest message when it changes: the thread opened, or the person sent. */
   scrollToken: string;
   menu: string | null;
-  onMenu: (key: string | null, by: "button" | "context") => void;
+  /** Where the open menu hangs when it is a sender's (`t:` key); null for a row's own. */
+  menuAt: MenuAt | null;
+  onMenu: (key: string | null, by: "button" | "context", at?: MenuAt) => void;
   onClose: (restoreFocus: boolean) => void;
   onPick: (key: string, act: MenuAct) => void;
   onBack: () => void;
+  /** The Direct Message was concluded and deleted (#1283, #1340): nothing of it is read or shown, so the feed is empty and not "Loading…". */
+  concluded?: boolean;
+  /** Whether the members panel is open, and the way to open or close it (#1236). */
+  members: boolean;
+  onMembers: (open: boolean) => void;
   /** The person an Admin reads, or null. The thread is read only while it is set. */
   readAs: string | null;
   /** The server's clock now, for hiding a reading whose time has passed. */
   serverNow: number;
+  /** Editing and deleting your own messages (#1269). */
+  change: {
+    /** The message being edited, with a refusal to show under its box and whether a save is out. */
+    editing: { id: string; error: string | null; busy: boolean } | null;
+    /** The message whose delete confirmation is open. */
+    deleting: string | null;
+    /** A request to put the focus back on a message (after an edit, a cancel or a delete); each has its own `n`. */
+    focus: { id: string; n: number } | null;
+    onEdit: (id: string) => void;
+    onSave: (id: string, text: string) => void;
+    onCancel: (id: string) => void;
+    onDelete: (id: string) => void;
+  };
 }
 
 export function ChatThread(p: ThreadProps) {
@@ -170,9 +646,125 @@ export function ChatThread(p: ThreadProps) {
   const grew = useRef<number | null>(null);
   const newest = t.messages[t.messages.length - 1]?.id ?? null;
   const oldest = t.messages[0]?.id ?? null;
+  // The keyboard and the menus of the message list are one copy for every thread of Chat (#1345).
+  const section = useRef<HTMLElement>(null);
+  const live = useRef(p);
+  useLayoutEffect(() => {
+    live.current = p;
+  });
+  // What a screen reader hears when a message of yours takes the focus: it, its state and the keys that work on it, or why none does.
+  const saidOf = (m: ThreadMessage): string => {
+    const b = bodyOf(m);
+    const gone = !!b.deletedAt;
+    const dl = m.channel ? channelDelivery(m.channel) : dmDelivery(m.direct!, t.head?.paused ?? p.direct?.paused ?? false, t.head?.owner ?? p.direct?.owner ?? o.me.name, undefined, (t.head?.cross ?? p.direct?.cross ?? null) !== null);
+    const edited = !gone && b.editedAt ? ` (edited ${hm(b.editedAt)})` : "";
+    return `Your message, ${hm(m.at)}: ${noPeriod(gone ? tombstone(m, o.me) : b.text.trim())}${edited}. ${gone ? "" : `${noPeriod(dl.text)}. `}${whyNot(m) || "Press E to edit or Delete to delete."}`;
+  };
+  const nav = useOwnMessageNav<ThreadMessage>({
+    messages: t.messages,
+    isMine: (m) => mineOf(m, o.me),
+    whyNot,
+    hasMenu: (m) => hasMenu(m, o.me),
+    hasSender: (m) => senderOf(m, o.me) !== null,
+    readOnly: p.readAs !== null,
+    saidOf,
+    focus: p.change.focus,
+    onEdit: (id) => p.change.onEdit(id),
+    onDelete: (id) => p.change.onDelete(id),
+    openMenu: (m, which, by, at) => {
+      if (which === "own") return p.onMenu(`m:${m.id}`, by, at);
+      const s = senderOf(m, o.me);
+      if (s) p.onMenu(`t:${s.key}`, by, at);
+    },
+    list: body,
+    section,
+  });
+  const roving = nav.roving;
+  const { said, setSaid } = nav;
+  const acts = useMemo<MessageActs>(
+    () => ({
+      onSave: (id, text) => live.current.change.onSave(id, text),
+      onCancel: (id) => live.current.change.onCancel(id),
+      onContext: nav.acts.onContext,
+      onSender: nav.acts.onSender,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- nav.acts never changes
+    [],
+  );
+  const byId = useMemo(() => new Map(t.messages.map((x) => [x.id, x])), [t.messages]);
+  const names = o.people.map((x) => x.name);
+  const namesKey = JSON.stringify(names);
+  // The same array until a name changes, so a row is not drawn again for a new overview.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `names` is read as its own text
+  const people = useMemo(() => names, [namesKey]);
   const lastNewest = useRef<string | null>(null);
   const lastOldest = useRef<string | null>(null);
   const lastToken = useRef<string | null>(null);
+  // Which thread this is, so what is remembered about one (its New line, what it announced) is not carried to another.
+  const threadKey =
+    p.channel?.thread ??
+    p.direct?.thread ??
+    (p.sel.kind === "channel" ? p.sel.id : `${p.sel.a}|${p.sel.b}`);
+  // The New line: the first message that was unread when the thread opened. It is decided once, on the first read of the thread that
+  // has loaded, because the thread is marked read right after and the overview's count then drops to zero.
+  const newLine = useRef<{ key: string; id: string | null; decided: boolean }>({
+    key: "",
+    id: null,
+    decided: false,
+  });
+  if (newLine.current.key !== threadKey)
+    newLine.current = { key: threadKey, id: null, decided: false };
+  if (!newLine.current.decided && t.loaded) {
+    const unreadNow = p.channel
+      ? p.channel.unread + p.channel.mentions
+      : p.direct
+        ? p.direct.unread + p.direct.mentions
+        : 0;
+    newLine.current.decided = true;
+    newLine.current.id =
+      unreadNow > 0 && unreadNow < t.messages.length
+        ? (t.messages[t.messages.length - unreadNow]?.id ?? null)
+        : null;
+  }
+  // The live region: a message that arrives while the thread is open is announced. The first read, the earlier pages a person asks for, a
+  // message they sent and a record line are not, so the list says "off" for the commit that draws them and "polite" again right after.
+  const sig = `${threadKey}|${t.loaded}|${t.messages.length}|${oldest}|${newest}|${t.reads.length}`;
+  const seen = useRef<{
+    sig: string;
+    key: string;
+    newest: string | null;
+    loaded: boolean;
+  } | null>(null);
+  const [, settle] = useState(0);
+  const was = seen.current;
+  let announce = false;
+  if (
+    was &&
+    was.key === threadKey &&
+    was.loaded &&
+    t.loaded &&
+    was.newest !== null &&
+    newest !== was.newest
+  ) {
+    const at = t.messages.findIndex((x) => x.id === was.newest);
+    announce =
+      at >= 0 && t.messages.slice(at + 1).some((x) => !mineOf(x, o.me));
+  }
+  // A commit that draws what is not announced holds the list "off" for a moment, so a render right behind it does not turn it back on early.
+  const hold = useRef(false);
+  const quiet = !announce && (hold.current || was?.sig !== sig);
+  useEffect(() => {
+    if (!quiet) return;
+    hold.current = true;
+    const id = setTimeout(() => {
+      hold.current = false;
+      settle((n) => n + 1);
+    }, QUIET_MS);
+    return () => clearTimeout(id);
+  }, [quiet, sig]);
+  useLayoutEffect(() => {
+    seen.current = { sig, key: threadKey, newest, loaded: t.loaded };
+  });
 
   useLayoutEffect(() => {
     const el = body.current;
@@ -194,8 +786,17 @@ export function ChatThread(p: ThreadProps) {
 
   const unreadable = t.error?.status === 403 && p.sel.kind === "dm";
   const dmHead = t.head;
-  const fresh = p.sel.kind === "dm" ? o.agents.find((x) => x.sessionId === (p.sel as { b: string }).b)?.name : undefined;
-  const title = p.channel ? p.channel.name : p.direct ? dmName(p.direct) : dmHead?.a && dmHead.b ? dmName({ a: dmHead.a, b: dmHead.b, cross: dmHead.cross }) : (fresh ?? "Direct message");
+  const fresh =
+    p.sel.kind === "dm"
+      ? o.agents.find((x) => x.sessionId === (p.sel as { b: string }).b)?.name
+      : undefined;
+  const title = p.channel
+    ? p.channel.name
+    : p.direct
+      ? dmName(p.direct)
+      : dmHead?.a && dmHead.b
+        ? dmName({ a: dmHead.a, b: dmHead.b, cross: dmHead.cross })
+        : (fresh ?? "Direct message");
   const back = (
     <button type="button" className="btn sm ch-back" onClick={p.onBack}>
       Back to the list
@@ -210,64 +811,213 @@ export function ChatThread(p: ThreadProps) {
           <h2 id="th-h">Direct message</h2>
         </div>
         <div className="ch-blank" data-testid="chat-unreadable">
-          <b>Only the person who owns this conversation and an Admin can read it.</b>
-          <p className="hint">Messages can hold source code and paths, so the text is not open to everyone who can see the console. {t.error?.text}</p>
+          <b>
+            Only the person who owns this conversation and an Admin can read it.
+          </b>
+          <p className="hint">
+            Messages can hold source code and paths, so the text is not open to
+            everyone who can see the console. {t.error?.text}
+          </p>
         </div>
       </section>
     );
   }
 
-  const parties: Party[] = p.direct ? [p.direct.a, p.direct.b] : dmHead?.a && dmHead.b ? [dmHead.a, dmHead.b] : [];
+  const parties: Party[] = p.direct
+    ? [p.direct.a, p.direct.b]
+    : dmHead?.a && dmHead.b
+      ? [dmHead.a, dmHead.b]
+      : [];
   const agents = parties.filter((x) => x.kind === "agent");
   const cross = (p.direct?.cross ?? dmHead?.cross) || null;
-  const ro = p.readAs !== null && !(p.sel.kind === "channel" && p.sel.id === "general");
+  // General and a public channel are readable by everyone, so an Admin reading someone's conversations has nothing to be told about in them (#1035).
+  const publicChannel = p.sel.kind === "channel" && p.sel.id !== "group";
+  const ro = p.readAs !== null && !publicChannel;
   const ownerName = dmHead?.owner ?? p.direct?.owner ?? p.readAs ?? o.me.name;
-  // A conversation between two agents has the viewer in it as the third person; one with the person has them as a party.
-  const person = parties.find((x) => x.kind === "person") ?? (ro ? ({ name: ownerName } as Party) : o.me.person ? ({ name: o.me.name } as Party) : undefined);
   const machines = [...new Set(agents.map((x) => x.machine))];
-  const tag = p.channel ? channelTag(p.channel) : p.direct ? dmTag(p.direct) : null;
+  const tag = p.channel
+    ? channelTag(p.channel)
+    : p.direct
+      ? dmTag(p.direct)
+      : null;
   const scope = ro
     ? cross && agents[0]
       ? `Only ${cross.person}, ${cross.owner} and an Admin can read this.`
       : p.sel.kind === "channel"
-      ? `Only ${p.readAs} and ${p.readAs}'s own orchestrators, subagents and forks can post here. You are reading it as an Admin.`
-      : `Only ${ownerName} and an Admin can read this.`
+        ? `Only ${p.readAs} and ${p.readAs}'s own orchestrators, subagents and forks can post here. You are reading it as an Admin.`
+        : `Only ${ownerName} and an Admin can read this.`
     : cross && agents[0]
       ? crossLine(cross, agents[0].name)
       : p.sel.kind === "channel"
-      ? p.sel.id === "general"
-        ? "Everyone signed in to this server can read and post here."
-        : "Only you and your own orchestrators, subagents and forks can read and post here."
-      : "Only you and an Admin can read this. The two agents and you are the only ones in it. It is removed when every agent session in it has ended.";
+        ? p.sel.id === "general"
+          ? "Everyone signed in to this server can read and post here."
+          : p.sel.id !== "group"
+            ? "Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour. A subagent does not post here; its orchestrator does."
+            : "Only you and your own orchestrators, subagents and forks can read and post here."
+        : "Only you and an Admin can read this. The two agents and you are the only ones in it. It is removed when every agent session in it has ended.";
   const trips = dmHead?.roundTrips ?? p.direct?.roundTrips;
   const total = t.total;
   const sub =
     p.sel.kind === "channel"
       ? p.sel.id === "general"
         ? "Everyone signed in to this server"
-        : ro
-        ? `${p.readAs}'s own orchestrators and subagents`
-        : `You and your ${plural(o.agents.length, "orchestrator")} and subagents`
+        : p.sel.id !== "group"
+          ? p.channel?.openedBy
+            ? `Opened by ${p.channel.openedBy}`
+            : null
+          : ro
+            ? `${p.readAs}'s own orchestrators and subagents`
+            : `You and your ${plural(o.agents.length, "orchestrator")} and subagents`
       : machines.join(" and ");
   // What an Admin did or is doing here: the people in the thread are told, and an Admin's pause shows to all.
-  const readers = ro ? [] : liveReaders(p.channel?.adminReading ?? p.direct?.adminReading, p.serverNow);
-  const pause = p.channel ? (p.channel.id === "group" && p.channel.paused ? adminPauseOf({ paused: true, pausedByAdmin: p.channel.pausedByAdmin }) : null) : adminPauseOf({ ...(p.direct ?? {}), ...(dmHead ? { paused: dmHead.paused || p.direct?.paused, pausedBy: dmHead.pausedBy ?? p.direct?.pausedBy, pausedByAdmin: dmHead.pausedByAdmin ?? p.direct?.pausedByAdmin } : {}), cross: dmHead?.cross ?? p.direct?.cross ?? null });
-  const also = cross ? (cross.viewerIs === "sender" ? cross.owner : cross.person) : null;
+  const readers = ro
+    ? []
+    : liveReaders(
+        p.channel?.adminReading ?? p.direct?.adminReading,
+        p.serverNow,
+      );
+  const pause = p.channel
+    ? p.channel.id === "group" && p.channel.paused
+      ? adminPauseOf({ paused: true, pausedByAdmin: p.channel.pausedByAdmin })
+      : null
+    : adminPauseOf({
+        ...(p.direct ?? {}),
+        ...(dmHead
+          ? {
+              paused: dmHead.paused || p.direct?.paused,
+              pausedBy: dmHead.pausedBy ?? p.direct?.pausedBy,
+              pausedByAdmin: dmHead.pausedByAdmin ?? p.direct?.pausedByAdmin,
+            }
+          : {}),
+        cross: dmHead?.cross ?? p.direct?.cross ?? null,
+      });
+  const also = cross
+    ? cross.viewerIs === "sender"
+      ? cross.owner
+      : cross.person
+    : null;
   // Where an author runs: the overview's agent when it lists it, else the console's session; null when neither does (an ended session).
-  const machineOf = (ref: string): string | null => o.agents.find((x) => x.sessionId === ref)?.machine ?? p.sessions[ref]?.machine?.name ?? null;
-  const items = recordsAmong(t.messages, t.reads, t.older !== null);
+  const machineOf = (ref: string): string | null =>
+    o.agents.find((x) => x.sessionId === ref)?.machine ??
+    p.sessions[ref]?.machine?.name ??
+    null;
+  // Who is in the conversation, for the introduction a thread with no messages shows; the viewer, or the person an Admin reads as, is always one of them.
+  const introWho = [
+    ...new Set([
+      ro ? ownerName : o.me.name,
+      ...(p.sel.kind === "dm"
+        ? parties.map((x) => x.name)
+        : p.sel.id === "group"
+          ? o.agents.slice(0, 3).map((x) => x.name)
+          : []),
+    ]),
+  ];
+  const rows = rowsOf(
+    recordsAmong(t.messages, t.reads, t.older !== null),
+    newLine.current.id,
+  );
+  const conts = continuesRun(
+    rows.map((r) =>
+      r.k === "msg"
+        ? { author: authorKey(r.m), at: r.m.at }
+        : { author: null, at: 0 },
+    ),
+  );
+
+  // The menu on a sender's avatar (#1235): Message everywhere, Mention where a channel is open, and nothing that sends while an Admin reads.
+  const senderOpts = { mention: p.sel.kind === "channel" && !ro, reading: ro };
+  const specOf = (s: Sender): MenuSpec => (s.person ? personMenu(s.name, senderOpts) : agentMenu(s.name, s.ref, agentState(p.sessions, s.ref, null, false), true, senderOpts));
+  const openKey = p.menu?.startsWith("t:") ? p.menu.slice(2) : null;
+  const openSender = openKey ? (t.messages.map((m) => senderOf(m, o.me)).find((s) => s?.key === openKey) ?? null) : null;
+  // The index of each message among the messages (a record, a day divider and the New line are not in the list's order).
+  let at = 0;
+  const msgAt = rows.map((r) => (r.k === "msg" ? at++ : -1));
+
+  // Who is in the thread (#1236): My group and a channel get an avatar stack and a panel; a Direct Message has two parties and neither.
+  const list =
+    p.sel.kind === "channel"
+      ? membersOf(o, p.sessions, {
+          group: p.sel.id === "group",
+          person: ro ? p.readAs : o.me.person ? o.me.name : null,
+          mine: !ro && o.me.person,
+        })
+      : null;
+  // A Direct Message names its parties with their avatars before the title: the two agents overlapped, a person and the agent, or one agent.
+  const dmAvatar =
+    p.sel.kind === "dm" && parties.length > 0 ? (
+      cross && agents[0] ? (
+        <ChatAvatarPair a={{ kind: "person", name: cross.person }} b={{ kind: "agent", name: agents[0].name }} />
+      ) : agents.length === 2 ? (
+        <ChatAvatarPair a={{ kind: "agent", name: agents[0]!.name }} b={{ kind: "agent", name: agents[1]!.name }} />
+      ) : agents[0] ? (
+        <ChatAvatar kind="agent" name={agents[0].name} size={28} family={p.sessions[agents[0].sessionId]?.modelFamily} state={agentState(p.sessions, agents[0].sessionId, agents[0].status, agents[0].live)} />
+      ) : null
+    ) : null;
+
+  const openKey2 = p.menu?.startsWith("m:") ? p.menu.slice(2) : null;
+  const openOwn = openKey2 ? (t.messages.find((m) => m.id === openKey2) ?? null) : null;
+  const rowOf = (m: ThreadMessage, cont: boolean, at: number) => {
+    const mine = mineOf(m, o.me);
+    const ref = agentRefOf(m, mine);
+    const session = ref === null ? undefined : p.sessions[ref];
+    const yours = mine && p.readAs === null;
+    return (
+      <Message
+        key={m.id}
+        m={m}
+        re={replyOf(m, byId)}
+        meId={o.me.id}
+        meName={o.me.name}
+        now={p.now}
+        paused={dmHead?.paused ?? p.direct?.paused ?? false}
+        owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name}
+        across={cross !== null}
+        heldBy={pause ? adminWho(pause.name) : undefined}
+        people={people}
+        machine={ref !== null && m.channel ? machineOf(m.channel.authorRef) : null}
+        agent={ref === null ? null : agentState(p.sessions, ref, null, false)}
+        family={session?.modelFamily ?? null}
+        model={session?.model ?? null}
+        cont={cont}
+        tab={roving.itemProps(at).tabIndex}
+        idx={at}
+        marked={yours && (p.menu === `m:${m.id}` || p.change.deleting === m.id)}
+        editing={yours && p.change.editing?.id === m.id ? p.change.editing : null}
+        menu={yours && hasMenu(m, o.me) && p.change.editing?.id !== m.id}
+        sender={senderOf(m, o.me) !== null}
+        acts={acts}
+      />
+    );
+  };
 
   return (
-    <section className="ch-thread" aria-labelledby="th-h" data-testid="chat-thread">
+    <>
+    <section
+      className="ch-thread"
+      aria-labelledby="th-h"
+      data-testid="chat-thread"
+      ref={section}
+      onKeyDown={nav.fromBox}
+    >
       {back}
       <div className="ch-head">
-        <h2 id="th-h" tabIndex={-1}>
-          <span className="nm">
-            <bdi>{title}</bdi>
-          </span>
-        </h2>
+        <div className="ch-head-top">
+          <h2 id="th-h" tabIndex={-1}>
+            {dmAvatar}
+            <span className="nm">
+              <bdi>{title}</bdi>
+            </span>
+            {p.channel?.link && (
+              <span className="ch-link" data-testid="chat-link-chip">
+                <ChLink />
+                {linkWords(p.channel.link)}
+              </span>
+            )}
+          </h2>
+          {list && <ChatMembersStack members={list.members} open={p.members} controls="ch-members" onToggle={() => p.onMembers(!p.members)} />}
+        </div>
         <div className="sub">
-          <span>{sub}</span>
+          {sub && <span>{sub}</span>}
           <span>{plural(total, "message")}</span>
           {tag && (
             <span className={`tag${tag.warn ? " warn" : ""}`}>
@@ -276,46 +1026,46 @@ export function ChatThread(p: ThreadProps) {
           )}
           <AdminTags readers={readers} pause={pause} />
         </div>
+        {p.channel?.kind === "public" && p.channel.description && (
+          <div className="ch-desc" data-testid="chat-desc">
+            {p.channel.description}
+          </div>
+        )}
         <div className="sub">
           <span>{scope}</span>
         </div>
-        {p.sel.kind === "dm" && trips && trips.cap > 0 && agents.length === 2 && (
-          <div className="sub">
-            <span>
-              Agents addressing each other: {trips.used} of {trips.cap} round trips. At {trips.cap}, {dmHead?.owner ?? p.direct?.owner ?? "its owner"} approves the next one, so agents cannot keep going on their own.
-            </span>
-          </div>
-        )}
-      </div>
-      {p.sel.kind === "dm" && parties.length > 0 && (
-        <div className="ch-who" aria-label="In this conversation">
-          {agents.map((a) => {
-            const kind = agentState(p.sessions, a.sessionId, a.status, a.live);
-            const key = `h:${a.sessionId}`;
-            return (
-              <span className="ch-chipwrap" key={key} onContextMenu={(e) => {
-                e.preventDefault();
-                p.onMenu(key, "context");
-              }}>
-                <button type="button" className="m" data-more={key} aria-haspopup="menu" aria-expanded={p.menu === key} title={`${a.name}, ${STATE_WORD[kind]}. Actions`} onClick={() => p.onMenu(p.menu === key ? null : key, "button")}>
-                  <StateIcon kind={kind} />
-                  <bdi>{a.name}</bdi>
-                </button>
-                {p.menu === key && <ChatMenu spec={agentMenu(a.name, a.sessionId, kind, false)} onPick={(act) => p.onPick(key, act)} onClose={p.onClose} />}
+        {p.sel.kind === "dm" &&
+          trips &&
+          trips.cap > 0 &&
+          agents.length === 2 && (
+            <div className="sub">
+              <span>
+                Agents addressing each other: {trips.used} of {trips.cap} round
+                trips. At {trips.cap},{" "}
+                {dmHead?.owner ?? p.direct?.owner ?? "its owner"} approves the
+                next one, so agents cannot keep going on their own.
               </span>
-            );
-          })}
-          {person && (
-            <span className="m">
-              <Monogram name={person.name} size="sm" />
-              <bdi>{person.name}</bdi> {person.name.toLowerCase() === o.me.name.toLowerCase() && <YouTag kind="person" />}
-            </span>
+            </div>
           )}
-        </div>
+      </div>
+      {ro && (
+        <ReadOnlyBanner
+          owner={cross ? cross.owner : ownerName}
+          also={cross ? cross.person : null}
+        />
       )}
-      {ro && <ReadOnlyBanner owner={cross ? cross.owner : ownerName} also={cross ? cross.person : null} />}
       <ReadingBanner readers={readers} also={also} now={p.now} />
-      {pause && <AdminPauseBanner name={pause.name} group={p.sel.kind === "channel"} you={ro && pause.name !== null && pause.name.toLowerCase() === (o.me.actor ?? o.me.name).toLowerCase()} />}
+      {pause && (
+        <AdminPauseBanner
+          name={pause.name}
+          group={p.sel.kind === "channel"}
+          you={
+            ro &&
+            pause.name !== null &&
+            pause.name.toLowerCase() === (o.me.actor ?? o.me.name).toLowerCase()
+          }
+        />
+      )}
       <div className="ch-alert">{p.alert}</div>
       <div
         className="ch-body"
@@ -328,15 +1078,18 @@ export function ChatThread(p: ThreadProps) {
           near.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
-        {t.error && !unreadable && (
+        {/* A 404 on a Direct Message is a conversation that is gone, which the message box says; it is not a read to try again (#1340, as ChatConversation does). Any other thread keeps the box. */}
+        {t.error && !unreadable && !(t.error.status === 404 && p.sel.kind === "dm") && (
           <div className="errbox" role="alert">
-            Could not load the messages: {t.error.text}. {t.messages.length ? "The ones below may be out of date. " : ""}It reads again when something changes.
+            Could not load the messages: {t.error.text}.{" "}
+            {t.messages.length ? "The ones below may be out of date. " : ""}It
+            reads again when something changes.
           </div>
         )}
-        {!t.loaded ? (
+        {p.concluded ? null : !t.loaded ? (
           <div className="hint">Loading…</div>
         ) : (
-          <>
+          <div className="ch-flow">
             <div className="ch-earlier">
               <span role="status">
                 Showing {t.messages.length} of {total}
@@ -355,20 +1108,68 @@ export function ChatThread(p: ThreadProps) {
                 </button>
               )}
             </div>
-            <ol className="feed" aria-label="Messages">
-              {t.messages.length === 0 && <li className="empty">No messages yet. Write the first one below.</li>}
-              {items.map((it) =>
-                it.rec ? (
-                  <RecordLine key={`rec-${it.rec.admin}-${it.rec.startedAt}-${it.rec.kind ?? "read"}`} r={it.rec} />
-                ) : (
-                  <Message key={it.m.id} m={it.m} all={t.messages} people={o.people.map((x) => x.name)} machineOf={machineOf} me={o.me.name} now={p.now} across={cross !== null} heldBy={pause ? adminWho(pause.name) : undefined} paused={dmHead?.paused ?? p.direct?.paused ?? false} owner={dmHead?.owner ?? p.direct?.owner ?? o.me.name} />
-                ),
-              )}
-            </ol>
-          </>
+            <div
+              role="log"
+              aria-label="Messages"
+              aria-live={quiet ? "off" : "polite"}
+              aria-relevant="additions"
+              aria-atomic="false"
+            >
+              <ol className="ch-msgs" {...nav.listProps}>
+                {rows.map((r, i) =>
+                  r.k === "rec" ? (
+                    <RecordLine
+                      key={`rec-${r.rec.admin}-${r.rec.startedAt}-${r.rec.kind ?? "read"}`}
+                      r={r.rec}
+                    />
+                  ) : r.k === "day" ? (
+                    <li key={`day-${r.at}`} className="ch-day">
+                      <span>{dayLabel(r.at, p.now)}</span>
+                    </li>
+                  ) : r.k === "new" ? (
+                    <li key="new" className="ch-newline">
+                      <span>New</span>
+                    </li>
+                  ) : (
+                    rowOf(r.m, conts[i]!, msgAt[i]!)
+                  ),
+                )}
+              </ol>
+            </div>
+            {t.messages.length === 0 && (
+              <ChatIntro who={introWho} title={title}>
+                {sub && p.sel.kind === "channel" ? `${sub}.` : scope}
+                {p.sel.kind === "channel" && !ro
+                  ? " Say something, or type @ to hand work to an agent."
+                  : ""}
+              </ChatIntro>
+            )}
+          </div>
         )}
       </div>
       {p.composer}
+      {openSender && <ChatMenu spec={specOf(openSender)} at={p.menuAt ?? undefined} onPick={(act) => p.onPick(p.menu!, act)} onClose={p.onClose} />}
+      {openOwn && <ChatMenu key={openOwn.id} spec={messageMenu(bodyOf(openOwn))} at={p.menuAt ?? undefined} onPick={(act) => p.onPick(p.menu!, act)} onClose={p.onClose} onBlocked={() => setSaid(whyNot(openOwn))} closeOnScroll />}
+      <span className="vh" role="status" aria-live="polite" data-testid="chat-msg-said">
+        {said}
+      </span>
     </section>
+    {list && p.members && (
+      <ChatMembersPanel
+        key={threadKey}
+        id="ch-members"
+        label={title}
+        members={list.members}
+        partial={list.partial}
+        menu={p.menu}
+        mention={senderOpts.mention}
+        reading={ro}
+        onMenu={p.onMenu}
+        onMenuClose={p.onClose}
+        onPick={p.onPick}
+        onClose={() => p.onMembers(false)}
+      />
+    )}
+    </>
   );
 }

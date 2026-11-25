@@ -16,6 +16,7 @@ secret is replaced with `[redacted]` before it is sent. Podium does not read who
 | An agent's whole task prompt and final answer | Only if you turn on the mod's `fullPrompts` option (off by default) |
 | What an agent is doing (recent tool calls and the text it writes, each cut to 300 characters) | Only if you turn on the mod's `activityFeed` option (off by default), and even then only while someone has that agent's panel open in the console, unless the server's Admin chooses to keep activity history, which stores it for every running agent until the Admin's period ends |
 | What a Bash command printed and whether it failed (up to 20,000 characters) | Only if you turn on the mod's `activityOutput` option (off by default) and the Admin turns on the Bash output switch, and only while someone has that command's row open. It needs `activityFeed` on too. The server keeps it in memory and never stores it |
+| A background shell's or monitor's whole command and what it printed (up to 20,000 characters each) | Only if you turn on the mod's `backgroundOutput` option (off by default) and the Admin turns on the Background shell output switch, and only while someone has the Background tab of that agent's Activity open. It needs `activityFeed` on too. Without it the tab lists each item's state and times, and the command's first word. The server keeps it in memory and never stores it; an Admin who reads it is recorded and you are told |
 | The diff of one changed file | Only if you turn on the mod's `fileDiff` option (off by default) and the Admin turns on the File diff switch, and only while the session's owner has its page open in the console (every changed file's diff is read for them, unless you set `fileDiffPreload` to false, which reads a file's diff only when they open it). It is source code with anything that looks like a secret replaced by `[redacted]` on your machine (best effort, not a guarantee; files such as `.env` and keys are never sent), shown to that one person and not kept by the server |
 | What a session waits on you for (a question with its options, a plan, or a tool's arguments) | Only if you set the mod's `respond` option (`off` by default) and the server takes answers. Only the session's owner and an Admin can see it, and the server keeps it in memory only |
 | Everything a session does, whole: prompts, tool inputs and results | Only if you turn on the mod's `sessionRecording` option (off by default), the Admin turns on Session recording, and the session's owner or an Admin chooses to record it. Secrets are replaced on your machine (best effort). Kept 6 hours by default, readable only by the owner and an Admin, and marked as recorded for everyone while it runs. See [REPLAY.md](../REPLAY.md) |
@@ -23,9 +24,9 @@ secret is replaced with `[redacted]` before it is sent. Podium does not read who
 | The model's thinking | Never |
 
 Once `userName` is set, each report carries that name, the machine's short host name and a random id the mod keeps for
-this machine. The mod keeps the host name it first read in `podium-machine-name` in the Claude config directory, next
+this machine. The mod keeps the host name it first read in `~/.podium/machine-name`, shared with the OpenCode reporter, and in `podium-machine-name` in the Claude config directory, next
 to the id, so one machine keeps one name when the network changes the name your system reports. If the name is wrong,
-delete that file and the next session reads it again. Everyone who can open the console sees them. Podium never reads your operating system user name or
+delete both files and the next session reads it again. Everyone who can open the console sees them. Podium never reads your operating system user name or
 `git config` for this.
 
 The name shown on a session comes from the token that sent it, not from `userName`. The server checks that the two match,

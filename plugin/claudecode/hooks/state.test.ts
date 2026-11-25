@@ -3,11 +3,11 @@ import { agentReport, buildReport } from './report.ts'
 import { timeBucket } from '../../core/protocol.ts'
 import { scriptedReport, scriptedState, T0 } from './scripted.ts'
 import { MAIN_LOOP } from '../../core/protocol.ts'
-import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, permissionAsked, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
+import { ACTIVITY_KEPT, AUTO_COMPACT_BLOWOUT_FILL, addActivity, agentRequested, agentSpawned, finishActivity, isWatched, isWatchedOutput, setWatched, setWatchedOutput, blowout, compaction, describeBackground, markTextSent, newSession, permissionAsked, permissionRequest, reconcile, resetForNewId, sessionEnd, setAttached, setBackground, setExplanation, step, toolResult, toolStarted, turnComplete } from './state.ts'
 
 // The key sets of docs/fixtures/report.sample.json, so a built Report has the shared fixture's shape.
 const REPORT_KEYS = ['adminNotices', 'agents', 'events', 'reporter', 'sentAt', 'session', 'v']
-const SESSION_KEYS = ['activityFeed', 'activityOutput', 'attached', 'blowouts', 'context', 'costUsd', 'cwd', 'effort', 'endReason', 'fileDiff', 'fileDiffPreload', 'files', 'git', 'id', 'loop', 'model', 'name', 'peers', 'plan', 'projectRoot', 'rateLimits', 'repoName', 'resumeId', 'resumeWindowDays', 'sessionRecording', 'startedAt', 'status', 'tokens', 'usageByModel', 'waitNote', 'waitReason']
+const SESSION_KEYS = ['activityFeed', 'activityOutput', 'attached', 'backgroundOutput', 'blowouts', 'context', 'costUsd', 'cwd', 'effort', 'endReason', 'fileDiff', 'fileDiffPreload', 'files', 'git', 'id', 'loop', 'model', 'name', 'peers', 'plan', 'projectRoot', 'rateLimits', 'repoName', 'resumeId', 'resumeWindowDays', 'sessionRecording', 'startedAt', 'status', 'tokens', 'usageByModel', 'waitNote', 'waitReason']
 const AGENT_KEYS = ['answerExcerpt', 'blowouts', 'context', 'costUsdEst', 'description', 'effort', 'effortSource', 'endedAt', 'failure', 'id', 'kind', 'lastTool', 'model', 'name', 'parentId', 'promptExcerpt', 'skills', 'startedAt', 'status', 'steps', 'tokens', 'toolCalls', 'toolCounts', 'toolStats', 'type', 'usageByModel']
 const FAILURE_KEYS = ['at', 'call', 'class', 'evidence', 'exitCode', 'explanation', 'outputTail', 'retriedAs', 'tool']
 const STEP_KEYS = ['activeText', 'id', 'ownerAgentId', 'ownerLabel', 'state', 'text']
@@ -237,6 +237,18 @@ describe('reducers', () => {
     expect(s.agents.g!.parentId).toBe('c')
   })
 
+  test("a permission wait a subagent raised ends when that subagent's own call ends, not only when the main loop acts (#1252)", () => {
+    let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
+    s = { ...s, mainIdle: true }
+    s = permissionRequest(s, 'Bash', { command: 'sleep 6' }, T0 + 1, 'a')
+    expect(s).toMatchObject({ status: 'waiting', waitReason: 'permission' })
+    // Another loop's call does not end it; the same subagent's call does, and the card goes back to running, not to a stale wait.
+    expect(toolStarted(s, 'other', 'Read', T0 + 2).waitReason).toBe('permission')
+    const after = toolResult(s, { agentId: 'a', tool: 'Bash', input: { command: 'sleep 6' }, result: {} }, T0 + 3)
+    expect(after.waitReason).toBeNull()
+    expect(after.status).toBe('running')
+  })
+
   test('a candidate is discarded when the loop answers', () => {
     let s = agentSpawned(base(), { toolUseId: 't', agentId: 'a', model: 'opus', subagentType: 'x', description: 'd', prompt: 'p', fork: false }, T0)
     s = toolResult(s, { agentId: 'a', tool: 'Bash', input: { command: 'false' }, result: { isError: true, text: 'Exit code 1' } }, T0 + 1)
@@ -271,6 +283,42 @@ describe('reducers', () => {
     s = reconcile(s, [{ id: 'y', description: 'done one', type: 'fork', status: 'running' }, { id: 'x', description: 'from list', type: 'Explore', status: 'killed' }], T0 + 1)
     expect(s.agents.y!.status).toBe('done')
     expect(s.agents.x!.status).toBe('aborted')
+  })
+
+  test('an agent whose stop was lost is cleared once the list has not named it for two minutes, and a listed one never is (#1262)', () => {
+    const lost = (id: string, parentAgentId?: string) => ({ toolUseId: `t-${id}`, agentId: id, model: 'opus', subagentType: 'general-purpose', description: id, prompt: 'p', fork: false, parentAgentId })
+    const listed = (id: string, status: string) => ({ id, description: id, type: 'general-purpose', status })
+    let s = base()
+    for (const id of ['gone', 'bg', 'back']) s = agentSpawned(s, lost(id), T0)
+    s = turnComplete({ ...s, mainIdle: false }, { reason: 'answer', answer: 'ok' }, T0 + 1)
+    expect(s.status).toBe('running')
+    // The engine lists a live background agent as waiting, and a finished one drops out of the list (seen live, #1262).
+    s = reconcile(s, [listed('bg', 'waiting'), listed('back', 'running')], T0 + 10)
+    // Not named for a while is not yet over.
+    s = reconcile(s, [listed('bg', 'waiting')], T0 + 60_000)
+    expect(s.agents.gone!.status).toBe('running')
+    // Named again at 100 s, `back` counts from the next time it is missing.
+    s = reconcile(s, [listed('bg', 'waiting'), listed('back', 'waiting')], T0 + 100_000)
+    s = reconcile(s, [listed('bg', 'waiting')], T0 + 130_000)
+    expect(s.agents.gone!.status).toBe('done')
+    expect(s.agents.gone!.endedAt).toBe(T0 + 130_000)
+    expect(s.agents.gone!.failure).toBeNull()
+    expect(s.events.filter((e) => e.kind === 'done' && e.agentId === 'gone')).toHaveLength(1)
+    expect(s.agents.back!.status).toBe('running')
+    expect(s.agents.bg!.status).toBe('running')
+    s = reconcile(s, [listed('bg', 'waiting')], T0 + 130_000 + 120_000)
+    expect(s.agents.back!.status).toBe('done')
+    expect(s.agents.bg!.status).toBe('running')
+    // Nothing is running here but the listed background agent, so the card is still running; once that is named done the session waits.
+    expect(s.status).toBe('running')
+    s = reconcile(s, [listed('bg', 'completed')], T0 + 300_000)
+    expect(s.status).toBe('waiting')
+  })
+
+  test('a teammate the list does not name is left alone (#1262)', () => {
+    let s = reconcile(base(), [{ id: 'm', description: 'm', type: 'teammate', status: 'idle' }], T0)
+    s = reconcile(s, [], T0 + 10 * 60_000)
+    expect(s.agents.m!.status).toBe('running')
   })
 
   test('session end aborts open agents; a new id starts clean but keeps where it runs', () => {

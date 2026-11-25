@@ -48,6 +48,14 @@ weighed at the median, and the script names it).
 On a run of the whole suite (no --spec after --) each database's specs, added over its shards, must equal the spec files on disk,
 or that database fails. The spec and test counts of each database are printed before the last line.
 
+While the runs go it prints one progress line a minute naming the runs still going, because each run's output is in its own log and the
+script prints nothing else until the last run ends (a CI step log would look stalled). E2E_HEARTBEAT=<seconds> changes the interval
+and 0 turns it off.
+
+It holds the machine's database lock (scripts/db-lock.sh) for the whole run: only one database test job (this, `npm run e2e:fast`,
+`scripts/e2e-up.sh run` or `npm run test:db`) runs at a time per user, and a second one waits its turn and says so. PODIUM_DB_LOCK=off
+skips the lock, PODIUM_DB_LOCK_TIMEOUT_S=N gives up (exit 3) after N seconds of waiting, and CI skips it.
+
 On INT or TERM it stops its runs (each run's own script removes its containers, network and volume when it exits).
 USAGE
 }
@@ -113,8 +121,14 @@ if [[ "$cpus" =~ ^[0-9]+$ ]] && ((runs > cpus)); then
   echo "e2e-all: warning: $runs runs at once on an engine with $cpus CPUs; each will be slower (see --help, Choosing --shards)"
 fi
 
-PIDS=() ; NAMES=() ; DBOF=()
-stop() { for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; }
+# One heavy database job at a time on this machine (#1284): the whole run holds the lock, and the e2e-up.sh runs below, started from
+# here, see that and do not wait for it.
+# shellcheck source=scripts/db-lock.sh
+source "$ROOT/scripts/db-lock.sh"
+db_lock_acquire "scripts/e2e-all.sh"
+
+PIDS=() ; NAMES=() ; DBOF=() ; HB_PID=""
+stop() { for p in ${PIDS[@]+"${PIDS[@]}"}; do kill "$p" 2>/dev/null; done; [[ -z "$HB_PID" ]] || kill "$HB_PID" 2>/dev/null; }
 trap 'stop; wait; exit 130' INT TERM
 
 # One build for every run: parallel runs building the same image tag at once only slow each other down. With --no-build it still
@@ -145,6 +159,29 @@ for db in $DBS; do
   done
 done
 
+# A progress line every E2E_HEARTBEAT seconds (default 60; 0 is off) naming the runs still going. It is a subshell, so it sees the run
+# ids as they are now; the sleep is waited on so a TERM ends it at once and leaves no sleep holding the output open.
+HB="${E2E_HEARTBEAT:-60}"
+if [[ "$HB" =~ ^[1-9][0-9]*$ ]]; then
+  (
+    sp=""
+    trap '[[ -z "$sp" ]] || kill "$sp" 2>/dev/null; exit 0' TERM
+    while :; do
+      sleep "$HB" & sp=$!
+      wait "$sp"
+      running=""
+      # A run that has ended stays a zombie (and answers kill -0) until the main loop waits on it, so it is not counted as running.
+      for i in "${!PIDS[@]}"; do
+        kill -0 "${PIDS[$i]}" 2>/dev/null || continue
+        [[ "$(ps -o stat= -p "${PIDS[$i]}" 2>/dev/null)" == Z* ]] || running+=" ${NAMES[$i]}"
+      done
+      [[ -n "$running" ]] || exit 0
+      echo "e2e-all: still running after $((SECONDS / 60))m$((SECONDS % 60))s:$running"
+    done
+  ) &
+  HB_PID=$!
+fi
+
 fail=0 ; setup=0 ; summary="" ; CODES=()
 for i in "${!PIDS[@]}"; do
   wait "${PIDS[$i]}"; code=$?
@@ -156,6 +193,8 @@ for i in "${!PIDS[@]}"; do
   echo "--- $name (exit $code), last lines of $OUT/$name.log:"
   tail -n 12 "$OUT/$name.log"
 done
+
+if [[ -n "$HB_PID" ]]; then kill "$HB_PID" 2>/dev/null; wait "$HB_PID" 2>/dev/null; fi
 
 # The counts of each database, added over its shards, and the check that every spec file ran once.
 for db in $DBS; do

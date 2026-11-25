@@ -18,7 +18,7 @@ import { withLock } from './lock.mjs';
 import { acceptRotation } from './rotation.mjs';
 import { reporterTarget } from './routes.mjs';
 
-export const UPSTREAM_TIMEOUT_MS = 30_000;
+const UPSTREAM_TIMEOUT_MS = 30_000;
 /** Request headers that describe the hop to the client, not the request itself. */
 export const HOP_HEADERS = new Set(['host', 'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer']);
 

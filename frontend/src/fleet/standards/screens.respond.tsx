@@ -9,7 +9,7 @@ import type { Ask, AskDetail, AskSummary, RespondMe, SessionView } from "../type
 import type { Screen } from "./screens";
 
 const T0 = 1_800_000_000_000;
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const ALL = ["question", "message", "plan-approve", "plan-feedback", "permission", "command"] as const;
 
 const QUESTION: Ask = {
@@ -36,7 +36,7 @@ const detailOf = (ask: Ask, over: Partial<AskDetail> = {}): AskDetail => ({ ask,
 const mine = { id: "dlv_1", askId: "toolu_q", by: "Ed", at: T0, kind: "question" as const, answers: [{ options: [0] }, null], mine: true, handedOver: true, result: null };
 
 function session(over: Partial<SessionView> = {}, ask: Ask | null = QUESTION, state: AskSummary["state"] = "open"): SessionView {
-  return makeSession({ id: "sess-ed", name: "claude-dashboard", status: "waiting", waitReason: "input", owner: "Ed", reporterVersion: "0.14.0", activityFeed: true, respond: { level: "everything", accepts: [...ALL], limits: [] }, asks: ask ? [summary(ask, state)] : [], lastSeenAt: T0, ...over });
+  return makeSession({ id: "sess-ed", name: "claude-dashboard", status: "waiting", waitReason: "input", owner: "Ed", ownerId: 1, reporterVersion: "0.14.0", activityFeed: true, respond: { level: "everything", accepts: [...ALL], limits: [] }, asks: ask ? [summary(ask, state)] : [], lastSeenAt: T0, ...over });
 }
 
 function fakeApi(me: RespondMe = ME, detail: AskDetail = detailOf(QUESTION)): RespondApi {
@@ -97,7 +97,7 @@ export const RESPOND_SCREENS: Record<string, Screen> = {
   "respond-closed": modal(session({ status: "running", waitReason: null }, QUESTION, "closed"), fakeApi(ME, detailOf(QUESTION, { state: "closed", closed: { outcome: "closed", at: T0, by: null, answer: null, planApproved: false } }))),
   "respond-stale": modal(session({ status: "stale" }, QUESTION, "pending"), fakeApi(ME, detailOf(QUESTION, { state: "pending", delivery: { ...mine, handedOver: false } }))),
   "respond-someone-else": modal(session({}, QUESTION, "pending"), fakeApi(ME, detailOf(QUESTION, { state: "pending", delivery: { ...mine, by: "Alex", mine: false, answers: [{ options: [1] }, null] } }))),
-  "respond-signed-out": modal(session(), fakeApi({ enabled: true, signedIn: false, name: null, admin: false })),
+  "respond-signed-out": modal(session(), fakeApi({ enabled: true, signedIn: false, name: null, id: null, admin: false })),
   "respond-off": modal(session(), fakeApi(), undefined, false),
   "respond-typeahead": modal(session({ asks: [], waitReason: null }, null), fakeApi(ME, detailOf(QUESTION)), async () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Message to claude-dashboard" }), { target: { value: "/" } });
@@ -114,7 +114,7 @@ export const RESPOND_SCREENS: Record<string, Screen> = {
     fireEvent.click(screen.getByRole("button", { name: /Send/ }));
     await flush();
   }),
-  "respond-signin-error": modal(session(), { ...fakeApi({ enabled: true, signedIn: false, name: null, admin: false }), signIn: async () => Promise.reject(new RespondError(401, { error: "wrong name or token" })) }, async () => {
+  "respond-signin-error": modal(session(), { ...fakeApi({ enabled: true, signedIn: false, name: null, id: null, admin: false }), signIn: async () => Promise.reject(new RespondError(401, { error: "wrong name or token" })) }, async () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Ed" } });
     fireEvent.change(screen.getByLabelText("Token"), { target: { value: "pdm_x" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));

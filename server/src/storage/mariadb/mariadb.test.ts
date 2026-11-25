@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { MAIN_LOOP } from '../../fleet/protocol.js';
 import { openStorage } from '../index.js';
 import { openMariaDbStorage } from './index.js';
@@ -145,43 +145,61 @@ describe.skipIf(!TEST_MARIADB)('the migration runner, stopped between statements
     for (const d of dbs) await d.drop();
   });
 
-  it('resumes a step that stopped part way and ends as a run that never stopped', async () => {
+  const run = async (td: TestDatabase, stopAt?: number): Promise<number> => {
+    const main = new MariaDbConn({ target: parseTarget(td.url), max: 2 });
+    const act = new MariaDbConn({ target: parseTarget(td.url), max: 2 });
+    let n = 0;
+    const before = () => {
+      if (n++ === stopAt) throw new Error('the runner died here');
+    };
+    try {
+      await migrate(main, MAIN_MIGRATIONS, MAIN_STEPS, before);
+      await migrate(act, ACTIVITY_MIGRATIONS, ACTIVITY_STEPS, before);
+      return n;
+    } finally {
+      await main.close();
+      await act.close();
+    }
+  };
+  // A run that never stopped is built once, and every stop point below is compared with it (#1202).
+  let total = 0;
+  let expected: Awaited<ReturnType<typeof readSchema>>;
+  beforeAll(async () => {
     const clean = await createTestDatabase();
     dbs.push(clean);
-    const run = async (td: TestDatabase, stopAt?: number): Promise<number> => {
-      const main = new MariaDbConn({ target: parseTarget(td.url), max: 2 });
-      const act = new MariaDbConn({ target: parseTarget(td.url), max: 2 });
-      let n = 0;
-      const before = () => {
-        if (n++ === stopAt) throw new Error('the runner died here');
-      };
-      try {
-        await migrate(main, MAIN_MIGRATIONS, MAIN_STEPS, before);
-        await migrate(act, ACTIVITY_MIGRATIONS, ACTIVITY_STEPS, before);
-        return n;
-      } finally {
-        await main.close();
-        await act.close();
-      }
-    };
-    const total = await run(clean);
-    const expected = await readSchema(clean.url, clean.name);
-    const seeded = (td: TestDatabase) => withConnection(td.url, async (c) => (await c.query<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM \"groups\" WHERE name_lower = 'administrators'"))[0]!.n);
-    // The first statement, one inside step 1, the last of step 1, the step-2 renumbering, a later step, the Activity step and the last statement.
-    const step1 = MAIN_STEPS[0]!.statements.length;
-    const stops = [...new Set([0, 1, Math.floor(step1 / 2), step1 - 1, step1, step1 + 1, step1 + 4, total - 8, total - 2, total - 1])].filter((x) => x >= 0 && x < total);
-    for (const stop of stops) {
-      const td = await createTestDatabase();
-      dbs.push(td);
-      await expect(run(td, stop), `stopped before statement ${stop}`).rejects.toThrow('the runner died here');
-      // Stopped again later in the same run, then left to finish: each start does the unfinished step again from its first statement.
-      await run(td, stop + 3).catch(() => undefined);
-      await run(td);
-      expect(await readSchema(td.url, td.name), `stopped before statement ${stop}`).toEqual(expected);
-      expect(Number(await seeded(td)), `the Administrators group once, stopped before statement ${stop}`).toBe(1);
-      const recorded = await withConnection(td.url, async (c) => (await c.query<{ v: bigint }[]>(`SELECT version AS v FROM ${MAIN_MIGRATIONS} ORDER BY version`)).map((r) => Number(r.v)));
-      expect(recorded).toEqual(MAIN_STEPS.map((s) => s.version));
-    }
+    total = await run(clean);
+    expected = await readSchema(clean.url, clean.name);
+  });
+  const seeded = (td: TestDatabase) => withConnection(td.url, async (c) => (await c.query<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM \"groups\" WHERE name_lower = 'administrators'"))[0]!.n);
+  const step1 = MAIN_STEPS[0]!.statements.length;
+  // Each stop point is its own test, with its own limit: the first statement, one inside step 1, the last of step 1, the step-2 renumbering, a later step, the Activity step and the last statement.
+  const stops: [string, (total: number) => number][] = [
+    ['the first statement', () => 0],
+    ['the second statement', () => 1],
+    ['the middle of step 1', () => Math.floor(step1 / 2)],
+    ['the last statement of step 1', () => step1 - 1],
+    ['the first statement of step 2', () => step1],
+    ['the second statement of step 2', () => step1 + 1],
+    ['a later statement of step 2', () => step1 + 4],
+    ['eight from the end', (t) => t - 8],
+    ['the second from the end', (t) => t - 2],
+    ['the last statement', (t) => t - 1],
+  ];
+  it.each(stops)('resumes a step that stopped before %s and ends as a run that never stopped', async (_label, at) => {
+    const stop = at(total);
+    // A migration list that shrank until a stop point fell outside it fails here, and is not skipped.
+    expect(stop, `${_label} is a statement of the migration list`).toBeGreaterThanOrEqual(0);
+    expect(stop).toBeLessThan(total);
+    const td = await createTestDatabase();
+    dbs.push(td);
+    await expect(run(td, stop), `stopped before statement ${stop}`).rejects.toThrow('the runner died here');
+    // Stopped again later in the same run, then left to finish: each start does the unfinished step again from its first statement.
+    await run(td, stop + 3).catch(() => undefined);
+    await run(td);
+    expect(await readSchema(td.url, td.name), `stopped before statement ${stop}`).toEqual(expected);
+    expect(Number(await seeded(td)), `the Administrators group once, stopped before statement ${stop}`).toBe(1);
+    const recorded = await withConnection(td.url, async (c) => (await c.query<{ v: bigint }[]>(`SELECT version AS v FROM ${MAIN_MIGRATIONS} ORDER BY version`)).map((r) => Number(r.v)));
+    expect(recorded).toEqual(MAIN_STEPS.map((s) => s.version));
   });
 
   it('numbers peer requests that already exist the same way when step 2 runs twice', async () => {

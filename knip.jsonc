@@ -1,0 +1,59 @@
+// Unused-code check (#1210): `npm run knip`, run in CI on every pull request.
+//
+// It works from entry points and reports what cannot be reached: an unused file, dependency or export. A test file is an entry,
+// so a symbol only a test uses counts as used (#1175). Nothing under dist/, dist-dev/ or .build-test/ is read, because knip
+// follows .gitignore.
+//
+// Keeping something on purpose: do not add a silent ignore. Add it below with the reason on the line above it, so the next
+// person knows why it stays. The usual answer to a finding is to delete the symbol, or to drop `export` from it.
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        // The OpenCode plugin and its TUI, which OpenCode loads by path.
+        "plugin/opencode/index.ts",
+        "plugin/opencode/tui.ts",
+        // The Claude Code hooks: the manifest in hooks.json names these by path, so no import reaches them.
+        "plugin/claudecode/hooks/{register,report}.ts",
+        // Run by path from the plugin root, never imported.
+        "plugin/core/tls/helper.mjs",
+        "plugin/**/*.test.ts",
+        "scripts/*.{ts,mjs}"
+      ],
+      "project": ["plugin/**/*.{ts,tsx,mjs}", "scripts/**/*.{ts,mjs}"],
+      "ignore": [
+        // Claude Code's own plugin API declarations, copied in by the engine and read by tsc, never imported.
+        "plugin/claudecode/types/**",
+        // Run by `vitest --config` from the build script's command line (test:mod:opencode), not imported.
+        "plugin/opencode/vitest.config.ts"
+      ],
+      "ignoreDependencies": [
+        // Supplied by the host at run time, so they are not in package.json: Claude Code ("claude-code", "claude-code/testing"),
+        // OpenCode ("@opencode/plugin", fetched by scripts/podium-opencode-typecheck.sh) and its TUI libraries.
+        "claude-code",
+        "@opencode/plugin",
+        "solid-js",
+        "@opentui/solid",
+        // The server's drivers, which scripts/throwaway-db.mjs loads for a throwaway database. They are the server workspace's
+        // dependencies, installed in the root node_modules.
+        "pg",
+        "mariadb"
+      ],
+      // openssl is the system's, which the TLS tests run to make certificates.
+      "ignoreBinaries": ["openssl", "tsx"]
+    },
+    "server": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "frontend": {
+      "entry": ["src/**/*.test.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Loaded by name through createRequire in src/setupTests.ts, so knip cannot see the use.
+        "scheduler"
+      ]
+    }
+  }
+}

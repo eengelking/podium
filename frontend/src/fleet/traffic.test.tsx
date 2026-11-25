@@ -3,6 +3,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
+import { PAGE_INFO } from "./pageInfo";
 import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
@@ -10,9 +11,9 @@ import type { PeerReporter, PeersRead } from "./peers";
 import type { PeerMessage, TrafficApi, TrafficEnd, TrafficLink, TrafficRead } from "./trafficData";
 import type { RespondMe } from "./types";
 
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
-const ANN_ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Ann", admin: true };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
+const ANN_ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Ann", id: 6, admin: true };
 const T0 = 2_000_000_000_000;
 
 const end = (sessionId: string, name: string, machine: string, reporterKey: string): TrafficEnd => ({ sessionId, name, machine, reporterKey });
@@ -26,6 +27,7 @@ const link = (a: TrafficEnd, b: TrafficEnd, over: Partial<TrafficLink> = {}): Tr
   a,
   b,
   owner: "Ed",
+  ownerId: 1,
   messages: 2,
   lastAt: T0 - 60_000,
   state: "active",
@@ -96,6 +98,7 @@ function fakeTraffic(start: TrafficLink[] = baseLinks()) {
 }
 
 const rep = (key: string, machine: string, os: string | null, peers: boolean | null = true): PeerReporter => ({
+  adminRespond: false,
   key,
   machine,
   owner: "Ed",
@@ -145,8 +148,8 @@ const flush = () =>
 function page(opts: { traffic?: ReturnType<typeof fakeTraffic>; me?: RespondMe; peersFlag?: boolean; on?: boolean; more?: ReturnType<typeof makeSession>[]; rights?: PeersRead["rights"] } = {}) {
   const traffic = opts.traffic ?? fakeTraffic();
   const sessions = [
-    makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-    makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
+    makeSession({ id: "s-dev", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+    makeSession({ id: "s-arm", name: "arm64-check", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "build-pi", id: "m3", os: "Debian 12, arm64" } }),
     ...(opts.more ?? []),
   ];
   const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
@@ -529,14 +532,26 @@ describe("for anyone but the owner", () => {
     expect(traffic.api.conversation).not.toHaveBeenCalled();
   });
 
+  it("gives a newcomer who took the owner's name no text and no Pause or Remove: the link's owner id is another (#1284)", async () => {
+    const NEWCOMER: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 9, admin: false };
+    const { traffic } = page({ me: NEWCOMER });
+    await flush();
+    const p = panel();
+    expect(p.querySelector(".offnote")).toHaveTextContent("Only Ed and an Admin can read this conversation.");
+    expect(within(p).queryByRole("list")).toBeNull();
+    expect(within(p).queryByRole("button", { name: "Pause link" })).toBeNull();
+    expect(within(p).queryByRole("button", { name: "Remove link…" })).toBeNull();
+    expect(traffic.api.conversation).not.toHaveBeenCalled();
+  });
+
   it("names a machine's system from another live session on it, once the conversation's own sessions have ended", async () => {
     // The reporter key is the machine id, or `<machine id>#<owner>` for a second account on that machine.
     const OLD = end("s-old", "old-run", "lab-box", "m9");
     const GONE = end("s-gone", "gone-run", "ann-box", "m8#Ed");
     const traffic = fakeTraffic([link(OLD, GONE)]);
     const more = [
-      makeSession({ id: "s-other", name: "other", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "lab-box", id: "m9", os: "Fedora 41" } }),
-      makeSession({ id: "s-ann", name: "ann", status: "running", lastSeenAt: T0, owner: "Ann", machine: { name: "ann-box", id: "m8", os: "FreeBSD 14" } }),
+      makeSession({ id: "s-other", name: "other", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "lab-box", id: "m9", os: "Fedora 41" } }),
+      makeSession({ id: "s-ann", name: "ann", status: "running", lastSeenAt: T0, owner: "Ann", ownerId: 6, machine: { name: "ann-box", id: "m8", os: "FreeBSD 14" } }),
     ];
     page({ me: OUT, traffic, more });
     await flush();
@@ -786,13 +801,11 @@ describe("the empty, off and error cases", () => {
     expect(line(/^claude-dashboard and Tester/)).toBeInTheDocument();
   });
 
-  it("names the people in the lead", async () => {
-    page({ traffic: fakeTraffic([link(DEV, TESTER), link(ARM, NOTES, { owner: "Ann" })]) });
+  it("says what the page is for once, in the banner, and not again in the page body (#1209)", async () => {
+    page({ traffic: fakeTraffic([link(DEV, TESTER), link(ARM, NOTES, { owner: "Ann", ownerId: 6 })]) });
     await flush();
-    expect(screen.getByText("Messages between each person's own orchestrators, on every machine that reports here.")).toBeInTheDocument();
-    cleanup();
-    page();
-    await flush();
-    expect(screen.getByText("Messages between Ed's orchestrators, on every machine that reports here.")).toBeInTheDocument();
+    expect(screen.getAllByText(PAGE_INFO.traffic.description)).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 1, name: "Traffic" })).toHaveClass("vh");
+    expect(document.querySelector(".apage .page-h")).toBeNull();
   });
 });

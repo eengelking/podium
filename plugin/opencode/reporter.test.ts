@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Runner } from '../core/git.ts';
 import type { Report } from '../core/protocol.ts';
-import type { FetchLike } from '../core/transport.ts';
+import { REPORT_TIMEOUT_MS, type FetchLike } from '../core/transport.ts';
 import { optionsOf } from './options.ts';
 import { buildReport } from './report.ts';
 import { DEFAULTS, Reporter } from './reporter.ts';
@@ -112,6 +112,62 @@ describe('state: status', () => {
     expect(root.compacting).toBe(false);
     expect(root.compactions).toBe(2);
     expect(root.events.map((e) => e.text)).toContain('compaction failed');
+  });
+});
+
+describe('state: a child session whose end was never reported (#1262)', () => {
+  const meta = { now: 1, version: VERSION, engineVersion: null, hostSurface: null };
+  const open = () =>
+    store(
+      ev('session.created', { sessionID: ROOT }, 1000),
+      ev('session.execution.started', { sessionID: ROOT }, 1001),
+      ev('session.execution.succeeded', { sessionID: ROOT }, 1002),
+      ev('session.created', { sessionID: KID, parentID: ROOT }, 1003),
+      ev('session.execution.started', { sessionID: KID }, 1004),
+      step(KID, 1005, 'general'),
+    );
+
+  it('stops holding the card at running after ten quiet minutes, and the card waits', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    expect(buildReport(root, [], meta).session.status).toBe('running');
+    sweep(s, 1005 + 10 * 60_000 - 1, 60_000, true);
+    expect(root.sessions.get(KID)!.executing).toBe(true);
+    // A TUI is attached (hold), and the child is still swept: hold keeps only a quiet root from ending.
+    expect(sweep(s, 1005 + 10 * 60_000, 60_000, true)).toEqual([]);
+    expect(root.sessions.get(KID)).toMatchObject({ executing: false, end: 'done', endedAt: 1005 + 10 * 60_000 });
+    expect(buildReport(root, [], meta).session.status).toBe('waiting');
+    expect(root.done).toBe(false);
+    expect(root.events.filter((e) => e.kind === 'done' && e.agentId === KID)).toHaveLength(1);
+  });
+
+  it('is not swept while a tool call or a background shell of its own is open', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    apply(s, ev('session.tool.input.started', { sessionID: KID, id: 'c1', name: 'bash' }, 1006), 1006);
+    apply(s, ev('session.tool.called', { sessionID: KID, id: 'c1', input: { command: 'sleep 3000' } }, 1007), 1007);
+    sweep(s, 1007 + 60 * 60_000, 60_000);
+    expect(root.sessions.get(KID)!.executing).toBe(true);
+  });
+
+  it('is not swept while a permission or question of its own is open, even with no call open', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    root.asks.set('ask1', { id: 'ask1', kind: 'permission', sessionId: KID, openedAt: 1006, note: 'bash' });
+    sweep(s, 1006 + 60 * 60_000, 60_000);
+    expect(root.sessions.get(KID)!.executing).toBe(true);
+    root.asks.delete('ask1');
+    sweep(s, 1006 + 60 * 60_000, 60_000);
+    expect(root.sessions.get(KID)!.executing).toBe(false);
+  });
+
+  it('runs again when it shows more work after the sweep', () => {
+    const s = open();
+    const root = s.roots.get(ROOT)!;
+    sweep(s, 1005 + 10 * 60_000, 60_000);
+    apply(s, step(KID, 1005 + 11 * 60_000, 'general'), 1005 + 11 * 60_000);
+    expect(root.sessions.get(KID)).toMatchObject({ executing: true, end: 'running', endedAt: null });
+    expect(buildReport(root, [], meta).session.status).toBe('running');
   });
 });
 
@@ -239,6 +295,14 @@ describe('state: failures and plan', () => {
     expect(buildReport(root, [], meta).session.name).toBe(ROOT);
     apply(s, ev('session.renamed', { sessionID: ROOT, title: 'My task' }, 3), 3);
     expect(buildReport(root, [], meta).session.name).toBe('My task');
+  });
+
+  it('never reports a session id as `[redacted]` when it is the name (#1352)', () => {
+    // A real OpenCode id is `ses_` and 26 mixed letters and digits; the free-text redactor reads that as a secret. An id is not free text.
+    const REAL = 'ses_1f3a9c2b7ffeQw8Zr5Lk0Tn4Vx';
+    const s = store(ev('session.created', { sessionID: REAL }, 1));
+    const meta = { now: 3, version: VERSION, engineVersion: null, hostSurface: null };
+    expect(buildReport(s.roots.get(REAL)!, [], meta).session.name).toBe(REAL);
   });
 
   it('uses the sessionName option when OpenCode has given the session no name, and the name OpenCode gave wins over it (#969)', () => {
@@ -416,8 +480,7 @@ describe('Reporter', () => {
           dirs.push(cwd);
           const cmd = argv.join(' ');
           await new Promise((res) => setTimeout(res, 5));
-          if (cmd.includes('--abbrev-ref')) return { exitCode: 0, stdout: 'feature/x\n' };
-          if (cmd.includes('--git-dir') || cmd.includes('--git-common-dir')) return { exitCode: 0, stdout: '.git\n' };
+          if (cmd.includes('--abbrev-ref')) return { exitCode: 0, stdout: `.git\n.git\n/work/project\n${'d'.repeat(40)}\nfeature/x\n` };
           if (cmd.includes('--show-toplevel')) return { exitCode: 0, stdout: '/work/project\n' };
           if (cmd.includes('status')) return { exitCode: 0, stdout: '## feature/x...origin/feature/x [ahead 2]\n M a.ts\n' };
           return { exitCode: 1, stdout: '' };
@@ -473,6 +536,29 @@ describe('Reporter', () => {
     const started = Date.now();
     await r.close(30);
     expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('gives up on a report the server never answers, backs off, and sends the next one (#757)', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      const { r, t } = reporter(() => (++calls === 1 ? new Promise(() => undefined) : Promise.resolve(okReply)));
+      r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+      const first = r.tick();
+      await vi.advanceTimersByTimeAsync(REPORT_TIMEOUT_MS + 1);
+      await first;
+      expect(calls).toBe(1);
+      const transport = [...r.transports.values()][0]!;
+      expect(transport.inFlight).toBe(false);
+      expect(transport.failures).toBe(1);
+      expect(transport.lastError).toContain('timed out');
+      t.now += 1000; // the first backoff step
+      await r.tick();
+      expect(calls).toBe(2);
+      expect(transport.online).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('skips the final send for a root that is backing off', async () => {
@@ -1232,6 +1318,37 @@ describe('Reporter: /podium name (#987)', () => {
     expect(bodies.at(-1)!.session.name).toBe('Silverbolt');
     expect(r.rename('ses_nobody', 'x')).toBeNull();
   });
+  it('keeps the title OpenCode gives a root, and not a child\'s, so a resume can show it (#1352)', () => {
+    const saved: [string, string][] = [];
+    const r = new Reporter({ fetch: collect([]), now: () => 10_000, runIn: () => noGit, log: () => undefined, saveTitle: (id, title) => void saved.push([id, title]) }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    start(r);
+    r.handle(ev('session.created', { sessionID: KID, parentID: ROOT, title: 'child' }, 10_001));
+    r.handle(ev('session.renamed', { sessionID: ROOT, title: 'Renamed' }, 10_002));
+    expect(saved).toEqual([[ROOT, 'OpenCode title'], [ROOT, 'Renamed']]);
+  });
+  it('a resumed root, which OpenCode sends no title for, reports the title it had; a title sent since and a typed name win (#1352)', async () => {
+    const bodies: Report[] = [];
+    const make = (loadTitle: () => Promise<string | null>) => new Reporter({ fetch: collect(bodies), now: () => 10_000, runIn: () => noGit, log: () => undefined, loadTitle }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 60_000 });
+    const settle = async (r: Reporter) => { await new Promise((res) => setTimeout(res, 0)); await r.tick(); };
+    // No title event: the session starts at its first step, as a resumed one does.
+    const resumed = make(async () => 'Greeting');
+    resumed.handle(step(ROOT, 10_000));
+    await settle(resumed);
+    expect(bodies.at(-1)!.session.name).toBe('Greeting');
+    const sent = make(async () => 'Greeting');
+    sent.handle(ev('session.renamed', { sessionID: ROOT, title: 'Newer' }, 10_000));
+    await settle(sent);
+    expect(bodies.at(-1)!.session.name).toBe('Newer');
+    const typed = make(async () => 'Greeting');
+    typed.handle(step(ROOT, 10_000));
+    typed.rename(ROOT, 'Typed');
+    await settle(typed);
+    expect(bodies.at(-1)!.session.name).toBe('Typed');
+    const none = make(async () => { throw new Error('no storage'); });
+    none.handle(step(ROOT, 10_000));
+    await settle(none);
+    expect(bodies.at(-1)!.session.name).toBe(ROOT);
+  });
   it('asks once for a name kept before a reload, and a name typed since wins over it', async () => {
     const asked: string[] = [];
     const bodies: Report[] = [];
@@ -1264,6 +1381,38 @@ describe('report: the resume window (#1113)', () => {
     expect(buildReport(s.roots.get(ROOT)!, [], { now: 9, version: VERSION, engineVersion: null, hostSurface: null }).session.resumeWindowDays).toBe(30)
   })
 })
+
+describe('Reporter: a large session that only counted is held (#752)', () => {
+  it('holds counters-only reports until the hold, sends a status change at once, and never holds the last report', async () => {
+    const bodies: Report[] = [];
+    const t = { now: 10_000 };
+    const r = new Reporter({ fetch: async (_u, init) => { bodies.push(JSON.parse(init.body!) as Report); return okReply; }, now: () => t.now, runIn: () => noGit, log: () => undefined }, { ...optionsOf({}, null, { PODIUM_SERVER: 'http://podium.test', PODIUM_TOKEN: 'tok' }), idleMs: 600_000 });
+    r.handle(ev('session.created', { sessionID: ROOT }, 10_000));
+    for (let i = 0; i < 60; i++) r.handle(ev('session.created', { sessionID: `ses_kid${i}`, parentID: ROOT, title: `child ${i} ${'x'.repeat(600)}`, agent: 'general' }, 10_000));
+    await r.tick();
+    expect(JSON.stringify(bodies.at(-1)).length).toBeGreaterThan(32 * 1024);
+    // the launch placeholder (#1112) reports on its own and ends; only the real session's reports are counted
+    const mine = () => bodies.filter((b) => b.session.id === ROOT).length;
+    const first = mine();
+
+    // counters only: the tick builds the report and holds it, and it is still owed
+    r.handle(usage(ROOT, 0.5, 5000, t.now + 1));
+    t.now += 1000;
+    await r.tick();
+    expect(mine()).toBe(first);
+    t.now += 4000;
+    await r.tick();
+    expect(mine()).toBe(first + 1);
+
+    // the session ending is not a counter, and a close sends the last report whatever the hold
+    r.handle(usage(ROOT, 0.9, 9000, t.now + 1));
+    t.now += 1000;
+    await r.tick();
+    expect(mine()).toBe(first + 1);
+    await r.close();
+    expect(mine()).toBe(first + 2);
+  });
+});
 
 describe('Reporter: the launch announce (#1112)', () => {
   const bodies = (): { list: Report[]; fetch: FetchLike } => {

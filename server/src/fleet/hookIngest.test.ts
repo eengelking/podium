@@ -239,6 +239,15 @@ describe('POST /api/fleet/hook', () => {
     expect(await fleet.view(session_id)).toBeFalsy();
   });
 
+  it('stores a session id of 70,000 characters cut to 200, under the same id every time (#1177)', async () => {
+    const { app, fleet } = await setup();
+    const session_id = 'y'.repeat(70_000);
+    const r = await request(app).post('/api/fleet/hook').send({ ...P.start, session_id });
+    expect(r.status).toBe(200);
+    expect(await fleet.view('y'.repeat(200))).toBeTruthy();
+    expect(await fleet.view(session_id)).toBeFalsy();
+  });
+
   it('a Stop that lists only a finished task is still a wait on the person', async () => {
     const { app, fleet, tick } = await setup();
     for (const p of [P.start, P.prompt, { ...P.stop, background_tasks: [{ id: 'b1', type: 'shell', status: 'completed', description: 'done' }] }]) {

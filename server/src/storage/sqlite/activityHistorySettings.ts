@@ -4,10 +4,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
   ACTIVITY_HISTORY_DEFAULTS,
-  ACTIVITY_HISTORY_POLICIES,
-  ACTIVITY_HISTORY_RANGES,
-  ACTIVITY_HISTORY_UNITS,
-  ACTIVITY_UNIT_MS,
   type ActivityHistoryPolicy,
   type ActivityHistorySettings,
   type ActivityHistoryUnit,

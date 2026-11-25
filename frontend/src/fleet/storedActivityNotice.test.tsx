@@ -14,8 +14,8 @@ import type { ActivityReply, FetchActivity, FetchHistory } from "./useActivityFe
 
 const NOW = 1_791_648_000_000;
 const CFG: LifecycleConfig = { staleAfterMs: 15_000, dropAfterMs: 60_000, lingerMs: 8_000, detachedHideAfterMs: 60_000 };
-const DANA: RespondMe = { enabled: true, signedIn: true, name: "Dana", admin: false };
-const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
+const DANA: RespondMe = { enabled: true, signedIn: true, name: "Dana", id: 4, admin: false };
+const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Root", id: 7, admin: true };
 
 const flush = () =>
   act(async () => {
@@ -81,7 +81,7 @@ describe("the notice under the status band", () => {
   it("shows nothing to the Admin who reads, to another person, or on a session nobody owns", async () => {
     for (const [me, owner] of [
       [ROOT, "Dana"],
-      [{ ...DANA, name: "Alex" }, "Dana"],
+      [{ ...DANA, name: "Alex", id: 5 }, "Dana"],
       [ROOT, "Admin"],
       [DANA, null],
     ] as const) {
@@ -94,7 +94,7 @@ describe("the notice under the status band", () => {
 
 describe("the ping of an Admin's open stored Activity", () => {
   const note: ActivityHistoryNote = { policy: "all", total: 3, since: NOW - 100_000, keptUntil: null, canRead: true, owner: "Dana" };
-  const reply: ActivityReply = { entries: [], since: NOW, live: true, enabled: true, serverTime: NOW, history: note };
+  const reply: ActivityReply = { entries: [], background: [], since: NOW, live: true, enabled: true, serverTime: NOW, history: note };
   const page: ActivityHistoryPage = { entries: [{ seq: 1, at: NOW - 1000, kind: "tool", text: "Edit a" }], olderBefore: null, total: 3, since: NOW - 100_000, keptUntil: null };
 
   async function feed(me: RespondMe, owner: string, canRead = true) {

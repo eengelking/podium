@@ -16,7 +16,7 @@ describe('direct messages and channel messages stay apart', () => {
       expect(chat).toContain('group_messages');
       expect(chat).not.toMatch(/peer_messages|peer_requests|PeerMessages/);
       for (const f of [`${adapter}/peerMessages.ts`, `${adapter}/peerService.ts`, `${adapter}/peers.ts`]) {
-        expect(read(f), f).not.toMatch(/group_messages|public_messages|chat_read_state/);
+        expect(read(f), f).not.toMatch(/group_messages|public_messages|public_channels|chat_read_state/);
       }
     });
   }

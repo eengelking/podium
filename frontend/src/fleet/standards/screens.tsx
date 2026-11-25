@@ -1,6 +1,5 @@
 // The screens the standards samples are cut from (#354). Each one renders the real app with fixture data, and a sample picks
 // out one part of it with a CSS selector. So a sample is the app's own markup, never a copy that can drift.
-import { fireEvent } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { FleetView } from "../FleetApp";
 import { FocusView } from "../components/FocusView";
@@ -9,6 +8,7 @@ import { stateFrom } from "../testState";
 import type { Failure, LifecycleConfig, SessionView } from "../types";
 import { ADMIN_SCREENS } from "./screens.admin";
 import { APP_SCREENS } from "./screens.app";
+import { BACKGROUND_SCREENS } from "./screens.background";
 import { CHAT_SCREENS } from "./screens.chat";
 import { MESSAGING_SCREENS } from "./screens.messaging";
 import { RESPOND_SCREENS } from "./screens.respond";
@@ -98,9 +98,8 @@ export const SCREENS: Record<string, Screen> = {
   ...MESSAGING_SCREENS,
   ...RESPOND_SCREENS,
   ...APP_SCREENS,
+  ...BACKGROUND_SCREENS,
   ...CHAT_SCREENS,
   ...STATE_SCREENS,
   ...RECORDING_SCREENS,
 };
-
-export { fireEvent };

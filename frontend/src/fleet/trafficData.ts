@@ -4,7 +4,6 @@
 // This file holds the reads, the words the page uses for a link and a message, and the map's layout, so each can be
 // tested without drawing. (Not traffic.ts: on a case-insensitive disk it would be the same file as Traffic.tsx.)
 import { call } from "./respondApi";
-import { ADMIN } from "./people";
 import { PEER_DROP_WORDS } from "../../../plugin/core/protocol";
 
 /** One end of a conversation: an orchestrator, and the reporter (machine) it runs on. */
@@ -23,6 +22,8 @@ export interface TrafficLink {
   a: TrafficEnd;
   b: TrafficEnd;
   owner: string;
+  /** The owner's person id: who owns the link. `owner` is display text. Null when the owner is gone; absent from an older server. */
+  ownerId?: number | null;
   messages: number;
   lastAt: number;
   state: LinkState;
@@ -49,7 +50,7 @@ export function keptWords(days: number | undefined): string {
   return days === 1 ? "for 1 day" : `for ${days} days`;
 }
 
-export type MessageState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";
+type MessageState = "approval" | "ready" | "handed" | "queued" | "delivered" | "declined" | "dropped";
 
 /** One message of a conversation, with its text, for its owner or an Admin. */
 export interface PeerMessage {
@@ -201,21 +202,23 @@ export function cut(s: string, n: number): string {
 }
 
 /** Whether the viewer may read a conversation's text: its owner, or an Admin. The server checks it again. */
-export function canRead(viewer: { signedIn: boolean; name: string | null; admin: boolean } | null, owner: string): boolean {
+export function canRead(viewer: { signedIn: boolean; id?: number | null; admin: boolean } | null, ownerId: number | null | undefined): boolean {
   if (!viewer?.signedIn) return false;
-  return viewer.admin || (viewer.name ?? "").toLowerCase() === owner.toLowerCase();
+  return viewer.admin || isOwner(viewer, ownerId);
 }
 
-/** Whether the viewer may pause or remove a link here: only its owner, signed in with their own name. */
-export function canManage(viewer: { signedIn: boolean; name: string | null } | null, owner: string): boolean {
-  if (!viewer?.signedIn || !viewer.name) return false;
-  const me = viewer.name.toLowerCase();
-  return me !== ADMIN.toLowerCase() && me === owner.toLowerCase();
+/** Whether the viewer is the person whose id the link records: ids only, since a newcomer may take a deleted person's name. A link with no owner id (its owner is gone) is nobody's. */
+const isOwner = (viewer: { id?: number | null }, ownerId: number | null | undefined): boolean => typeof viewer.id === "number" && typeof ownerId === "number" && viewer.id === ownerId;
+
+/** Whether the viewer may pause or remove a link here: only its owner, signed in as themselves (the admin secret has no person id, so it never does). */
+export function canManage(viewer: { signedIn: boolean; id?: number | null } | null, ownerId: number | null | undefined): boolean {
+  if (!viewer?.signedIn) return false;
+  return isOwner(viewer, ownerId);
 }
 
 // ---- The map's layout ---------------------------------------------------------------------------------------------
 
-export const MAP_W = 900;
+const MAP_W = 900;
 const COL_X = [30, 600] as const;
 const BOX_W = 270;
 const TOP = 30;
@@ -226,7 +229,7 @@ const BOX_GAP = 40;
 export const NODE_R = 22;
 const PILL_H = 22;
 
-export interface MapMachine {
+interface MapMachine {
   key: string;
   name: string;
   x: number;
@@ -235,7 +238,7 @@ export interface MapMachine {
   h: number;
 }
 
-export interface MapNode {
+interface MapNode {
   sessionId: string;
   name: string;
   machine: string;
@@ -243,7 +246,7 @@ export interface MapNode {
   y: number;
 }
 
-export interface MapEdge {
+interface MapEdge {
   id: string;
   link: TrafficLink;
   /** The path from a to b, so an arrow at its end points at b. */

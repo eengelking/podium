@@ -23,7 +23,7 @@ export const ENGINES = ['podman', 'docker'];
 export const PASSTHROUGH = [
   'STALE_AFTER_MS', 'HOOK_STALE_AFTER_MS', 'DROP_AFTER_MS', 'LINGER_MS', 'DETACHED_HIDE_AFTER_MS',
   'RETAIN_SAMPLES_MS', 'RETAIN_EVENTS_MS', 'RETAIN_SESSIONS_MS', 'RETAIN_ADMIN_LOG_MS', 'RETAIN_ROLLUP_MS',
-  'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY', 'PODIUM_FAILURE_LIMIT',
+  'TZ', 'PODIUM_ALLOWED_HOSTS', 'PODIUM_TRUST_PROXY', 'PODIUM_FAILURE_LIMIT', 'PODIUM_COMPRESSION',
   'PODIUM_LOG_LEVEL', 'PODIUM_LOG_FORMAT', 'PODIUM_LOG_SHIP_URL', 'PODIUM_LOG_SHIP_HEADERS', 'PODIUM_LOG_SHIP_BUFFER',
 ];
 /**
@@ -116,6 +116,8 @@ are shared by everyone and the session cookies are not marked Secure):
   PODIUM_FAILURE_LIMIT  Failed requests (a response of 400 or more) one address may make a minute before its requests get 429
                         until the minute is over. Default 300; a whole number of at least 1. Behind a proxy that is not named in
                         PODIUM_TRUST_PROXY every client shares one address, so raise it. Then podiumctl restart
+  PODIUM_COMPRESSION    on (default) or off. On, GET /api/fleet/state is gzipped for a client that sends Accept-Encoding: gzip;
+                        the event stream is never compressed. Turn it off if a proxy mishandles the encoding. Then podiumctl restart
 
 Logging (server output; \`podiumctl logs\` shows it):
   PODIUM_LOG_LEVEL         debug, info (default), warn or error. debug adds one line per HTTP request
@@ -255,7 +257,8 @@ export function containerRunArgs(cfg, envNames, tlsDir) {
     '-v', `${VOLUME}:/data`,
     ...(cfg.tls ? ['-v', `${tlsDir}:/data/tls${cfg.engine === 'podman' ? ':U' : ''}`] : []),
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-    '--health-cmd', `node -e "fetch('http://127.0.0.1:${INNER_PORT}/api/fleet/state').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"`,
+    // /api/health, not the fleet state route: that route builds every session's view (1.39 MB and about 13 ms at 50 sessions) every 30 s for a yes/no answer (#767).
+    '--health-cmd', `node -e "fetch('http://127.0.0.1:${INNER_PORT}/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"`,
     '--health-interval', '30s',
     ...envNames.flatMap((n) => ['-e', n]),
     IMAGE,
@@ -395,9 +398,12 @@ const dashUrl = (cfg) => `http://${callHost(cfg.bind)}:${cfg.port}`;
 
 async function healthy(cfg, timeoutMs = 2000) {
   try {
-    // Only the address the server was told to bind: a wildcard is called on 127.0.0.1, and a bind that is neither an IP address nor a plain host name is refused (CodeQL js/file-access-to-http).
-    if (!net.isIP(cfg.bind.replace(/^\[|\]$/g, '')) && !/^[A-Za-z0-9.-]+$/.test(cfg.bind)) return false;
-    const r = await fetch(`${dashUrl(cfg)}/api/fleet/state`, { signal: AbortSignal.timeout(timeoutMs) });
+    // Only the address the server was told to bind: a wildcard is called on 127.0.0.1, and a host that is neither a bracketed or plain IP address nor a plain host name is refused. The value checked is the value the URL is built from (CodeQL js/file-access-to-http).
+    const host = callHost(cfg.bind);
+    if (!/^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)$/.test(host)) return false;
+    const port = Number(cfg.port);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+    const r = await fetch(`http://${host}:${port}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
     return r.ok;
   } catch { return false; }
 }

@@ -1,7 +1,7 @@
 // The Podium fleet console: top bar, the orchestrator rail, the wall or one orchestrator's page, and
 // the activity / agent panel. Data comes from useFleet; everything here is presentation state.
 import { SessionReadsProvider } from "./sessionReads";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./fleet.css";
 import { mixedHarnesses } from "./harness";
 import { idleOnBackground } from "./waiting";
@@ -9,7 +9,9 @@ import { filterSessions, defaultAgentDir, sortSessions, splitDetached, type Agen
 import { PAGE } from "./components/ActivityList";
 import type { AgentSort } from "./components/AgentTree";
 import { FocusView } from "./components/FocusView";
-import { WallOptions } from "./components/WallOptions";
+import { PageBanner } from "./components/PageBanner";
+import { ChatRules } from "./components/ChatRules";
+import { PAGE_INFO, myReportersDescription, type PageKey } from "./pageInfo";
 import { Rail, type Split } from "./components/Rail";
 import { ResizeHandle } from "./components/ResizeHandle";
 import { SidePanel } from "./components/SidePanel";
@@ -19,9 +21,10 @@ import { TopBarTab } from "./components/TopBarTab";
 import { Legend } from "./components/Legend";
 import { Wall } from "./components/Wall";
 import { Board } from "./components/Board";
-import { NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/NoticeStack";
+import { CONCLUDED_PREFIX, NoticeClosed, UPDATE_NOTICE_ID, type NoticeItem } from "./components/NoticeStack";
+import { useConcluded } from "./useConcluded";
 import { closeNotice, closeUpdateNotice, removeSession, setShowBackgroundSessions, useFleet, type UseFleetOptions } from "./useFleet";
-import { useNow } from "./useNow";
+import { useDayNow, useNow } from "./useNow";
 import { useHeldState } from "./useHeldState";
 import { isUrgentChange, useUpdateEvery } from "./updateInterval";
 import { useResizable } from "./useResizable";
@@ -34,7 +37,7 @@ import { useHeartbeat } from "./useHeartbeat";
 import { usePanes } from "./usePanes";
 import { usePeoplePrefs } from "./usePeoplePrefs";
 import { usePins } from "./usePins";
-import { ADMIN, buildUnits, filterByPeople, machineLabels, meKey, NO_FILTER, orderUnits, peopleActive, type GroupBy, type PeopleFilter, type Unit } from "./people";
+import { ADMIN, buildUnits, filterByPeople, machineLabels, meFilter, NO_FILTER, orderUnits, peopleActive, type GroupBy, type MeRef, type PeopleFilter, type Unit } from "./people";
 import type { WallPeople } from "./components/Wall";
 import type { RailPeople } from "./components/Rail";
 import { APP_NAME, type ActivityView } from "./types";
@@ -46,17 +49,20 @@ import { useMyPeers } from "./useMyPeers";
 import { MyReportersPage } from "./MyReporters";
 import { MyUsagePage } from "./MyUsage";
 import type { ReportsClient } from "./admin/reportsApi";
+import { LazyBoundary } from "../LazyBoundary";
 import { chatWith, fleetHash, openIn, replayIn } from "../route";
-import { ReplayPage } from "./components/ReplayPage";
 import { TrafficPage } from "./Traffic";
 import { trafficApi, type TrafficApi } from "./trafficData";
 import { ChatPage } from "./Chat";
 import { chatApi, type ChatApi } from "./chatData";
 import { RespondModal } from "./components/Respond";
 import { ActivityOutputFlag } from "./components/BashRow";
+import { BackgroundOutputFlag } from "./components/BackgroundList";
 import type { SessionView } from "./types";
 import { useStoppedFeatures } from "./stoppedFeatures";
 
+// The replay page is a separate script, fetched the first time a recording is opened (#754): most viewers never open one.
+const ReplayPage = lazy(() => import("./components/ReplayPage").then((m) => ({ default: m.ReplayPage })));
 
 const ENTER_MS = 1000;
 
@@ -147,6 +153,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
   const respondFlags = props.state.features.respond === true && props.state.features["activity-feed"] !== false;
   return (
     <ActivityOutputFlag.Provider value={props.state.features["activity-output"] === true}>
+    <BackgroundOutputFlag.Provider value={props.state.features["background-output"] === true}>
       <RespondProvider flagsOn={respondFlags} diffOn={props.state.features["file-diff"] === true} historyOn={props.state.features["activity-history"] === true} recordingOn={props.state.features["session-recording"] === true} peersOn={props.state.features["peer-messaging"] === true} myUsageOn={props.state.features["my-usage"] === true} api={props.respondApi}>
         <SessionReadsProvider rev={props.state.readsRev}>
         <ReplayReadsProvider rev={props.state.replayRev}>
@@ -167,6 +174,7 @@ export const FleetView = memo(function FleetView(props: FleetViewProps) {
         </ReplayReadsProvider>
         </SessionReadsProvider>
       </RespondProvider>
+    </BackgroundOutputFlag.Provider>
     </ActivityOutputFlag.Provider>
   );
 });
@@ -206,7 +214,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const sorted = useMemo(() => sortSessions(all, sort), [all, sort]);
   const showDetached = state.wall.showBackgroundSessions;
   /** The notice just closed, for the confirmation; `until` is the release an update notice was closed for. */
-  const [closed, setClosed] = useState<{ name: string; until?: string } | null>(null);
+  const [closed, setClosed] = useState<{ name: string; until?: string; once?: boolean } | null>(null);
   /** The pointer or focus is on the confirmation, so its timer waits. */
   const [held, setHeld] = useState(false);
   const sets = splitDetached(sorted, now, showDetached);
@@ -217,15 +225,19 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const active = peopleActive(live);
   // Who "me" is comes from the browser's sign-in (#245): a signed-in person, never Admin. Signed out there is no "me".
   const signedIn = useRespond()?.me;
-  const me = signedIn?.signedIn && signedIn.name && signedIn.name.toLowerCase() !== ADMIN.toLowerCase() ? signedIn.name : null;
+  // The id decides which sessions are mine (#1284); the admin secret has none.
+  const me: MeRef | null = signedIn?.signedIn && signedIn.name && typeof signedIn.id === "number" && signedIn.name.toLowerCase() !== ADMIN.toLowerCase() ? { id: signedIn.id, name: signedIn.name } : null;
   // My reporters (#415): read while orchestrator messaging is on and a person is signed in, so the top bar can say how many
   // requests wait; often while the page is open. The admin secret has no reporters of its own.
   const peersOn = state.features["peer-messaging"] === true;
   const peers = useMyPeers(peersApiProp ?? peersApi, peersOn && me !== null, myReporters, state.chatRev);
+  // Direct Messages concluded because an agent in them ended (#1283): a notice each on the wall, read again whenever the console's chat signal moves.
+  // The Chat page draws from the same list, so it is read here once for both (#1311). It is also read for a signed-in Admin with no person of their own on Chat, as the page did.
+  const concluded = useConcluded(chatApiProp ?? chatApi, peersOn && (me !== null || (chat && signedIn?.signedIn === true)), state.chatRev);
+  const chatNow = useDayNow(now);
   // A remembered Me means nothing without a sign-in, so the wall is grouped by People until someone signs in.
   const groupBy: GroupBy = people.prefs.groupBy === "me" && !me ? "people" : people.prefs.groupBy;
-  const myKey = active ? meKey(sorted, me) : null;
-  const peopleFilter: PeopleFilter = groupBy === "me" && myKey ? { person: myKey, group: null } : pf;
+  const peopleFilter: PeopleFilter = groupBy === "me" && me && active ? meFilter(me) : pf;
   const peopleShown = active ? filterByPeople(sets.shown, peopleFilter) : sets.shown;
   const shown = filterSessions(peopleShown, filter);
   const split: Split = {
@@ -252,6 +264,9 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   const selSession = sel && Object.hasOwn(state.sessions, sel) ? state.sessions[sel] : null;
   const selGone = sel && Object.hasOwn(state.gone, sel) ? state.gone[sel] : null;
   const selected = showsOrchestrator ? selSession : null;
+  // The page's name (the chip) and description (the banner) come from one place (#1209).
+  const pageKey: PageKey = myReporters ? "myReporters" : myUsage ? "myUsage" : traffic ? "traffic" : chat ? "chat" : board ? "board" : selected ? "orchestrator" : "fleet";
+  const info = PAGE_INFO[pageKey];
 
   // One page, many routes: the title says which one is on screen (#636). History and Admin set their own.
   const pageTitle = board ? `${APP_NAME} board` : myReporters ? `${APP_NAME} my reporters` : myUsage ? `${APP_NAME} my usage` : traffic ? `${APP_NAME} traffic` : chat ? `${APP_NAME} chat` : replaying && sel ? `Replay of ${selSession?.name ?? sel} - ${APP_NAME}` : selected ? `${selected.name} - ${APP_NAME}` : APP_NAME;
@@ -378,6 +393,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
   };
   const selectSession = (id: string | null) => open(id);
   const onCloseNotice = (n: NoticeItem) => {
+    // A concluded Direct Message is dismissed on its own; the kind is switched off in Admin > Settings (#1283).
+    if (n.id.startsWith(CONCLUDED_PREFIX)) {
+      void concluded.dismiss(n.id.slice(CONCLUDED_PREFIX.length)).then((why) => (why === null ? setClosed({ name: n.name, once: true }) : setNotice(`Could not close the notice: ${why}. Try again.`)));
+      return;
+    }
     const version = n.id === UPDATE_NOTICE_ID ? state.wall.update?.latest : undefined;
     (version ? closeUpdateNotice(version) : closeNotice(n.id))
       .then(() => setClosed({ name: n.name, until: version }))
@@ -495,7 +515,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
       )}
       <div className="app">
         <TopBar
-          page={myReporters ? "My reporters" : myUsage ? "My usage" : traffic ? "Traffic" : chat ? "Chat" : board ? "Board" : selected ? "Orchestrator" : "Fleet"}
+          page={info.name}
           myReporters={peersOn && me !== null ? { count: peers.data ? peers.data.requests.length : null, current: myReporters } : undefined}
           chat={peersOn ? { current: chat } : undefined}
           phase={state.phase}
@@ -522,32 +542,12 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
             <b>Cannot reach the Podium server.</b> Start it with <code>npm run dev</code> (or <code>npm run dev -w server</code>); this page connects by itself.
           </div>
         ) : panes.collapsed.top ? null : (
-          <div className="banner has-picker" role="region" aria-label="Display settings">
-            <span>
-              {myReporters ? (
-                <>
-                  <b>My reporters.</b> Your own machines, and which of them may message each other.
-                </>
-              ) : myUsage ? (
-                <>
-                  <b>My usage.</b> Your own spend, sessions and failures. Cost is an estimate from token counts and a price table, not a bill.
-                </>
-              ) : traffic ? (
-                <>
-                  <b>Traffic.</b> Which orchestrators message each other, and what they said.
-                </>
-              ) : chat ? (
-                <>
-                  <b>Chat.</b> Talk with your orchestrators and subagents, and read what they say to each other.
-                </>
-              ) : (
-                <>
-                  <b>Live fleet.</b> Cost is an estimate from token counts and a price table, not a bill.
-                </>
-              )}
-            </span>
-            <WallOptions theme={theme} shortcuts={shortcuts} onShortcuts={setShortcuts} every={updateEvery} onEvery={onUpdateEvery} />
-          </div>
+          <PageBanner
+            name={info.name}
+            description={myReporters ? myReportersDescription((peers.data?.reporters.length ?? 0) > 0) : info.description}
+            wall={{ theme, shortcuts, onShortcuts: setShortcuts, every: updateEvery, onEvery: onUpdateEvery }}
+            more={chat && peersOn && signedIn?.signedIn ? { label: "Chat privacy and controls", tip: "Click to learn about chat privacy and controls", children: <ChatRules /> } : undefined}
+          />
         )}
         {traffic ? (
           <TrafficPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} peers={peers} api={trafficApiProp ?? trafficApi} now={now} />
@@ -574,7 +574,7 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
           <PaneEdgeTab side="left" collapsed={panes.collapsed.left} onToggle={() => toggle("left")} shortcuts={shortcuts} />
           <div className="mid">
             {chat ? (
-              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={now} openWith={chatWith(window.location.hash)} />
+              <ChatPage me={signedIn ?? null} peersOn={peersOn} sessions={state.sessions} rev={state.chatRev} api={chatApiProp ?? chatApi} now={chatNow} concluded={concluded} openWith={chatWith(window.location.hash)} />
             ) : myUsage ? (
               <MyUsagePage me={signedIn ?? null} on={state.phase === "loading" ? null : state.features["my-usage"] === true} client={usageClientProp} />
             ) : myReporters ? (
@@ -593,7 +593,11 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                 ) : board ? (
                   <Board sessions={peopleShown} narrowed={peopleShown.length < sorted.length} kpis={state.kpis} me={me} onOpen={selectSession} />
                 ) : replaying && sel ? (
-                  <ReplayPage key={sel} id={sel} session={selSession} now={now} />
+                  <LazyBoundary key={sel}>
+                    <Suspense fallback={<div className="none" role="status">Loading…</div>}>
+                      <ReplayPage id={sel} session={selSession} now={now} />
+                    </Suspense>
+                  </LazyBoundary>
                 ) : selected ? (
                   <FocusView
                     s={selected}
@@ -637,12 +641,13 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
                     }}
                     noticeOn={(id) => state.wall.notices[id] !== false}
                     onCloseNotice={onCloseNotice}
+                    concluded={concluded.items}
                     update={state.wall.update}
                     runningVersion={state.server?.version ?? null}
                     people={wallPeople}
                   />
                 )}
-                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
+                {closed !== null && <NoticeClosed name={closed.name} until={closed.until} once={closed.once} onDismiss={() => { setClosed(null); setHeld(false); }} onHold={setHeld} />}
               </main>
             )}
             {/* My reporters and My usage show no legend (#446, #726). */}
@@ -674,5 +679,3 @@ function FleetViewBody({ state, updateEvery = 2, onUpdateEvery, board = false, m
     </div>
   );
 }
-
-export default FleetApp;

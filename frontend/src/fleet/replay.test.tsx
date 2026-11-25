@@ -12,7 +12,7 @@ import type { RecordingGrant, RecordingPage, RecordingRow, RespondMe } from "./t
 
 const at = (h: number, m: number, s = 0) => new Date(2026, 9, 20, h, m, s).getTime();
 const NOW = at(12, 0);
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 
 const grant = (over: Partial<RecordingGrant> = {}): RecordingGrant => ({
   state: "stopped",
@@ -50,7 +50,7 @@ const LOOPS = [
   { loop: "p", name: "a-very-long-agent-name-that-has-to-be-cut-in-a-row", recorded: true },
 ];
 
-const pageOf = (over: Partial<RecordingPage> = {}): RecordingPage => ({ entries: rows(), olderBefore: null, total: 10, grant: grant(), loops: LOOPS, owner: "Ed", ...over });
+const pageOf = (over: Partial<RecordingPage> = {}): RecordingPage => ({ entries: rows(), olderBefore: null, total: 10, grant: grant(), loops: LOOPS, owner: "Ed", ownerId: 1, ...over });
 
 function fakeApi(over: Partial<RespondApi> = {}) {
   return {
@@ -97,7 +97,7 @@ const feed = (c: HTMLElement) => c.querySelector<HTMLOListElement>("ol.feed")!;
 const lis = (c: HTMLElement) => [...feed(c).querySelectorAll<HTMLElement>(":scope > li")];
 
 describe("an Admin's open replay of someone else's session (#1075)", () => {
-  const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Root", admin: true };
+  const ADMIN: RespondMe = { enabled: true, signedIn: true, name: "Root", id: 7, admin: true };
 
   it("pings the server every 15 seconds so the owner's notice stays, and stops when the page closes", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
@@ -141,7 +141,7 @@ describe("an Admin's open replay of someone else's session (#1075)", () => {
   it("sends nothing for the owner's own replay or for a person who is not an Admin", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
     const recordingReading = vi.fn(async () => ({ ok: true as const }));
-    for (const me of [{ ...ADMIN, name: "Ed" }, ME]) {
+    for (const me of [{ ...ADMIN, name: "Ed", id: 1 }, ME]) {
       const api = fakeApi({ me: vi.fn(async () => me), recordingReading });
       const { unmount } = await replay(api);
       await act(async () => {
@@ -149,6 +149,68 @@ describe("an Admin's open replay of someone else's session (#1075)", () => {
       });
       unmount();
     }
+    expect(recordingReading).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
+describe("who owns the replay is decided by person id, not by name (#1291)", () => {
+  it("still pings for an Admin who shares the owner's name but has another id", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const same: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 7, admin: true };
+    await replay(fakeApi({ me: vi.fn(async () => same), recordingReading }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_100);
+    });
+    expect(recordingReading).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+
+  it("pings for a same-named newcomer (another id) who opens an earlier person's recording, and not for the real owner", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const api = (id: number) => fakeApi({ me: vi.fn(async () => ({ enabled: true, signedIn: true, name: "Ed", id, admin: true })), recordingReading });
+    const newcomer = await replay(api(9));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_100);
+    });
+    expect(recordingReading).toHaveBeenCalledTimes(1);
+    newcomer.unmount();
+    recordingReading.mockClear();
+    const owner = await replay(api(1));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(recordingReading).not.toHaveBeenCalled();
+    owner.unmount();
+    vi.useRealTimers();
+  });
+
+  it("sends nothing when the recording's owner has no id (an old server, the admin secret's, or a person since deleted): the server has no one to tell either", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const me: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 7, admin: true };
+    await replay(fakeApi({ me: vi.fn(async () => me), recordingReading, recordingPage: vi.fn(async () => pageOf({ ownerId: null })) as never }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
+    expect(recordingReading).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+});
+
+describe("an older server's page, with no ownerId key at all (#1291)", () => {
+  it("sends nothing, the same as a null owner id", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout"] });
+    const recordingReading = vi.fn(async () => ({ ok: true as const }));
+    const me: RespondMe = { enabled: true, signedIn: true, name: "Root", id: 7, admin: true };
+    const old = pageOf();
+    delete old.ownerId;
+    await replay(fakeApi({ me: vi.fn(async () => me), recordingReading, recordingPage: vi.fn(async () => old) as never }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(31_000);
+    });
     expect(recordingReading).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -456,7 +518,7 @@ describe("when it cannot be shown", () => {
   it("opens the recording once a viewer who was asked to sign in does, without a reload, and asks for it just once", async () => {
     let signedIn = false;
     const api = fakeApi({
-      me: vi.fn(async () => ({ enabled: true, signedIn, name: signedIn ? "Ed" : null, admin: false })),
+      me: vi.fn(async () => ({ enabled: true, signedIn, name: signedIn ? "Ed" : null, id: signedIn ? 1 : null, admin: false })),
       signIn: vi.fn(async () => { signedIn = true; return { ok: true as const, name: "Ed", admin: false }; }),
       recordingPage: vi.fn(async () => { if (!signedIn) throw new RespondError(401, {}); return pageOf(); }) as never,
     });
@@ -601,7 +663,7 @@ describe("a session that is not in the fleet", () => {
 });
 
 describe("the replay at its address in the console", () => {
-  const live = makeSession({ id: "s1", name: "api-refactor", owner: "Ed", recording: makeRecording() });
+  const live = makeSession({ id: "s1", name: "api-refactor", owner: "Ed", ownerId: 1, recording: makeRecording() });
   const view = (api: RespondApi, sessions = [live]) => <FleetView state={stateFrom({ sessions, features: { "activity-feed": true, "session-recording": true } })} respondApi={api} />;
 
   it("opens the replay in place of the orchestrator's page, even for a session the fleet no longer holds", async () => {

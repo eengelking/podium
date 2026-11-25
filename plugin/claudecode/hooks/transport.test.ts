@@ -263,6 +263,24 @@ describe('transport', () => {
     expect(t.nextAttemptAt).toBeLessThan(120_000 + 60_000)
   })
 
+  test('a server that never answers costs one timeout, then the backoff, and the next report is sent (#757)', async () => {
+    let calls = 0
+    const fetch: FetchLike = () => {
+      calls++
+      return calls === 1 ? new Promise<HttpResult>(() => undefined) : Promise.resolve(ok())
+    }
+    const t = new Transport(fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0', timeoutMs: 20 })
+    t.enqueue([ev(1)])
+    expect(await t.send(build, 0)).toBe('failed')
+    expect(t.inFlight).toBe(false)
+    expect(t.queue).toHaveLength(1) // kept, not acked
+    expect(t.lastError).toContain('timed out')
+    expect(t.nextAttemptAt).toBe(BACKOFF_MS[0])
+    expect(t.due(BACKOFF_MS[0]!, false)).toBe(true)
+    expect(await t.send(build, BACKOFF_MS[0]!)).toBe('ok')
+    expect(t.queue).toHaveLength(0)
+  })
+
   test('a 409 (the session belongs to someone else) is a rejection, not an outage', async () => {
     const f = fake([{ status: 409, ok: false, text: '{"ok":false,"error":"that session belongs to someone else"}' }])
     const t = new Transport(f.fetch, { serverUrl: 'http://127.0.0.1', token: '', heartbeatMs: 5000, version: '0.11.0' })

@@ -27,6 +27,10 @@ These settings apply to every browser and stay after a restart.
   Activity feed to see what the command printed and how it exited. It needs the Agent activity feed on, and the
   `activityOutput` option on the machine as well. The output is held in memory while the panel is open and is never
   stored. Off, no output is captured or sent.
+- **Background shell output in the activity modal** (`background-output`) is off by default. On, a person can open a background shell or monitor in the
+  Activity modal's Background tab to see its whole command and what it printed. It needs the Agent activity feed on, and the `backgroundOutput` option on the
+  machine as well. The output is held in memory while the tab is open and is never stored. An Admin who reads another person's items is recorded and
+  that person is told. Off, the tab still lists each item's state and times, and no command or output is captured or sent.
 - **File diff** (`file-diff`) is off by default. On, only the owner of a session, signed in, can click a file in
   the Files list to read its diff in a window, and step to the next or previous file with the buttons at the window's lower left. The diff is source code: the mod reads it from the machine only if that machine's `fileDiff` option is on. With the
   `fileDiffPreload` option also on (the default), it reads the diff of every changed file while the owner has the session's page
@@ -87,7 +91,8 @@ was saved and which value still applies.
 **Wall notices.** The notes Podium shows at the bottom of the wall each have a switch here, and the X on a note turns its
 switch off for everyone. After you close one, Podium says so and links to this page. The update notice is the exception:
 its X hides the release it names for everyone and the notice comes back when a newer release is published, so its switch
-is **Release check** under Feature flags.
+is **Release check** under Feature flags. The **Concluded direct messages** note (#1283) is the other one: it appears once for each conversation that was deleted because an agent in it ended, for the people in it only, its X
+dismisses just that note, and its switch here turns the whole kind off.
 
 **Background sessions.** **Show background sessions on the wall** keeps sessions nobody is attached to in view. It is off
 by default.

@@ -12,7 +12,7 @@ import { createLogger } from '../logging/logger.js';
 import { createAdminRouter } from '../admin/adminRouter.js';
 import { Lockout } from './lockout.js';
 import { createRespondBridge } from './respondBridge.js';
-import type { Report } from './protocol.js';
+import { ENDED_NOTICE_MARK, type Report } from './protocol.js';
 import { fixtureReport } from './testing.js';
 import { ACTIVITY_FEED, PEER_MESSAGING, RESPOND } from '../storage/features.js';
 import { AdminNotices } from './chatAdminNotices.js';
@@ -107,6 +107,16 @@ const deliveriesFor = async (s: S, who: 'tester' | 'dev') => {
   const r = who === 'tester' ? await tester(s) : await dev(s);
   return (r.body.deliveries ?? []) as { id: string; kind: string; text?: string }[];
 };
+/** Long enough that a session that stopped reporting is stale and then dropped, whichever stale limit it has (a hook-only one waits longest). */
+const LOST_HEARTBEAT_MS = DEFAULT_CONFIG.hookStaleAfterMs + DEFAULT_CONFIG.dropAfterMs + 1000;
+/**
+ * Every session that has not reported lately loses its heartbeat and is dropped. A lost heartbeat may be undone by a report, so a conversation is only hidden by it and
+ * can return; a session that finished is concluded for good instead (#1283).
+ */
+async function loseHeartbeat(s: S) {
+  s.tick(LOST_HEARTBEAT_MS);
+  await s.fleet.sweep();
+}
 /** Both agents linked by a right, so there is a conversation to add to. */
 async function linkedConversation(w: W) {
   const set = await w.edB.put('/api/fleet/respond/peers/rights').set(H).send({ from: MAC.id, to: LINUX.id, level: 'send' });
@@ -128,10 +138,10 @@ describe('the gate and the overview', () => {
   it('lists General and My group, the agents and the settings, with zero counts', async () => {
     const s = await world();
     const res = await s.edB.get(CH);
-    expect(res.body).toMatchObject({ enabled: true, me: { name: 'Ed', admin: false }, settings: { maxChars: 4000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false } });
+    expect(res.body).toMatchObject({ enabled: true, me: { id: 1, name: 'Ed', admin: false }, settings: { maxChars: 4000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false } });
     expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general', 'group']);
     expect(res.body.channels[0]).toMatchObject({ name: 'General', thread: 'public', unread: 0, mentions: 0, paused: false, disconnected: false, can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false } });
-    expect(res.body.channels[1]).toMatchObject({ name: 'My group', thread: 'group:ed', can: { pause: true, disconnect: true, removeAll: true } });
+    expect(res.body.channels[1]).toMatchObject({ name: 'My group', thread: `group:${s.ed.person.id}`, can: { pause: true, disconnect: true, removeAll: true } });
     expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01', 'dev@ed-mbp']);
     expect(res.body.agents.some((a: { name: string }) => a.name === 'review')).toBe(false);
     expect(res.body.people.map((p: { name: string }) => p.name).sort()).toEqual(['Alex', 'Ed']);
@@ -142,7 +152,7 @@ describe('the gate and the overview', () => {
     const s = await world();
     const a = await signedIn(s, 'Admin', SECRET);
     const res = await a.get(CH);
-    expect(res.body.me).toMatchObject({ name: 'Admin', admin: true });
+    expect(res.body.me).toMatchObject({ id: null, name: 'Admin', admin: true });
     expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general']);
     expect(res.body.channels[0].can).toMatchObject({ pauseEveryone: true, removeAll: true });
   });
@@ -302,29 +312,30 @@ describe('addressing with @', () => {
     expect(m.why).toMatch(/refused/);
   });
 
-  it('refuses a plain @Name that two agents share, naming the candidates, and stores nothing', async () => {
+  it('gives the second of two agents of one name a number, so a plain @Name reaches the first and the second is not called by the name (#1284)', async () => {
     const s = await world();
     await post(s, s.ed.token, report('Ed', 'sess-tester-2', 'Tester', PI));
     const res = await say(s.edB, 'group', 'hey @Tester please');
-    expect(res.status).toBe(409);
-    expect(res.body.error).toContain('Tester@ci-runner-01');
-    expect(res.body.error).toContain('Tester@build-pi');
-    expect(texts(await read(s.edB, 'group'))).toEqual([]);
-    // Typing the location picks one.
-    expect((await say(s.edB, 'group', 'hey @Tester@build-pi please')).status).toBe(201);
+    expect(res.status).toBe(201);
+    expect(res.body.message.mentions[0]).toMatchObject({ typed: 'Tester', sessionId: 'sess-tester' });
+    // The second holds "Tester 2" while the first is live, so the location of the first picks the first and the second's old name is nobody's.
+    expect((await say(s.edB, 'group', 'hey @Tester@ci-runner-01 please')).body.message.mentions[0]).toMatchObject({ sessionId: 'sess-tester' });
+    expect((await say(s.edB, 'group', 'hey @Tester@build-pi please')).body.message.mentions[0]).toMatchObject({ sessionId: null, state: 'not-delivered' });
   });
 
   it('takes a plain @Name when one agent has it, and tells the id of same-named agents on one machine apart', async () => {
     const s = await world();
     const one = await say(s.edB, 'group', '@dev look at this');
     expect(one.body.message.mentions[0]).toMatchObject({ typed: 'dev', sessionId: 'sess-dev' });
+    // A same-named agent on the same machine is "dev 2" (#1284), so the name still picks one agent, and the id of the first picks it too.
     await post(s, s.ed.token, report('Ed', 'xyz98765-dev', 'dev', MAC));
     const twin = await say(s.edB, 'group', '@dev@ed-mbp hello');
-    expect(twin.status).toBe(409);
-    expect(twin.body.error).toContain('dev@ed-mbp#xyz98765');
-    const id = /dev@ed-mbp#([A-Za-z0-9_-]+)/.exec(twin.body.error)![1];
+    expect(twin.status).toBe(201);
+    expect(twin.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-dev' });
+    const id = (await s.fleet.peers.messages.live('sess-dev'))!.agentId;
     const picked = await say(s.edB, 'group', `@dev@ed-mbp#${id} hello`);
     expect(picked.status).toBe(201);
+    expect(picked.body.message.mentions[0]).toMatchObject({ sessionId: 'sess-dev' });
   });
 
   it('marks a mention of an agent that is not there not-delivered, and still posts the message', async () => {
@@ -342,6 +353,8 @@ describe('addressing with @', () => {
     // The orchestrator restarted: a new session of the same name on the same reporter, and the old one ended.
     await post(s, s.ed.token, report('Ed', 'sess-tester-new', 'Tester', LINUX));
     await tester(s, { status: 'done', waitReason: null });
+    // It reports again, and with the first one ended it holds the name (#1284).
+    await post(s, s.ed.token, report('Ed', 'sess-tester-new', 'Tester', LINUX));
     s.tick(10_000);
     await s.fleet.sweep();
     expect((await read(s.edB, 'group')).body.messages[0].mentions[0]).toMatchObject({ state: 'held', sessionId: 'sess-tester' });
@@ -423,7 +436,8 @@ describe('addressing with @', () => {
     expect((await mark('1800000000005.7')).status).toBe(200);
     expect((await mark('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f')).status).toBe(200);
     for (const bad of ['x'.repeat(65), 'x'.repeat(5000), 'a b', '<script>', 'a\nb', 7]) expect([String(bad).slice(0, 12), (await mark(bad)).status]).toEqual([String(bad).slice(0, 12), 400]);
-    expect((await s.fleet.chat.core.store.readState.get('ed', 'public')).lastRead).toBe('3f0c2a9e-1b7d-4c55-9d2e-0a1b2c3d4e5f');
+    // What was read up to is checked and not kept (#1296): the counts are all the server holds.
+    expect(await s.fleet.chat.core.store.readState.get(s.ed.person.id, 'public')).toEqual({ personId: s.ed.person.id, thread: 'public', unread: 0, mentions: 0 });
   });
 
   it('lists what @ can address, with @group and @everyone disabled and the reason while off', async () => {
@@ -591,7 +605,7 @@ describe('direct messages', () => {
     expect(took.status).toBe(200);
     const page = await s.edB.get(`${CH}/dm/me/sess-tester/messages`);
     expect(page.body.messages.map((m: { state: string; text: string }) => [m.text, m.state])).toEqual([['please run the suite', 'delivered']]);
-    expect(page.body.messages[0].from).toMatchObject({ kind: 'person', name: 'Ed' });
+    expect(page.body.messages[0].from).toMatchObject({ kind: 'person', personId: 1, name: 'Ed' });
     expect(page.body).toMatchObject({ a: expect.anything(), b: expect.anything(), older: null, total: 1 });
     const list = (await s.edB.get(CH)).body.directs;
     expect(list).toHaveLength(1);
@@ -700,18 +714,18 @@ describe('direct messages', () => {
     expect(none.body.error).toBe("This session's reporter does not take /clear from Podium. Send it in the terminal.");
   });
 
-  it('lets an owner delete their session whatever the case or spacing of their name, and leaves a person: id alone, in any case (#1051)', async () => {
+  it('lets an owner delete their session by their id, and leaves a person: id alone, in any case (#1051, #1284)', async () => {
     const w = await world();
     await linkedConversation(w);
     const before = (await w.edB.get(CH)).body.directs.length;
     expect(before).toBeGreaterThan(0);
     // `person:<name>` is no session in any case, and deleting by it wipes no one's conversations.
-    expect(await w.fleet.deleteSessionAs('PERSON:ed', 'Ed')).toBe('unknown');
+    expect(await w.fleet.deleteSessionAs('PERSON:ed', w.ed.person.id)).toBe('unknown');
     expect(await w.fleet.deleteSessionAs('person:ed', undefined)).toBe('unknown');
     expect((await w.edB.get(CH)).body.directs).toHaveLength(before);
-    // Owner names are compared folded, as everywhere else: spaces collapsed, case ignored.
-    expect(await w.fleet.deleteSessionAs('sess-alex', '  ED ')).toBe('forbidden');
-    expect(await w.fleet.deleteSessionAs('sess-tester', '  ED ')).toBe('deleted');
+    // A session is its owner's by the owner's id, never by name (#1284).
+    expect(await w.fleet.deleteSessionAs('sess-alex', w.ed.person.id)).toBe('forbidden');
+    expect(await w.fleet.deleteSessionAs('sess-tester', w.ed.person.id)).toBe('deleted');
   });
 
   it('lets the person add to a conversation between two agents, reaching both, shown once; the round trips are unchanged', async () => {
@@ -732,6 +746,31 @@ describe('direct messages', () => {
     // The two stored rows are one message in the thread, so the total and the sidebar count what the thread shows (#1034).
     expect(page.body.total).toBe(page.body.messages.length);
     expect((await s.edB.get(CH)).body.directs[0].messages).toBe(page.body.messages.length);
+  });
+
+  it('sends to the one agent that `to` names in a conversation between two agents, and refuses a name that is no agent of the conversation (#1296)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    const [x, y] = [key.a.sessionId, key.b.sessionId];
+    const to = (list: unknown) => s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'only you, Tester', to: list });
+    const one = await to(['sess-tester']);
+    expect(one.status).toBe(202);
+    expect(one.body.message.to.map((t: { sessionId: string }) => t.sessionId)).toEqual(['sess-tester']);
+    expect((await deliveriesFor(s, 'tester')).map((d) => d.text)).toContain('only you, Tester');
+    expect((await deliveriesFor(s, 'dev')).map((d) => d.text)).not.toContain('only you, Tester');
+    // A session of another conversation, the person's own end and an empty list are no agent of this one: nothing is stored or handed over.
+    const before = (await s.edB.get(`${CH}/dm/${x}/${y}/messages`)).body.total;
+    for (const list of [['sess-alex'], ['person:1'], ['sess-tester', 'sess-alex'], []]) {
+      const refused = await to(list);
+      expect(refused.status).toBe(400);
+      expect(refused.body.error).toBe('to must name an agent of this conversation.');
+    }
+    expect((await s.edB.get(`${CH}/dm/${x}/${y}/messages`)).body.total).toBe(before);
+    // The conversation of a person and one agent has one agent to name.
+    const own = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'hello', to: ['sess-dev'] });
+    expect(own.status).toBe(400);
+    expect(own.body.error).toBe('to must name an agent of this conversation.');
   });
 
   it('does not let the person\'s message count as a round trip, nor reset the cap the owner has to approve past', async () => {
@@ -769,17 +808,16 @@ describe('direct messages', () => {
     await linkedConversation(s);
     const key = (await s.edB.get(CH)).body.directs[0];
     const [x, y] = [key.a.sessionId, key.b.sessionId];
-    await tester(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
+    // Tester loses its heartbeat while dev keeps reporting: the conversation stays, hidden only when no agent is left, and names who is gone.
+    s.tick(LOST_HEARTBEAT_MS);
+    await dev(s);
     await s.fleet.sweep();
     const state = (await s.edB.get(CH)).body.directs[0];
     expect(state.ended).toEqual(['Tester']);
     const some = await s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'still there, dev?' });
     expect(some.status).toBe(202);
     expect(some.body.skipped).toEqual([expect.objectContaining({ sessionId: 'sess-tester', name: 'Tester', why: expect.stringMatching(/will not receive/) })]);
-    await dev(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
-    await s.fleet.sweep();
+    await loseHeartbeat(s);
     expect((await s.edB.post(`${CH}/dm/${x}/${y}/messages`).set(H).send({ text: 'anyone?' })).status).toBe(409);
   });
 
@@ -787,10 +825,7 @@ describe('direct messages', () => {
     const s = await world();
     await linkedConversation(s);
     expect((await s.edB.get(CH)).body.directs).toHaveLength(1);
-    await tester(s, { status: 'done', waitReason: null });
-    await dev(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
-    await s.fleet.sweep();
+    await loseHeartbeat(s);
     expect((await s.edB.get(CH)).body.directs).toEqual([]);
     // The same session reports again: the conversation and its history return.
     await tester(s);
@@ -803,22 +838,19 @@ describe('direct messages', () => {
     const s = await world();
     await linkedConversation(s);
     const key = (await s.edB.get(CH)).body.directs[0];
-    await tester(s, { status: 'done', waitReason: null });
-    await dev(s, { status: 'done', waitReason: null });
-    s.tick(10_000);
-    await s.fleet.sweep();
+    await loseHeartbeat(s);
     s.tick(23 * 3_600_000);
     await s.fleet.retain();
     // A sign-in ends after 12 idle hours, so the person signs in again.
     const again = await signedIn(s, 'Ed', s.ed.token);
     expect((await again.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).body.messages).toHaveLength(1);
     const readState = s.fleet.chat.core.store.readState;
-    expect((await readState.list('ed')).map((r) => r.thread)).toEqual([key.thread]);
+    expect((await readState.list(s.ed.person.id)).map((r) => r.thread)).toEqual([key.thread]);
     s.tick(2 * 3_600_000);
     await s.fleet.retain();
     expect((await again.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).status).toBe(404);
     // The counts of a conversation that is gone go with it (#1051).
-    expect(await readState.list('ed')).toEqual([]);
+    expect(await readState.list(s.ed.person.id)).toEqual([]);
   });
 
   it('keeps a closed conversation for the days its harness lets a person resume the session, brings it back on resume, and purges it after (#1113)', async () => {
@@ -827,10 +859,10 @@ describe('direct messages', () => {
     const key = (await s.edB.get(CH)).body.directs[0];
     const url = `${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`;
     const close = async () => {
-      await tester(s, { status: 'done', waitReason: null, resumeWindowDays: 7 });
-      await dev(s, { status: 'done', waitReason: null, resumeWindowDays: 7 });
-      s.tick(10_000);
-      await s.fleet.sweep();
+      // The reports carry the window; the heartbeat then goes (a finished session is concluded instead, #1283).
+      await tester(s, { resumeWindowDays: 7 });
+      await dev(s, { resumeWindowDays: 7 });
+      await loseHeartbeat(s);
     };
     await close();
     // Two days on is past the Admin's 24 hour grace period, but inside the window.
@@ -907,17 +939,17 @@ describe('direct messages', () => {
     await say(s.edB, 'general', `@review@alex-box ${ASK}-ACROSS`);
     const admin = await signedIn(s, 'Admin', SECRET);
     const unlocked = await adminAgent(s);
-    for (const [a, b] of [['person:ed', 'sess-tester'], ['person:ed', 'sess-alex']]) {
+    for (const [a, b] of [['person:1', 'sess-tester'], ['person:1', 'sess-alex']]) {
       for (const res of [await admin.get(`/api/fleet/respond/peers/conversations/${a}/${b}`), await unlocked.get(`/api/admin/peers/conversations/${a}/${b}`)]) {
         expect(JSON.stringify(res.body)).not.toContain(ASK);
         expect(res.status).toBe(403);
       }
     }
     // The owner reads their own through Traffic, and Chat is where an Admin reads it, recorded.
-    const own = await s.edB.get('/api/fleet/respond/peers/conversations/person:ed/sess-tester');
+    const own = await s.edB.get('/api/fleet/respond/peers/conversations/person:1/sess-tester');
     expect(own.status).toBe(200);
     expect(JSON.stringify(own.body)).toContain(ASK);
-    expect((await admin.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(200);
+    expect((await admin.get(`${CH}/dm/person:1/sess-tester/messages`)).status).toBe(200);
     expect(await s.fleet.chat.core.store.adminReads.threads('dm:')).toHaveLength(1);
   });
 
@@ -1333,7 +1365,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await mention(w)).toMatchObject({ state: 'approval', why: 'Waiting for Alex to approve' });
     const reqs = await requestsOf(w.alexB);
     expect(reqs).toHaveLength(1);
-    expect(reqs[0]).toMatchObject({ kind: 'message', fromPerson: true, fromKey: 'person:ed', from: { name: 'Ed', machine: 'Podium Chat' } });
+    expect(reqs[0]).toMatchObject({ kind: 'message', fromPerson: true, fromKey: 'person:1', from: { name: 'Ed', machine: 'Podium Chat' } });
     expect(reqs[0]!.text).toBe(FULL);
     expect(await requestsOf(w.edB)).toEqual([]);
     expect((await w.alexB.get(CH)).body.approvals).toBe(1);
@@ -1370,27 +1402,27 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(asEd.status).toBe(200);
     expect(asEd.body.messages.map((m: { text: string; state: string }) => [m.text, m.state])).toEqual([[FULL, 'approval']]);
     expect(asEd.body.cross).toMatchObject({ person: 'Ed', owner: 'Alex', link: 'waiting', viewerIs: 'sender' });
-    const asAlex = await thread(w.alexB, `${CH}/dm/person:ed/sess-alex/messages`);
+    const asAlex = await thread(w.alexB, `${CH}/dm/person:1/sess-alex/messages`);
     expect(asAlex.status).toBe(200);
     expect(asAlex.body.cross).toMatchObject({ viewerIs: 'owner' });
     expect(asAlex.body.messages[0].text).toBe(FULL);
     const admin = await signedIn(w, 'Admin', SECRET);
-    const asAdmin = await thread(admin, `${CH}/dm/person:ed/sess-alex/messages`);
+    const asAdmin = await thread(admin, `${CH}/dm/person:1/sess-alex/messages`);
     expect(asAdmin.status).toBe(200);
     expect(asAdmin.body.cross).toMatchObject({ viewerIs: 'admin' });
-    expect((await link(admin, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
-    expect((await admin.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
+    expect((await link(admin, 'pause', `${CH}/dm/person:1/sess-alex/link`)).status).toBe(404);
+    expect((await admin.post(`${CH}/dm/person:1/sess-alex/messages`).set(H).send({ text: 'admin tries' })).status).toBe(403);
     // A third person: 404 on the thread, as for a conversation that is not there, nothing in the list, and no way to touch it.
-    expect((await thread(zedB, `${CH}/dm/person:ed/sess-alex/messages`)).status).toBe(404);
+    expect((await thread(zedB, `${CH}/dm/person:1/sess-alex/messages`)).status).toBe(404);
     expect(JSON.stringify((await zedB.get(CH)).body.directs)).toBe('[]');
-    expect((await link(zedB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(404);
-    expect((await zedB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).status).toBe(404);
-    expect((await zedB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
+    expect((await link(zedB, 'pause', `${CH}/dm/person:1/sess-alex/link`)).status).toBe(404);
+    expect((await zedB.delete(`${CH}/dm/person:1/sess-alex`).set(H)).status).toBe(404);
+    expect((await zedB.post(`${CH}/dm/person:1/sess-alex/messages`).set(H).send({ text: 'hi' })).status).toBe(404);
     // Both list it.
     expect((await w.edB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['sender']);
     expect((await w.alexB.get(CH)).body.directs.map((d: { cross: { viewerIs: string } | null }) => d.cross?.viewerIs)).toEqual(['owner']);
     // The owner cannot send into someone else's conversation as if it were their own.
-    expect((await w.alexB.post(`${CH}/dm/person:ed/sess-alex/messages`).set(H).send({ text: 'reply' })).status).toBe(409);
+    expect((await w.alexB.post(`${CH}/dm/person:1/sess-alex/messages`).set(H).send({ text: 'reply' })).status).toBe(409);
   });
 
   it('drops the message and tells the sender why when the owner denies it, and opens no link', async () => {
@@ -1424,7 +1456,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     const w = await world();
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
-    const out = await link(w.alexB, 'remove', `${CH}/dm/person:ed/sess-alex/link`);
+    const out = await link(w.alexB, 'remove', `${CH}/dm/person:1/sess-alex/link`);
     expect(out.body).toMatchObject({ ok: true, link: 'removed' });
     const again = await say(w.edB, 'general', '@review@alex-box are you there');
     expect(again.body.message.mentions[0]).toMatchObject({ state: 'not-delivered' });
@@ -1436,7 +1468,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await requestsOf(w.alexB)).toEqual([]);
     // Only the owner can open it again.
     expect((await link(w.edB, 'allow')).status).toBe(403);
-    expect((await link(w.alexB, 'allow', `${CH}/dm/person:ed/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
+    expect((await link(w.alexB, 'allow', `${CH}/dm/person:1/sess-alex/link`)).body).toMatchObject({ ok: true, link: 'open' });
     expect((await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'back' })).status).toBe(202);
   });
 
@@ -1446,17 +1478,17 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
     // The sender pauses: the owner sees it paused, and the sender is refused with the reason.
     expect((await link(w.edB, 'pause')).body).toMatchObject({ ok: true, link: 'paused' });
-    expect((await thread(w.alexB, `${CH}/dm/person:ed/sess-alex/messages`)).body.cross.link).toBe('paused');
+    expect((await thread(w.alexB, `${CH}/dm/person:1/sess-alex/messages`)).body.cross.link).toBe('paused');
     const refused = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'while paused' });
     expect(refused.status).toBe(409);
     expect(refused.body.error).toMatch(/paused/);
     expect(await handed(w)).toEqual([]);
     // Only the one who paused it can resume it.
-    expect((await link(w.alexB, 'resume', `${CH}/dm/person:ed/sess-alex/link`)).status).toBe(403);
+    expect((await link(w.alexB, 'resume', `${CH}/dm/person:1/sess-alex/link`)).status).toBe(403);
     expect((await link(w.edB, 'resume')).body).toMatchObject({ ok: true, link: 'open' });
     expect((await handed(w)).map((d) => d.text)).toEqual([FULL]);
     // The owner pauses: the sender hears it.
-    expect((await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`)).body.link).toBe('paused');
+    expect((await link(w.alexB, 'pause', `${CH}/dm/person:1/sess-alex/link`)).body.link).toBe('paused');
     expect((await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'again' })).status).toBe(409);
     expect((await link(w.edB, 'bogus')).status).toBe(400);
   });
@@ -1481,7 +1513,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     const w = await world();
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
-    expect((await w.alexB.delete(`${CH}/dm/person:ed/sess-alex`).set(H)).body).toMatchObject({ ok: true, removed: 1 });
+    expect((await w.alexB.delete(`${CH}/dm/person:1/sess-alex`).set(H)).body).toMatchObject({ ok: true, removed: 1 });
     // Gone from both lists; the thread now reads as a fresh one, since the person may write to that agent again.
     expect((await thread(w.edB)).body).toMatchObject({ messages: [], total: 0, cross: { link: 'none' } });
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
@@ -1497,7 +1529,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await post(w, w.alex.token, report('Alex', 'sess-secret', 'hidden-plan', BOX));
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     const again = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'x' });
-    await link(w.alexB, 'remove', `${CH}/dm/person:ed/sess-alex/link`).catch(() => undefined);
+    await link(w.alexB, 'remove', `${CH}/dm/person:1/sess-alex/link`).catch(() => undefined);
     const refused = await w.edB.post(`${CH}${dmPath}/messages`).set(H).send({ text: 'y' });
     const gone = await w.edB.post(`${CH}/dm/me/sess-secret-nope/messages`).set(H).send({ text: 'z' });
     for (const body of [again.body, refused.body, gone.body]) expect(JSON.stringify(body)).not.toMatch(/hidden-plan|sess-secret/);
@@ -1518,6 +1550,27 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(await requestsOf(w.alexB)).toHaveLength(1);
   });
 
+  it('stops a person at 5 messages waiting for one owner, in words, and counts only what still waits (#1296)', async () => {
+    const w = await world();
+    expect((await (await adminAgent(w)).put('/api/admin/settings').set(HA).send({ chat: { maxChars: 4000, perMinute: 60 } })).status).toBe(200);
+    // Alex has six agents; the owner's cap counts what waits at the owner, whichever agent it is for.
+    for (const n of [1, 2, 3, 4, 5]) expect((await post(w, w.alex.token, report('Alex', `sess-alex-${n}`, `helper${n}`, BOX))).status).toBe(200);
+    const write = (sid: string) => w.edB.post(`${CH}/dm/me/${sid}/messages`).set(H).send({ text: `hello ${sid}` });
+    for (const sid of ['sess-alex', 'sess-alex-1', 'sess-alex-2', 'sess-alex-3', 'sess-alex-4']) expect((await write(sid)).body.message).toMatchObject({ state: 'approval' });
+    expect(await requestsOf(w.alexB)).toHaveLength(5);
+    // One per agent: a second message to an agent that still waits is a 409 in words, and the sixth waiting message is a 429 in words.
+    const again = await write('sess-alex');
+    expect(again.status).toBe(409);
+    expect(again.body.error).toBe('Your earlier message to review still waits for Alex to approve it. Wait for the answer before you write again.');
+    const sixth = await write('sess-alex-5');
+    expect(sixth.status).toBe(429);
+    expect(sixth.body.error).toBe('You already have 5 messages waiting for Alex to approve. Wait for answers before you write more.');
+    expect(await requestsOf(w.alexB)).toHaveLength(5);
+    // The cap counts messages that wait: once the owner answers one, a place is free.
+    expect((await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'decline')).status).toBe(200);
+    expect((await write('sess-alex-5')).status).toBe(202);
+  });
+
   it('still delivers the owner\'s own @ of their own agent in the normal way', async () => {
     const w = await world();
     const res = await say(w.alexB, 'general', '@review@alex-box do the thing');
@@ -1531,7 +1584,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     w.fleet.hub.add({ write: (c: string) => sse.push(c) });
     await say(w.edB, 'general', `@review@alex-box ${MSG_FROM_ED}`);
     await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
-    await link(w.alexB, 'pause', `${CH}/dm/person:ed/sess-alex/link`);
+    await link(w.alexB, 'pause', `${CH}/dm/person:1/sess-alex/link`);
     await link(w.edB, 'remove');
     await w.fleet.flush();
     await settle();
@@ -1542,6 +1595,124 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     expect(chats.length).toBeGreaterThan(0);
     for (const d of chats) expect(Object.keys(d).sort()).toEqual(['rev', 'scope']);
     expect(sse.join('')).not.toContain(MSG_FROM_ED);
+  });
+
+  it('writes chat_sent for a person\'s message to their own agent and chat_across_sent once the owner opened the link, with who, and never the text (#1296)', async () => {
+    const w = await world();
+    const own = await w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'own agent text' });
+    expect(own.status).toBe(202);
+    await settle();
+    const rowsOf = async (kind: string) => (await logRows(w)).filter((r) => r.kind === kind);
+    expect(await rowsOf('chat_sent')).toEqual([expect.objectContaining({ actor: 'Ed', detail: expect.stringMatching(/^A person sent a message in a direct message, ed's \[\w+\] \(sess-tester\)$/) })]);
+    expect(await rowsOf('chat_across_sent')).toEqual([]);
+    // Across owners: the first message asks, and is logged as asked; after the owner's Allow the next is written over the link and logged as written.
+    await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'across text one' });
+    await answer(w.alexB, (await requestsOf(w.alexB))[0]!.id, 'deliver');
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'across text two' })).status).toBe(202);
+    await settle();
+    expect(await rowsOf('chat_across_requested')).toHaveLength(1);
+    expect(await rowsOf('chat_across_sent')).toEqual([expect.objectContaining({ actor: 'Ed', detail: expect.stringMatching(/^Wrote to alex's agent for ed \[\w+\] \(sess-alex\)$/) })]);
+    expect(JSON.stringify(await logRows(w))).not.toMatch(/own agent text|across text/);
+  });
+
+  it('pins the chat event: only rev and scope, rev rising by one for each event, for a channel post, a Direct Message, an own-agent message and a mark-read', async () => {
+    const w = await world();
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const events = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!) as { rev: number; scope: string });
+    const step = async (act: () => Promise<{ status: number }>, status: number) => {
+      const from = events().length;
+      expect((await act()).status).toBe(status);
+      await w.fleet.flush();
+      await settle();
+      return events().slice(from);
+    };
+    const seen: Record<string, { rev: number; scope: string }[]> = {};
+    seen.channelPost = await step(() => say(w.edB, 'general', 'hello everyone'), 201);
+    seen.groupPost = await step(() => say(w.edB, 'group', 'a note to my agents'), 201);
+    seen.ownAgentDm = await step(() => w.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'please run the suite' }), 202);
+    seen.crossPersonDm = await step(() => w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' }), 202);
+    seen.markRead = await step(() => w.alexB.post(`${CH}/read`).set(H).send({ thread: 'public' }), 200);
+    seen.deleteOwn = await step(() => w.edB.delete(`${CH}/dm/me/sess-tester`).set(H), 200);
+    seen.deleteAcross = await step(() => w.edB.delete(`${CH}/dm/me/sess-alex`).set(H), 200);
+    const all = events();
+    expect(all.map((e) => e.rev)).toEqual(all.map((_, i) => all[0]!.rev + i));
+    for (const e of all) expect(Object.keys(e).sort()).toEqual(['rev', 'scope']);
+    // One event for each scope an action changed (#1296). A message to another person's agent used to send three (the message, the count of the owner and the approval it waits for) and a delete of it two.
+    expect(Object.fromEntries(Object.entries(seen).map(([k, v]) => [k, v.map((e) => e.scope)]))).toEqual({ channelPost: ['public'], groupPost: ['group'], ownAgentDm: ['dm'], crossPersonDm: ['dm'], markRead: ['public'], deleteOwn: ['dm'], deleteAcross: ['dm'] });
+  });
+
+  /** The `chat` events a step writes, as their scopes, once the Admin log's writes and the stream have settled. */
+  const streamOf = (w: W) => {
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const events = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!) as { rev: number; scope: string });
+    return async (act: () => Promise<unknown>) => {
+      const from = events().length;
+      await act();
+      await w.fleet.flush();
+      await settle();
+      return events().slice(from).map((e) => e.scope);
+    };
+  };
+
+  it('pins the chat events of an edit and a delete of a Direct Message: one each, whether or not another person is at the other end (#1310, #1296)', async () => {
+    const w = await world();
+    const step = streamOf(w);
+    const peers = w.fleet.peers.messages;
+    const own = (await peers.sendFromPerson({ ownerId: w.ed.person.id, person: 'Ed', toSession: 'sess-tester', text: 'for the tester', authorId: w.ed.person.id })) as { id: string };
+    const across = (await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' })).body.message.id as string;
+    expect(await step(() => w.edB.patch(`${CH}/dm/me/sess-tester/messages/${own.id}`).set(H).send({ text: 'a reword' }))).toEqual(['dm']);
+    // Was two: one for the person and one for the owner. A console is told what changed, not who is concerned, so the second told it nothing more.
+    expect(await step(() => w.edB.patch(`${CH}/dm/me/sess-alex/messages/${across}`).set(H).send({ text: 'a reword' }))).toEqual(['dm']);
+    expect(await step(() => w.edB.delete(`${CH}/dm/me/sess-tester/messages/${own.id}`).set(H))).toEqual(['dm']);
+    // Was four. A delete also closes the request that waited for the owner, which the trail of the message tells both people of again: all of it is one action.
+    expect(await step(() => w.edB.delete(`${CH}/dm/me/sess-alex/messages/${across}`).set(H))).toEqual(['dm']);
+  });
+
+  it('pins the chat events of a Direct Message concluded because an agent ended: one for each scope, between two agents and across owners (#1310, #1296)', async () => {
+    const finish = async (w: W, report: () => Promise<unknown>) => {
+      await report();
+      w.tick(DEFAULT_CONFIG.lingerMs + 1000);
+      await w.fleet.sweep();
+    };
+    const w = await world();
+    await linkedConversation(w);
+    const step = streamOf(w);
+    // Was three `dm` and one `group`: the end of a session is one task, and each scope it changed is told once.
+    expect(await step(() => finish(w, () => tester(w, { status: 'done', waitReason: null })))).toEqual(['dm', 'group']);
+    const x = await world();
+    expect((await x.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' })).status).toBe(202);
+    const stepX = streamOf(x);
+    // Was six `dm` and one `group` in all. The report that says the agent is done closes the request that waited for the owner, which is an action of its own and one `dm`;
+    // the sweep that then ends the session is another, and is one `dm` and one `group`.
+    expect(await stepX(() => alexOne(x, { status: 'done', waitReason: null }))).toEqual(['dm']);
+    x.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    expect(await stepX(() => x.fleet.sweep())).toEqual(['dm', 'group']);
+  });
+
+  it('answers a bad page size of a channel, a Direct Message and a conversation the same way, and reads a good one (#1310)', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const conv = await w.edB.post(`${CH}/conversations`).set(H).send({ members: [{ kind: 'person', name: 'Alex' }], text: 'hi' });
+    expect(conv.status).toBe(201);
+    const paths = [`${CH}/channels/general/messages`, `${CH}/dm/sess-dev/sess-tester/messages`, `${CH}/conversations/${conv.body.conversation.id}/messages`];
+    for (const path of paths) {
+      for (const bad of ['0', '101', 'abc', '-1', '12345']) {
+        const res = await w.edB.get(`${path}?limit=${bad}`);
+        expect([res.status, res.body]).toEqual([400, { ok: false, error: 'limit must be a whole number from 1 to 100' }]);
+      }
+      expect((await w.edB.get(`${path}?limit=1`)).status).toBe(200);
+      expect((await w.edB.get(path)).status).toBe(200);
+    }
+  });
+
+  it('reads no open requests for a count the stream no longer carries when a cross-person Direct Message is sent', async () => {
+    const w = await world();
+    const spy = vi.spyOn(w.fleet.peers.rights, 'openRequests');
+    expect((await w.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'may I ask a favor' })).status).toBe(202);
+    await w.fleet.flush();
+    expect(spy.mock.calls.length).toBe(0);
   });
 
   // ---- A launched agent reaches an open console (#1112) -----------------------------------------------------------------
@@ -1594,8 +1765,8 @@ describe('a person writing to another person\'s agent (#1034)', () => {
 
   // ---- Only the pauser can resume (#1034) ----------------------------------------------------------------------------
 
-  const L = `${CH}/dm/person:ed/sess-alex/link`;
-  const T = `${CH}/dm/person:ed/sess-alex/messages`;
+  const L = `${CH}/dm/person:1/sess-alex/link`;
+  const T = `${CH}/dm/person:1/sess-alex/messages`;
   const crossOf = async (b: ReturnType<typeof request.agent>) => (await thread(b, T)).body.cross as { link: string; pausedBy: string | null; canResume: boolean; viewerIs: string };
   /** Ed has asked, and Alex allowed it: the link is open. */
   async function openLink(w: W) {
@@ -1688,7 +1859,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     const body = (await thread(w.alexB, T)).body as { a: { kind: string; reporterKey: string }; b: { kind: string; reporterKey: string } };
     const key = [body.a, body.b].find((p) => p.kind === 'agent')!.reporterKey;
     // The store call with no pauser is what a row paused before this change looks like.
-    const paused = await w.fleet.peers.setPersonLink('person:ed', key, 'pause', { name: 'ed', admin: false });
+    const paused = await w.fleet.peers.setPersonLink('person:1', key, 'pause', { name: 'ed', admin: false });
     expect(paused, JSON.stringify(paused)).toMatchObject({ ok: true });
     expect(await crossOf(w.alexB)).toMatchObject({ link: 'paused', pausedBy: null, canResume: true });
     expect(await crossOf(w.edB)).toMatchObject({ pausedBy: null, canResume: true });
@@ -1714,7 +1885,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
       const t = await thread(b, T);
       expect(t.status).toBe(200);
       expect(t.body.messages.map((m: { text: string; author: string; state: string }) => [m.author, m.state, m.text])).toEqual([['person', 'ready', FULL], ['agent', 'delivered', REPLY]]);
-      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-alex', name: 'review' }, to: [{ sessionId: 'person:ed', name: 'Ed', state: 'delivered' }] });
+      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-alex', name: 'review' }, to: [{ sessionId: 'person:1', name: 'Ed', state: 'delivered' }] });
       expect(t.body.cross).toMatchObject({ link: 'open' });
     }
     // The owner has nothing to approve for it, and the agent is handed only the person's own text, never its own answer back.
@@ -1816,7 +1987,7 @@ describe('a person writing to another person\'s agent (#1034)', () => {
     await reply(w, REPLY);
     await w.fleet.peers.retain();
     expect(((await thread(w.edB, T)).body.messages as { text: string }[]).map((m) => m.text)).toContain(REPLY);
-    expect((await w.edB.delete(`${CH}${'/dm/person:ed/sess-alex'}`).set(H)).body).toMatchObject({ ok: true });
+    expect((await w.edB.delete(`${CH}${'/dm/person:1/sess-alex'}`).set(H)).body).toMatchObject({ ok: true });
     expect((await w.alexB.get(CH)).body.directs).toEqual([]);
   });
 
@@ -1905,7 +2076,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     await say(w.edB, 'general', `@review@alex-box ${MSG}`);
     return w;
   }
-  const CROSS = `${CH}/dm/person:ed/sess-alex`;
+  const CROSS = `${CH}/dm/person:1/sess-alex`;
 
   it('records a reading of a person\'s group, tells that person, and shows no one else anything', async () => {
     const w = await world();
@@ -1923,7 +2094,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect(JSON.stringify((await w.alexB.get(CH)).body)).not.toContain('Admin secret');
     expect((await read(w.alexB, 'group', '?owner=Ed')).status).toBe(403);
     // The record carries no text.
-    expect(JSON.stringify(await store(w).list('group:ed'))).not.toContain('for the admin');
+    expect(JSON.stringify(await store(w).list(`group:${w.ed.person.id}`))).not.toContain('for the admin');
   });
 
   it('puts reads within 30 minutes in one record and starts a second one after a longer gap', async () => {
@@ -1988,7 +2159,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages?before=garbage`)).status).toBe(400);
     expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages?limit=0`)).status).toBe(400);
     await settle();
-    expect(await store(w).list('group:ed')).toEqual([]);
+    expect(await store(w).list(`group:${w.ed.person.id}`)).toEqual([]);
     expect(await store(w).threads('dm:')).toEqual([]);
     expect(await groupLive(w.edB)).toEqual([]);
     expect(await dmLive(w.edB)).toEqual([[]]);
@@ -1998,7 +2169,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect((await read(admin, 'group', '?owner=Ed')).status).toBe(200);
     expect((await admin.get(`${CH}/dm/sess-dev/sess-tester/messages`)).status).toBe(200);
     await settle();
-    expect(await store(w).list('group:ed')).toHaveLength(1);
+    expect(await store(w).list(`group:${w.ed.person.id}`)).toHaveLength(1);
     expect(await store(w).threads('dm:')).toHaveLength(1);
     expect(await notices()).toBeGreaterThan(0);
     expect((await logKinds(w)).filter((k) => k === 'chat_admin_read')).toHaveLength(2);
@@ -2166,7 +2337,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     expect(await store(w).threads('')).toHaveLength(3);
     w.tick(2 * 86_400_000);
     await w.fleet.retain();
-    expect(await store(w).threads('')).toEqual(['dm:person:ed|sess-alex', 'dm:sess-dev|sess-tester']);
+    expect(await store(w).threads('')).toEqual(['dm:person:1|sess-alex', 'dm:sess-dev|sess-tester']);
   });
 
   it('shows a person, on their overview, the unseen record of a conversation an Admin read and that has since been deleted, once, and no one else (#1051)', async () => {
@@ -2202,8 +2373,8 @@ describe('an Admin reading a conversation (#1034)', () => {
     const w = await crossWorld();
     const store = w.fleet.chat.core.store.adminReads;
     // Thread B is the newest (its records are made last), thread A has the older ones.
-    for (let i = 0; i < 20; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', 'cleared', ['ed']);
-    for (let i = 0; i < 5; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', 'cleared', ['ed']);
+    for (let i = 0; i < 20; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', null, 'cleared', [w.ed.person.id]);
+    for (let i = 0; i < 5; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', null, 'cleared', [w.ed.person.id]);
     const ed = w.edB;
     const first = (await ed.get(CH)).body.goneReads;
     const second = (await ed.get(CH)).body.goneReads;
@@ -2217,8 +2388,8 @@ describe('an Admin reading a conversation (#1034)', () => {
   it('keeps making progress when every gone thread has records beyond the cap, and loses none (#1051)', async () => {
     const w = await crossWorld();
     const store = w.fleet.chat.core.store.adminReads;
-    for (let i = 0; i < 15; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', 'cleared', ['ed']);
-    for (let i = 0; i < 10; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', 'cleared', ['ed']);
+    for (let i = 0; i < 15; i++) await store.mark('dm:sess-gone-a|sess-gone-b', 'Admin', null, 'cleared', [w.ed.person.id]);
+    for (let i = 0; i < 10; i++) await store.mark('dm:sess-gone-c|sess-gone-d', 'Admin', null, 'cleared', [w.ed.person.id]);
     const ed = w.edB;
     let total = 0;
     for (let load = 0; load < 5; load++) total += (await ed.get(CH)).body.goneReads.length;
@@ -2230,10 +2401,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     await linkedConversation(w);
     const admin = await signedIn(w, 'Admin', SECRET);
     await admin.get(`${AB}/messages`);
-    await tester(w, { status: 'done', waitReason: null });
-    await dev(w, { status: 'done', waitReason: null });
-    w.tick(10_000);
-    await w.fleet.sweep();
+    await loseHeartbeat(w);
     w.tick(23 * 3_600_000);
     await w.fleet.retain();
     expect(await store(w).threads('dm:')).toHaveLength(1);
@@ -2246,10 +2414,7 @@ describe('an Admin reading a conversation (#1034)', () => {
     const adminX = await signedIn(x, 'Admin', SECRET);
     await adminX.get(`${AB}/messages`);
     expect((await x.edB.get(`${AB}/messages`)).body.adminReads).toHaveLength(1);
-    await tester(x, { status: 'done', waitReason: null });
-    await dev(x, { status: 'done', waitReason: null });
-    x.tick(10_000);
-    await x.fleet.sweep();
+    await loseHeartbeat(x);
     x.tick(25 * 3_600_000);
     await x.fleet.retain();
     expect(await store(x).threads('dm:')).toEqual([]);
@@ -2377,7 +2542,7 @@ describe('an Admin reading a conversation (#1034)', () => {
 
 describe('the callout an Admin\'s reading or stopping shows the person in podium-reporter (#1034)', () => {
   const AB = `${CH}/dm/sess-dev/sess-tester`;
-  const CROSS = `${CH}/dm/person:ed/sess-alex`;
+  const CROSS = `${CH}/dm/person:1/sess-alex`;
   const SECRET_TEXT = 'a private line about the build';
   const noticesOf = async (w: W, who: 'dev' | 'tester' | 'alex') => {
     const r = who === 'dev' ? await dev(w, { status: 'running', waitReason: null }) : who === 'tester' ? await tester(w) : await alexOne(w);
@@ -2463,10 +2628,7 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     const w = await world();
     await linkedConversation(w);
     const admin = await signedIn(w, 'Admin', SECRET);
-    await tester(w, { status: 'done', waitReason: null });
-    await dev(w, { status: 'done', waitReason: null });
-    w.tick(10_000);
-    await w.fleet.sweep();
+    await loseHeartbeat(w);
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
     await post(w, w.ed.token, report('Ed', 'sess-third', 'third', MAC));
     expect((await admin.get(`${AB}/messages`)).status).toBe(200);
@@ -2482,6 +2644,24 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     expect((await w.edB.get(CH)).body.directs).toEqual([]);
   });
 
+  it('loads no hidden conversation for an overview while no Admin reads one, and builds only the one that is read (#1063)', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    await loseHeartbeat(w);
+    const messages = w.fleet.peers.messages;
+    const all = vi.spyOn(messages, 'ownerConversations');
+    const hiddenAsked = () => all.mock.calls.filter((c) => c[1]?.includeHidden).map((c) => c[1]?.pairs);
+    // No reading is live: the overview asks for no hidden conversation at all (an empty pair list reads none).
+    expect((await w.edB.get(CH)).body.directs).toEqual([]);
+    expect(hiddenAsked()).toEqual([[]]);
+    // One live reading on the hidden conversation: exactly that pair is asked for, and it comes back.
+    expect((await admin.get(`${AB}/messages`)).status).toBe(200);
+    all.mockClear();
+    expect(((await w.edB.get(CH)).body.directs as { thread: string }[]).map((d) => d.thread)).toEqual(['dm:sess-dev|sess-tester']);
+    expect(hiddenAsked()).toEqual([['sess-dev|sess-tester']]);
+  });
+
   it('tells the owner, in their other sessions and on their overview once, when the admin secret deletes a session or an Admin removes a reporter of theirs (#1078)', async () => {
     const w = await world();
     expect(await noticesOf(w, 'dev')).toEqual([]);
@@ -2489,7 +2669,7 @@ describe('the callout an Admin\'s reading or stopping shows the person in podium
     const told = (await noticesOf(w, 'dev')).map((n) => n.text);
     expect(told).toHaveLength(1);
     expect(told[0]).toMatch(/^Admin \(an Admin\) deleted your session .+\.$/);
-    await w.fleet.adminActs.onPerson('Root', 'reporter_removed', 'Ed', 'your reporter ed-mbp');
+    await w.fleet.adminActs.onPerson({ name: 'Root', id: null }, 'reporter_removed', { id: w.ed.person.id, name: 'Ed' }, 'your reporter ed-mbp');
     expect((await noticesOf(w, 'dev')).map((n) => n.text)).toContain('Root (an Admin) removed your reporter ed-mbp from the Reporters list.');
     const shelf = (await w.edB.get(CH)).body.goneReads as { admin: string; kind: string; with: string }[];
     expect(shelf.map((r) => `${r.admin}:${r.kind}:${r.with}`).sort()).toEqual(['Admin:session_deleted:', 'Root:reporter_removed:']);
@@ -2675,7 +2855,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
       expect(res.status).toBe(200);
       expect(res.body.me).toMatchObject({ admin: true });
       expect(res.body.channels.map((c: { id: string }) => c.id)).toEqual(['general', 'group']);
-      expect(res.body.channels[1]).toMatchObject({ thread: 'group:ed', unread: 0, mentions: 0, messages: 1, can: { pause: true, disconnect: true, removeAll: true } });
+      expect(res.body.channels[1]).toMatchObject({ thread: `group:${w.ed.person.id}`, unread: 0, mentions: 0, messages: 1, can: { pause: true, disconnect: true, removeAll: true } });
       expect(res.body.directs.length).toBeGreaterThan(0);
       for (const d of res.body.directs) expect(d).toMatchObject({ unread: 0, mentions: 0 });
       expect(res.body.people.map((p: { name: string; you: boolean; directs: number }) => [p.name, p.you]).sort()).toEqual([['Alex', false], ['Ed', false], ['Root', false]]);
@@ -2715,7 +2895,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     await a.get(`${BROWSE}Ed`);
     await a.get(`${BROWSE}Ed`);
     await settle();
-    expect(await w.fleet.chat.core.store.adminReads.list('group:ed')).toEqual([]);
+    expect(await w.fleet.chat.core.store.adminReads.list(`group:${w.ed.person.id}`)).toEqual([]);
     expect((await w.edB.get(CH)).body.channels.find((c: { id: string }) => c.id === 'group').adminReading).toEqual([]);
     const rows = (await logRows(w)).filter((r) => r.kind === 'chat_admin_browse');
     expect(rows).toHaveLength(1);
@@ -2760,10 +2940,10 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
   it('shows every unseen record of a look at a person\'s list, even past the 20 it normally carries, and 20 once they are seen (#1051)', async () => {
     const w = await browseWorld();
     const store = w.fleet.chat.core.store.adminReads;
-    for (let i = 0; i < 25; i++) await store.mark('list:ed', 'Admin', 'paused', ['ed']);
+    for (let i = 0; i < 25; i++) await store.mark(`list:${w.ed.person.id}`, 'Admin', null, 'paused', [w.ed.person.id]);
     const ed = await signedIn(w, 'Ed', w.ed.token);
     const first = (await ed.get(CH)).body.listReads as { startedAt: number }[];
-    expect(new Set(first.map((r) => r.startedAt))).toEqual(new Set((await store.list('list:ed')).map((r) => r.startedAt)));
+    expect(new Set(first.map((r) => r.startedAt))).toEqual(new Set((await store.list(`list:${w.ed.person.id}`)).map((r) => r.startedAt)));
     expect((await ed.get(CH)).body.listReads).toHaveLength(20);
   });
 
@@ -2774,7 +2954,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     const store = w.fleet.chat.core.store.adminReads;
     w.tick(40 * 86_400_000);
     await w.fleet.retain();
-    expect(await store.threads('list:')).toEqual(['list:ed']);
+    expect(await store.threads('list:')).toEqual([`list:${w.ed.person.id}`]);
     // A sign-in ends after 12 idle hours, so Ed signs in again to load the overview.
     expect(((await (await signedIn(w, 'Ed', w.ed.token)).get(CH)).status)).toBe(200);
     await w.fleet.retain();
@@ -2821,7 +3001,7 @@ describe('an Admin browsing a person\'s Chat (#1034)', () => {
     expect((await a.get(`${BROWSE}Alex`)).body.directs.length).toBe(1);
     const ed = await a.get(`${BROWSE}Ed`);
     expect(ed.body.directs.some((d: { owner: string }) => d.owner === 'Alex')).toBe(false);
-    expect(ed.body.directs.every((d: { owner: string; a: { sessionId: string }; b: { sessionId: string } }) => d.owner === 'Ed' || d.a.sessionId === 'person:ed' || d.b.sessionId === 'person:ed')).toBe(true);
+    expect(ed.body.directs.every((d: { owner: string; a: { sessionId: string }; b: { sessionId: string } }) => d.owner === 'Ed' || d.a.sessionId === 'person:1' || d.b.sessionId === 'person:1')).toBe(true);
     expect(allText(ed.body)).not.toContain(ALEX_PRIVATE);
   });
 });
@@ -2849,10 +3029,10 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     await w.fleet.flush();
     await settle();
     for (const b of [w.edB, await signedIn(w, 'Admin', SECRET)]) {
-      const t = await b.get(TT.replace('/dm/me/', '/dm/person:ed/'));
+      const t = await b.get(TT.replace('/dm/me/', '/dm/person:1/'));
       expect(t.status).toBe(200);
       expect(t.body.messages.map((m: { author: string; text: string }) => [m.author, m.text])).toEqual([['person', ASK], ['agent', ANSWER]]);
-      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-tester' }, to: [{ sessionId: 'person:ed', state: 'delivered' }] });
+      expect(t.body.messages[1]).toMatchObject({ from: { kind: 'agent', sessionId: 'sess-tester' }, to: [{ sessionId: 'person:1', state: 'delivered' }] });
     }
     const after = await dmCounts(w.edB);
     expect(after[0]!.unread).toBe(before[0]!.unread + 1);
@@ -2882,7 +3062,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
       for (const path of ['/channels/general/messages', '/channels/group/messages']) expect(JSON.stringify((await b.get(`${CH}${path}`)).body)).not.toContain(ANSWER);
       expect(JSON.stringify((await b.get('/api/fleet/respond/peers/conversations')).body ?? '')).not.toContain(ANSWER);
     }
-    expect((await w.alexB.get(`${CH}/dm/person:ed/sess-tester/messages`)).status).toBe(404);
+    expect((await w.alexB.get(`${CH}/dm/person:1/sess-tester/messages`)).status).toBe(404);
   });
 
   it('refuses an answer from an agent the owner never wrote to, to another person, and after the conversation is removed, in the generic words', async () => {
@@ -2897,7 +3077,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     expect((await reply(w, ANSWER, 'person:alex')).status).toBe(404);
     expect((await reply(w, ' ')).status).toBe(400);
     expect((await reply(w, ANSWER)).status).toBe(202);
-    expect((await w.edB.delete(`${CH}/dm/person:ed/sess-tester`).set(H)).body).toMatchObject({ ok: true });
+    expect((await w.edB.delete(`${CH}/dm/person:1/sess-tester`).set(H)).body).toMatchObject({ ok: true });
     expect((await reply(w, 'late')).status).toBe(404);
   });
 
@@ -2906,7 +3086,7 @@ describe("an agent answering its own owner's Chat message (#1034)", () => {
     const peers = () => request(w.app).get('/api/fleet/sessions/sess-tester/peers').set('X-Podium-Token', w.ed.token);
     expect((await peers()).body.people).toEqual([]);
     await asked(w);
-    expect((await peers()).body.people).toEqual([{ address: 'person:ed', name: 'Ed', paused: false }]);
+    expect((await peers()).body.people).toEqual([{ address: 'person:1', name: 'Ed', paused: false }]);
     let limited = 0;
     for (let i = 0; i < 40; i++) if ((await reply(w, `flood ${i}`)).status === 429) limited++;
     expect(limited).toBeGreaterThan(0);
@@ -2921,5 +3101,319 @@ describe('the agents list follows the live set (#1110)', () => {
     await s.fleet.sweep();
     const res = await s.edB.get(CH);
     expect(res.body.agents.map((a: { address: string }) => a.address).sort()).toEqual(['Tester@ci-runner-01']);
+  });
+});
+
+describe('a Direct Message ends when one of its agents ends (#1283)', () => {
+  const finish = async (s: W, which: 'dev' | 'tester') => {
+    await (which === 'dev' ? dev : tester)(s, { status: 'done', waitReason: null });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+  };
+  const noticesOf = async (s: W, which: 'dev' | 'tester') => {
+    const r = which === 'dev' ? await dev(s, { status: 'running', waitReason: null }) : await tester(s);
+    return ((r.body.peerDeliveries ?? []) as { kind: string; text?: string }[]).filter((d) => d.kind === 'notice');
+  };
+
+  it('deletes a conversation between two agents, with its text, when one ends, and tells the one that remains once', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    await finish(s, 'tester');
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    expect((await s.edB.get(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`)).status).toBe(404);
+    const told = (await noticesOf(s, 'dev')).filter((n) => /concluded/.test(n.text ?? ''));
+    expect(told).toHaveLength(1);
+    expect(told[0]!.text).toMatch(/Tester ended/);
+    // The mark every reporter turns into a turn in Podium's own words (#1283).
+    expect(told[0]!.text!.startsWith(ENDED_NOTICE_MARK)).toBe(true);
+    expect(told[0]!.text).toBe(`${ENDED_NOTICE_MARK} Tester ended. This direct message has been concluded. Do not try to continue it, and do not open a new direct message to Tester.`);
+  });
+
+  // #1340: after a /clear the agent goes on under a new session id, so the notice and the record say it was cleared, not that it ended.
+  it('says the agent was cleared, and is still running, when the session ended with /clear', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await tester(s, { status: 'done', waitReason: null, endReason: 'clear' });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    const told = (await noticesOf(s, 'dev')).filter((n) => /concluded/.test(n.text ?? ''));
+    expect(told).toHaveLength(1);
+    expect(told[0]!.text).toBe(`${ENDED_NOTICE_MARK} Tester was cleared with /clear and is still running under a new session. This direct message has been concluded. Do not try to continue it. You can open a new direct message to Tester.`);
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; cleared?: boolean }[];
+    expect(mine[0]).toMatchObject({ agent: 'Tester', cleared: true });
+  });
+
+  it('does not mark a conclusion as cleared when the session finished for another reason', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await tester(s, { status: 'done', waitReason: null, endReason: 'other' });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { cleared?: boolean }[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.cleared).toBeUndefined();
+  });
+
+  it('tells the remaining agent once, even when the end is seen twice', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await finish(s, 'tester');
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    const concluded = (await noticesOf(s, 'dev')).filter((n) => /concluded/.test(n.text ?? ''));
+    expect(concluded).toHaveLength(1);
+  });
+
+  it("deletes a person's conversation with an agent when the agent ends", async () => {
+    const s = await world();
+    await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'hello tester' });
+    expect((await s.edB.get(CH)).body.directs).toHaveLength(1);
+    await finish(s, 'tester');
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    expect((await s.edB.get(`${CH}/dm/me/sess-tester/messages`)).status).toBe(404);
+  });
+
+  it('refuses a new message to the ended agent, and to a concluded conversation', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    const key = (await s.edB.get(CH)).body.directs[0];
+    await finish(s, 'tester');
+    const toEnded = await s.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'are you there' });
+    expect(toEnded.status).toBe(409);
+    expect(toEnded.body.error).toMatch(/ended/);
+    expect((await s.edB.post(`${CH}/dm/${key.a.sessionId}/${key.b.sessionId}/messages`).set(H).send({ text: 'still there?' })).status).toBeGreaterThanOrEqual(400);
+  });
+
+  it('discards a message still waiting for its owner to approve when the agent ends, closes the request, and tells the person who wrote it', async () => {
+    const s = await world();
+    const requestsOf = async (b: ReturnType<typeof request.agent>) => ((await b.get('/api/fleet/respond/peers')).body.requests ?? []) as unknown[];
+    const sent = await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'please look at this' });
+    expect(sent.body.message).toMatchObject({ state: 'approval' });
+    expect(await requestsOf(s.alexB)).toHaveLength(1);
+    await alexOne(s, { status: 'done', waitReason: null });
+    s.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await s.fleet.sweep();
+    expect(await requestsOf(s.alexB)).toEqual([]);
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; undelivered?: number }[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ agent: 'review', undelivered: 1 });
+    expect(JSON.stringify(mine)).not.toMatch(/please look at this/);
+    // Another person's stored session is not Ed's to learn exists or what it is called, so it keeps the answer of a conversation that is not there.
+    expect((await s.edB.post(`${CH}/dm/me/sess-alex/messages`).set(H).send({ text: 'again' })).status).toBe(404);
+  });
+
+  it('writes the chat_concluded row as Podium, with whose conversation, how many messages went, and no text (#1296)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await finish(s, 'tester');
+    await settle();
+    const rows = (await logRows(s)).filter((r) => r.kind === 'chat_concluded');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ actor: 'Podium' });
+    expect(rows[0]!.detail).toMatch(/^Concluded a conversation, ed's, because an agent in it ended: 1 messages \(sess-dev, sess-tester\)$/);
+    expect(JSON.stringify(await logRows(s))).not.toContain('agent hello');
+  });
+
+  it('counts in `undelivered` only the person\'s messages the ended agent never took, and leaves it out when there are none (#1296)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await finish(s, 'tester');
+    // The one message in this conversation is an agent's, so there is nothing the person wrote that went undelivered.
+    const none = (await s.edB.get(`${CH}/concluded`)).body.concluded as Record<string, unknown>[];
+    expect(none).toHaveLength(1);
+    expect(none[0]).not.toHaveProperty('undelivered');
+    // Three messages the person wrote to an agent: it takes the first and ends before it takes the other two, so only those two went undelivered.
+    const t = await world();
+    for (const text of ['first, taken', 'second, never taken', 'third, never taken']) expect((await t.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text })).status).toBe(202);
+    const handed = await deliveriesFor(t, 'tester');
+    expect(handed.map((d) => d.text)).toEqual(['first, taken', 'second, never taken', 'third, never taken']);
+    expect((await request(t.app).post(`/api/fleet/sessions/sess-tester/deliveries/${handed[0]!.id}/result`).set('X-Podium-Token', t.ed.token).send({ result: 'took' })).status).toBe(200);
+    await settle();
+    await finish(t, 'tester');
+    const two = (await t.edB.get(`${CH}/concluded`)).body.concluded as { agent: string; undelivered?: number }[];
+    expect(two).toHaveLength(1);
+    expect(two[0]).toMatchObject({ agent: 'Tester', undelivered: 2 });
+  });
+
+  it('lists what was concluded for the people in it only, until each is dismissed, and says no text', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    expect((await s.edB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+    await finish(s, 'tester');
+    const mine = (await s.edB.get(`${CH}/concluded`)).body.concluded as { id: string; agent: string; with: string[] }[];
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ agent: 'Tester', with: ['dev'] });
+    expect(JSON.stringify(mine)).not.toMatch(/agent hello/);
+    expect((await s.alexB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+    expect((await s.alexB.delete(`${CH}/concluded/${mine[0]!.id}`).set(H)).status).toBe(404);
+    expect((await s.edB.delete(`${CH}/concluded/${mine[0]!.id}`).set(H)).status).toBe(200);
+    expect((await s.edB.get(`${CH}/concluded`)).body.concluded).toEqual([]);
+  });
+
+  it('keeps a conversation hidden, not deleted, when an agent only lost its heartbeat, so a resume brings it back (#1113)', async () => {
+    const s = await world();
+    await linkedConversation(s);
+    await loseHeartbeat(s);
+    expect((await s.edB.get(CH)).body.directs).toEqual([]);
+    await tester(s);
+    const back = (await s.edB.get(CH)).body.directs;
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ messages: 1 });
+    expect(await noticesOf(s, 'dev')).toEqual([]);
+  });
+});
+
+describe('the chat events of one action (#1296)', () => {
+  /** The `chat` events a step writes, as `{ rev, scope }`, once the Admin log's writes and the stream have settled. */
+  const watch = (w: W) => {
+    const sse: string[] = [];
+    w.fleet.hub.add({ write: (c: string) => sse.push(c) });
+    const events = () => sse.join('').split('\n\n').filter((c) => c.includes('event: chat')).map((c) => JSON.parse(c.split('data: ')[1]!) as { rev: number; scope: string });
+    return async (act: () => Promise<unknown>) => {
+      const from = events().length;
+      await act();
+      await w.fleet.flush();
+      await settle();
+      return events().slice(from);
+    };
+  };
+  const scopesOf = (events: { scope: string }[]) => events.map((e) => e.scope);
+  const CROSS = `${CH}/dm/person:1/sess-alex`;
+  const finish = async (w: W, report: () => Promise<unknown>) => {
+    await report();
+    w.tick(DEFAULT_CONFIG.lingerMs + 1000);
+    await w.fleet.sweep();
+  };
+  const resultOf = (w: W, sid: string, id: string) => request(w.app).post(`/api/fleet/sessions/${sid}/deliveries/${id}/result`).set('X-Podium-Token', w.ed.token).send({ result: 'took' });
+
+  it('pins the events of each route: one for each scope it changed, however many people it concerns', async () => {
+    const seen: Record<string, string[]> = {};
+    const w = await world();
+    const step = watch(w);
+    const admin = await signedIn(w, 'Admin', SECRET);
+    seen.groupPostMentioningOwnAgent = scopesOf(await step(() => say(w.edB, 'group', '@Tester@ci-runner-01 hello')));
+    seen.generalPostMentioningOtherAgent = scopesOf(await step(() => say(w.edB, 'general', '@review@alex-box hello')));
+    seen.generalPost = scopesOf(await step(() => say(w.edB, 'general', 'plain')));
+    let cid = '';
+    let mid = '';
+    seen.conversationOpen = scopesOf(await step(async () => {
+      const conv = await w.edB.post(`${CH}/conversations`).set(H).send({ members: [{ kind: 'person', name: 'Alex' }], text: 'hi' });
+      cid = conv.body.conversation.id as string;
+    }));
+    seen.conversationSend = scopesOf(await step(async () => {
+      mid = (await w.edB.post(`${CH}/conversations/${cid}/messages`).set(H).send({ text: 'once more' })).body.message.id as string;
+    }));
+    seen.conversationEdit = scopesOf(await step(() => w.edB.patch(`${CH}/conversations/${cid}/messages/${mid}`).set(H).send({ text: 'reworded' })));
+    seen.conversationDelete = scopesOf(await step(() => w.edB.delete(`${CH}/conversations/${cid}/messages/${mid}`).set(H)));
+    seen.conversationLeave = scopesOf(await step(() => w.edB.delete(`${CH}/conversations/${cid}/members/me`).set(H)));
+    seen.adminPingGroup = scopesOf(await step(() => admin.post(`${CH}/channels/group/reading`).set(H).send({ owner: 'Ed' })));
+    seen.adminPingAcrossOwners = scopesOf(await step(() => admin.post(`${CROSS}/reading`).set(H).send({})));
+    seen.pause = scopesOf(await step(() => w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true })));
+    await say(w.edB, 'group', '@Tester@ci-runner-01 first');
+    await say(w.edB, 'group', '@Tester@ci-runner-01 second');
+    seen.resumeDeliveringTwo = scopesOf(await step(() => w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: false })));
+    seen.clear = scopesOf(await step(() => w.edB.delete(`${CH}/channels/group/messages`).set(H).send({})));
+    seen.openChannel = scopesOf(await step(() => w.edB.post(`${CH}/channels`).set(H).send({ name: 'build' })));
+    seen.removeChannel = scopesOf(await step(() => admin.delete(`${CH}/channels/build`).set(H)));
+    expect(seen).toEqual({
+      groupPostMentioningOwnAgent: ['group'],
+      // Was `dm` three times, then `public`: the request waiting for the owner, the owner's count and the message are one post. The order is the order each scope was first signalled in.
+      generalPostMentioningOtherAgent: ['dm', 'public'],
+      generalPost: ['public'],
+      conversationOpen: ['dm'],
+      conversationSend: ['dm'],
+      conversationEdit: ['dm'],
+      conversationDelete: ['dm'],
+      conversationLeave: ['dm'],
+      adminPingGroup: ['group'],
+      // Was `dm` twice, once for each owner of the conversation.
+      adminPingAcrossOwners: ['dm'],
+      pause: ['group'],
+      resumeDeliveringTwo: ['group'],
+      clear: ['group'],
+      openChannel: ['public'],
+      removeChannel: ['public'],
+    });
+  });
+
+  it('pins the events of each task that no route starts: one for each scope the task changed, sent when it is done', async () => {
+    const seen: Record<string, string[]> = {};
+    const w = await world();
+    const step = watch(w);
+    seen.sessionSeen = scopesOf(await step(async () => {
+      const r = report('Ed', 'sess-fresh', 'fresh', MAC);
+      r.agents = [];
+      r.events = [];
+      await post(w, w.ed.token, r);
+    }));
+    const [d] = await (async () => {
+      await say(w.edB, 'group', '@Tester@ci-runner-01 go');
+      return deliveriesFor(w, 'tester');
+    })();
+    seen.mentionTaken = scopesOf(await step(() => resultOf(w, 'sess-tester', d!.id)));
+    await w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true });
+    await say(w.edB, 'group', '@dev@ed-mbp first');
+    await say(w.edB, 'group', '@dev@ed-mbp second');
+    seen.sessionLeftWithTwoHeldMentions = scopesOf(await step(() => finish(w, () => dev(w, { status: 'done', waitReason: null }))));
+    const x = await world();
+    await linkedConversation(x);
+    const stepX = watch(x);
+    seen.heartbeatLostWithAConversation = scopesOf(await stepX(() => loseHeartbeat(x)));
+    const y = await world();
+    await linkedConversation(y);
+    const stepY = watch(y);
+    seen.agentToAgentMessage = scopesOf(await stepY(() => request(y.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', y.ed.token).send({ to: 'Tester@ci-runner-01', text: 'second hello' })));
+    const z = await world();
+    const stepZ = watch(z);
+    const sent = await z.edB.post(`${CH}/dm/me/sess-tester/messages`).set(H).send({ text: 'please run the suite' });
+    expect(sent.status).toBe(202);
+    const [dm] = await deliveriesFor(z, 'tester');
+    seen.directMessageTaken = scopesOf(await stepZ(() => resultOf(z, 'sess-tester', dm!.id)));
+    expect(seen).toEqual({
+      sessionSeen: ['group'],
+      mentionTaken: ['group'],
+      // Was `group` twice for the two mentions dropped, `dm` and `group` again.
+      sessionLeftWithTwoHeldMentions: ['group', 'dm'],
+      // Was seven: each person's conversation hidden, and each session's own change.
+      heartbeatLostWithAConversation: ['dm', 'group'],
+      agentToAgentMessage: ['dm'],
+      directMessageTaken: ['dm'],
+    });
+  });
+
+  it('sends what a request changed when it fails afterwards, and sends nothing for a read or a refusal', async () => {
+    const w = await world();
+    const step = watch(w);
+    // The pause is stored and signalled, and the reply that reads the flags back then fails.
+    const flagsOf = vi.spyOn(w.fleet.chat.channels, 'flagsOf').mockRejectedValueOnce(new Error('the read failed'));
+    const failed = await step(() => w.edB.put(`${CH}/channels/group/pause`).set(H).send({ paused: true }).then((res) => expect(res.status).toBe(500)));
+    flagsOf.mockRestore();
+    expect(scopesOf(failed)).toEqual(['group']);
+    expect(await step(() => w.edB.get(CH))).toEqual([]);
+    expect(await step(() => w.edB.get(`${CH}/channels/general/messages`))).toEqual([]);
+    expect(await step(() => say(w.edB, 'general', '   ').then((res) => expect(res.status).toBe(400)))).toEqual([]);
+  });
+
+  it('keeps two requests at once apart, and numbers the events by one', async () => {
+    const w = await world();
+    const step = watch(w);
+    const events = await step(() => Promise.all([say(w.edB, 'general', 'one'), say(w.edB, 'group', 'two'), say(w.alexB, 'general', 'three'), w.alexB.post(`${CH}/read`).set(H).send({ thread: 'public' })]));
+    expect(scopesOf(events).sort()).toEqual(['group', 'public', 'public', 'public']);
+    expect(events.map((e) => e.rev)).toEqual(events.map((_, i) => events[0]!.rev + i));
+  });
+
+  it('does not let a failure of Chat following a message between people reach the log of the message, and says so', async () => {
+    const w = await world();
+    await linkedConversation(w);
+    const warn = vi.spyOn(w.fleet.chat.core.host, 'warn');
+    vi.spyOn(w.fleet.chat.direct, 'peerTrail').mockImplementationOnce(() => {
+      throw new Error('could not follow');
+    });
+    const step = watch(w);
+    expect(await step(() => request(w.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', w.ed.token).send({ to: 'Tester@ci-runner-01', text: 'second hello' }).then((res) => expect(res.status).toBe(202)))).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('a message between people could not be followed in Chat', expect.objectContaining({ message: 'could not follow' }));
+    expect(await logKinds(w)).toContain('peer_sent');
   });
 });

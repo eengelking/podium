@@ -19,18 +19,18 @@ import { assignOwners, emptyPlan, setTitle, taskCreate, taskUpdate, todoWrite, t
 import { askEndedEvent, bumpStat, callEndedEvent, copyStats, MAX_TOOL_NAMES } from '../../core/toolStats.ts';
 import { backgroundSummary, MAIN_LOOP, type ToolStat, type ActivityEntry, type ActivityEvent, type AgentStatus, type BackgroundKind, type BackgroundTask, type BackgroundWait, type Effort, type Failure, type FilesReport, type GitInfo, type ModelUsage, type RateLimit } from '../../core/protocol.ts';
 
-export const BLOWOUT_DEDUP_MS = 2000;
+const BLOWOUT_DEDUP_MS = 2000;
 /** An automatic compaction counts as a blowout only when the context was at least this full (#803). Claude Code also compacts early, after a quiet stretch. */
 export const AUTO_COMPACT_BLOWOUT_FILL = 0.8;
 const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-export const EVENT_QUEUE_MAX = 500;
+const EVENT_QUEUE_MAX = 500;
 /** Nothing changed yet (also what a session that is not in a repository reports). */
 export const NO_FILES: FilesReport = { files: [], total: 0, added: 0, removed: 0, since: 'start' };
-export const PLAN_TOOL = 'mcp__podium-reporter__plan';
+const PLAN_TOOL = 'mcp__podium-reporter__plan';
 /** Activity entries a watched loop keeps (#118). */
 export const ACTIVITY_KEPT = 20;
 
-export interface Tokens {
+interface Tokens {
   input: number;
   output: number;
   cacheRead: number;
@@ -48,12 +48,12 @@ export interface Usage {
 }
 
 /** A request whose prompt (input + cache reads + cache writes) is over this is priced at a model's long-prompt tier. */
-export const LONG_PROMPT_TOKENS = 100_000;
+const LONG_PROMPT_TOKENS = 100_000;
 
 const usageKey = (model: string, tier: 'std' | 'long') => `${model}\u0000${tier}`;
 
 /** Adds one request's tokens to a loop's per-model, per-tier totals (issue #117). The server prices them. */
-export function addUsage(usage: Record<string, ModelUsage> | undefined, model: string | null, u: Usage): Record<string, ModelUsage> {
+function addUsage(usage: Record<string, ModelUsage> | undefined, model: string | null, u: Usage): Record<string, ModelUsage> {
   const prior = usage ?? {};
   if (!model) return prior;
   const input = whole(u.input_tokens || 0);
@@ -102,9 +102,6 @@ export function mergeUsage(...sets: (Record<string, ModelUsage> | undefined)[]):
   }
   return [...out.values()].sort((a, b) => (a.model < b.model ? -1 : a.model > b.model ? 1 : a.tier < b.tier ? -1 : a.tier > b.tier ? 1 : 0));
 }
-
-/** The most distinct tool names kept per loop; later new names count in toolCalls only. Defined in core with the stats that share the cap. */
-export { MAX_TOOL_NAMES };
 
 export interface LoopStats {
   model: string | null;
@@ -159,13 +156,37 @@ export interface AgentState extends LoopStats {
   toolUseId: string | null;
 }
 
-export interface PendingSpawn {
+interface PendingSpawn {
   effort: Effort | null;
   model: string | null;
   subagentType: string | null;
   description: string | null;
   name: string | null;
   at: number;
+}
+
+/** One background shell or monitor a loop started (#897). Pure data: the file it prints to is read by the register module, which patches what it found back with `bgFile`. */
+export interface BgTask {
+  id: string;
+  kind: 'shell' | 'monitor';
+  /** The agent that started it; null for the orchestrator. */
+  agentId: string | null;
+  /** The whole command as Claude Code gave it (a Monitor's command, for a monitor). */
+  command: string;
+  /** When the reporter first saw it: Claude Code reports no start time. */
+  startedAt: number;
+  exited: boolean;
+  /** When the reporter first saw it had ended; null while it runs. */
+  endedAt: number | null;
+  /** From the `[exited with code N]` line its output file ends with; null while it runs and for one that ended without one. */
+  exitCode: number | null;
+  /** The output file's last change, as last read; null before the first read or while it has printed nothing. */
+  lastOutputAt: number | null;
+  /** The newest output, only while the loop's output switches are on; null otherwise. */
+  output: string | null;
+  outputCutAtStart: boolean;
+  /** Read after it exited, so a finished task is not read again. */
+  settled: boolean;
 }
 
 export interface SessionState {
@@ -185,6 +206,8 @@ export interface SessionState {
   mainIdle: boolean;
   waitReason: 'permission' | 'input' | null;
   waitNote: string | null;
+  /** The loop whose permission prompt `waitReason` holds: an agent id, or null for the main loop (#1252). */
+  waitAgentId: string | null;
   /** Background work or a scheduled wake-up the idle main loop is waiting on (#119); null when none. */
   background: BackgroundWait | null;
   endReason: string | null;
@@ -199,6 +222,8 @@ export interface SessionState {
   agents: Record<string, AgentState>;
   /** Agent ids in spawn order. */
   order: string[];
+  /** Agents still running here that the engine's list stopped naming, by the time it first did not (#1262). Cleared when it names one again. */
+  unlisted: Record<string, number>;
   /** Agent tool calls seen before (or after) their spawn, by tool_use_id. */
   pending: Record<string, PendingSpawn>;
   events: ActivityEvent[];
@@ -208,9 +233,15 @@ export interface SessionState {
   watched: string[];
   /** The loops of `watched` the server's reply says a viewer has the feed open on (#431); a Bash call's output is read only for these. Empty with the activityOutput option off. */
   watchedOutput: string[];
+  /** The loops of `watched` a viewer has the Background tab open on (#897); a task's whole command and output go out only for these, with the backgroundOutput option on. */
+  watchedBackground: string[];
+  /** The background shells and monitors this session's loops started (#897), at most 200, oldest first. */
+  bg: BgTask[];
+  /** The folder Claude Code writes task output files in, from a hook payload's `scratchpad_dir`; null until one carried it (the output is then unavailable). */
+  tasksDir: string | null;
 }
 
-export function emptyLoop(model: string | null = null): LoopStats {
+function emptyLoop(model: string | null = null): LoopStats {
   return {
     model,
     effort: null,
@@ -251,6 +282,7 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
     mainIdle: true,
     waitReason: 'input',
     waitNote: null,
+    waitAgentId: null,
     background: null,
     endReason: null,
     resumeId: null,
@@ -262,12 +294,16 @@ export function newSession(i: { id: string; cwd: string; startedAt: number; mode
     plan: emptyPlan,
     agents: {},
     order: [],
+    unlisted: {},
     pending: {},
     events: [],
     evSeq: 0,
     dirty: true,
     watched: [],
     watchedOutput: [],
+    watchedBackground: [],
+    bg: [],
+    tasksDir: null,
   };
 }
 
@@ -279,7 +315,7 @@ export function resetForNewId(s: SessionState, id: string, startedAt: number): S
 
 // ---- helpers ------------------------------------------------------------------------------------
 
-export function asEffort(v: unknown): Effort | null {
+function asEffort(v: unknown): Effort | null {
   return typeof v === 'string' && (EFFORTS as readonly string[]).includes(v) ? (v as Effort) : null;
 }
 
@@ -336,7 +372,7 @@ function loopLabel(s: SessionState, agentId: string | null | undefined): string 
   return a ? `in “${a.description}”` : 'in an agent';
 }
 
-export function agentLabel(a: Pick<AgentState, 'kind' | 'type' | 'model' | 'effort'>): string {
+function agentLabel(a: Pick<AgentState, 'kind' | 'type' | 'model' | 'effort'>): string {
   return `${a.kind === 'fork' ? 'fork' : a.type} · ${shortName(a.model)}${a.effort ? ` ${a.effort}` : ''}`;
 }
 
@@ -415,10 +451,10 @@ export interface BackgroundInput {
   crons: { id?: string; schedule?: string; recurring?: boolean; prompt?: string; nextAt?: number | null }[];
 }
 
-const TASK_DONE = /^(completed|complete|done|failed|killed|stopped|cancelled|canceled|error)$/i;
+export const TASK_DONE = /^(completed|complete|done|failed|killed|stopped|cancelled|canceled|error)$/i;
 const TASK_KINDS: Record<string, BackgroundKind> = { shell: 'shell', bash: 'shell', subagent: 'agent', agent: 'agent', monitor: 'monitor', workflow: 'workflow' };
 /** Claude Code's artifact live-update watchers (#128): they run as long as the session does, so they are not work it waits on. */
-const ARTIFACT_WATCHER = /^live updates for artifact /i;
+export const ARTIFACT_WATCHER = /^live updates for artifact /i;
 const MAX_BACKGROUND_TASKS = 20;
 const BACKGROUND_DESC = 120;
 
@@ -720,6 +756,13 @@ export interface ListedAgent {
   name?: string;
 }
 
+/**
+ * How long a running subagent may go unnamed by the engine's list before it is taken as over (#1262). The engine lists a live
+ * agent whatever it does, a background one waiting on its shell included (as `waiting`), and drops a finished one, so a name
+ * missing for this long means the stop event was lost.
+ */
+const LOST_AGENT_MS = 120_000;
+
 export function reconcile(s: SessionState, list: readonly ListedAgent[], now: number): SessionState {
   let agents = s.agents;
   let order = s.order;
@@ -756,7 +799,37 @@ export function reconcile(s: SessionState, list: readonly ListedAgent[], now: nu
       changed = true;
     }
   }
+  // A running subagent the list has not named for LOST_AGENT_MS lost its stop: it is over, not failed. A teammate's own pane is no loop
+  // here and its list entry says `idle`, so it is never swept.
+  const named = new Set(list.map((l) => l.id));
+  let unlisted = s.unlisted;
+  const lostIds: string[] = [];
+  for (const [id, a] of Object.entries(agents)) {
+    if (a.kind === 'teammate' || (a.status !== 'running' && a.status !== 'queued')) {
+      if (id in unlisted) unlisted = omit(unlisted, id);
+      continue;
+    }
+    if (named.has(id)) {
+      if (id in unlisted) unlisted = omit(unlisted, id);
+    } else if (!(id in unlisted)) unlisted = { ...unlisted, [id]: now };
+    else if (now - unlisted[id]! >= LOST_AGENT_MS) {
+      agents = { ...agents, [id]: { ...a, status: 'done', endedAt: now, candidate: null, failure: null } };
+      unlisted = omit(unlisted, id);
+      lostIds.push(id);
+      changed = true;
+    }
+  }
+  if (unlisted !== s.unlisted) {
+    let out: SessionState = { ...s, agents, order, unlisted };
+    for (const id of lostIds) out = addEvent(out, 'done', id, `finished: ${agents[id]!.description}`, now);
+    return withStatus(out);
+  }
   return changed ? withStatus({ ...s, agents, order }) : s;
+}
+
+function omit(rec: Record<string, number>, id: string): Record<string, number> {
+  const { [id]: _gone, ...rest } = rec;
+  return rest;
 }
 
 // ---- tools --------------------------------------------------------------------------------------
@@ -766,7 +839,7 @@ export function toolStarted(s: SessionState, agentId: string | undefined, tool: 
   const loop = loopOf(s, agentId);
   if (!loop) return s;
   let next = putLoop(s, agentId, { ...loop, lastTool: cap(tool, 120), lastActiveAt: now ?? loop.lastActiveAt });
-  if (next.waitReason === 'permission' && !agentId) next = withStatus({ ...next, waitReason: null, waitNote: null });
+  if (next.waitReason === 'permission' && (!agentId || agentId === next.waitAgentId)) next = withStatus({ ...next, waitReason: null, waitNote: null });
   // A tool call in the main loop means it is working. A background agent's report wakes an idle loop with no new
   // prompt, so turnStart never runs; without this the session keeps saying "waiting" through the whole turn (#997).
   if (!agentId && next.mainIdle) next = withStatus({ ...next, mainIdle: false, background: null });
@@ -810,7 +883,7 @@ export function toolResult(s0: SessionState, i: ToolResultInput, now: number): S
     }
     s = putLoop(s, i.agentId, next);
   }
-  if (s.waitReason === 'permission' && !i.agentId) s = withStatus({ ...s, waitReason: null, waitNote: null });
+  if (s.waitReason === 'permission' && (!i.agentId || i.agentId === s.waitAgentId)) s = withStatus({ ...s, waitReason: null, waitNote: null });
   const ok = typeof i.result.deny !== 'string' && i.result.isError !== true;
   if (!ok) return s;
   if (i.tool === 'Skill' && typeof i.input.skill === 'string') s = skillLoaded(s, i.agentId, i.input.skill, now);
@@ -855,21 +928,21 @@ export function permissionAsked(s: SessionState, agentId: string | undefined, to
 }
 
 /** The engine raised a permission dialog. */
-export function permissionRequest(s: SessionState, toolName: string, toolInput: unknown, now: number): SessionState {
+export function permissionRequest(s: SessionState, toolName: string, toolInput: unknown, now: number, agentId?: string): SessionState {
   let short = '';
   if (toolInput && typeof toolInput === 'object') {
     const v = (toolInput as Record<string, unknown>).command ?? (toolInput as Record<string, unknown>).file_path ?? Object.values(toolInput as Record<string, unknown>)[0];
     short = typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v);
   }
   const note = clip(`${toolName}(${short.replace(/\s+/g, ' ').trim()})`, 160);
-  const next = withStatus({ ...s, waitReason: 'permission', waitNote: note });
+  const next = withStatus({ ...s, waitReason: 'permission', waitNote: note, waitAgentId: agentId ?? null });
   return addEvent(next, 'wait', null, `waiting on you: ${note}`, now);
 }
 
 /** A notification: a permission prompt or idle-for-input is a fallback signal for waiting. */
 export function notification(s: SessionState, type: string, message: string, now: number): SessionState {
   if (/permission/i.test(type) && s.waitReason !== 'permission') {
-    const next = withStatus({ ...s, waitReason: 'permission', waitNote: clip(message.replace(/\s+/g, ' ').trim(), 160) || null });
+    const next = withStatus({ ...s, waitReason: 'permission', waitNote: clip(message.replace(/\s+/g, ' ').trim(), 160) || null, waitAgentId: null });
     return addEvent(next, 'wait', null, `waiting on you: ${next.waitNote ?? 'permission'}`, now);
   }
   if (/idle/i.test(type)) return withStatus({ ...s, mainIdle: true });

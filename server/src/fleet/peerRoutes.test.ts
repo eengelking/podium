@@ -36,7 +36,7 @@ async function setup(opts: { secret?: string | null; flag?: boolean; toldThrows?
   const logger = createLogger({ format: 'json', level: 'debug', write: (l) => lines.push(l) });
   const app = express();
   app.use('/api/fleet', createFleetRouter(fleet, { token: secret, people, reporters, lockout, respondBridge, logger }));
-  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, toldLinkStop: (a, o, w) => { if (opts.toldThrows) throw new Error('no session store'); return fleet.chat.toldLinkStop(a, o, w); }, ...(opts.noRecorder ? {} : { noteConversationRead: (v: Parameters<typeof fleet.chat.noteConversationRead>[0], a: string, b: string) => { if (opts.recordThrows) return Promise.reject(new Error('no record store')); return fleet.chat.noteConversationRead(v, a, b); } }), lockout, respondBridge, now, log: () => {} }));
+  app.use('/api/admin', createAdminRouter({ secret, storage, people, reporters, peers: fleet.peers, features: fleet.features, stopOwed: async (a, o, k, w) => { if (opts.toldThrows) throw new Error('no session store'); return fleet.chat.stopOwed(a, o, k, w); }, ...(opts.noRecorder ? {} : { noteConversationRead: (v: Parameters<typeof fleet.chat.noteConversationRead>[0], a: string, b: string) => { if (opts.recordThrows) return Promise.reject(new Error('no record store')); return fleet.chat.noteConversationRead(v, a, b); } }), lockout, respondBridge, now, log: () => {} }));
   await fleet.init();
   closers.push(() => fleet.close());
   if (opts.flag !== false) await fleet.features.setFeature(PEER_MESSAGING, true);
@@ -131,20 +131,28 @@ describe('the report reply (#412)', () => {
 });
 
 describe('a message between two of one owner’s orchestrators (#412)', () => {
-  it('is held while the receiver works, handed over when it reports idle, and its result recorded', async () => {
+  it('is handed over while the receiver works (#1252), held only at a permission prompt, and its result and wait recorded', async () => {
     const s = await linked('send');
     await testerReport(s, { status: 'running', waitReason: null });
     const sent = await send(s, 'Please run the systemd unit tests');
     expect(sent.status).toBe(202);
-    expect(sent.body).toMatchObject({ ok: true, state: 'turn', paused: false, to: { name: 'Tester', machine: 'ci-runner-01' } });
-    expect((await testerReport(s, { status: 'running', waitReason: null })).body.peerDeliveries).toEqual([]);
-    const idle = await testerReport(s);
-    expect(idle.body.peerDeliveries).toEqual([
-      { id: sent.body.id, kind: 'message', at: expect.any(Number), from: { name: 'dev', machine: 'ed-mbp', owner: 'Ed', id: 'sess-dev' }, text: 'Please run the systemd unit tests' },
-    ]);
+    expect(sent.body).toMatchObject({ ok: true, state: 'sent', paused: false, to: { name: 'Tester', machine: 'ci-runner-01' } });
+    const prompt = await send(s, 'After the prompt');
+    expect(prompt.body).toMatchObject({ ok: true, state: 'sent' });
+    await testerReport(s, { status: 'waiting', waitReason: 'permission' });
+    const held = await send(s, 'While the prompt is open');
+    expect(held.body).toMatchObject({ ok: true, state: 'turn' });
+    expect((await testerReport(s, { status: 'waiting', waitReason: 'permission' })).body.peerDeliveries).toEqual([]);
+    s.tick(4000);
+    const working = await testerReport(s, { status: 'running', waitReason: null });
+    expect(working.body.peerDeliveries[0]).toEqual(
+      { id: sent.body.id, kind: 'message', at: expect.any(Number), from: { name: 'dev', machine: 'ed-mbp', owner: 'Ed', id: expect.stringMatching(/^\d+$/) }, text: 'Please run the systemd unit tests' },
+    );
+    expect(working.body.peerDeliveries).toHaveLength(3);
     const took = await request(s.app).post(`/api/fleet/sessions/sess-tester/peers/deliveries/${sent.body.id}/result`).set('X-Podium-Token', s.ed.token).send({ result: 'took', at: 1 });
     expect(took.status).toBe(200);
-    expect((await testerReport(s)).body.peerDeliveries).toEqual([]);
+    await logKinds(s);
+    expect(s.lines.filter((l) => l.includes('peers.delivered')).some((l) => (JSON.parse(l) as { waited_ms?: number }).waited_ms === 4000)).toBe(true);
     expect(await logKinds(s)).toEqual(expect.arrayContaining(['peer_sent', 'peer_delivered', 'peer_right_set']));
   });
 
@@ -260,11 +268,69 @@ describe('a message between two of one owner’s orchestrators (#412)', () => {
     expect((await request(s.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', s.ed.token).send({ to: 'Tester@ci-runner-01' })).status).toBe(400);
   });
 
+  it('refuses a `to` that is blank or longer than 200 characters with 400 and its path, and takes one of exactly 200 as far as the lookup (#1296)', async () => {
+    const s = await linked('send');
+    const to = (v: string) => request(s.app).post('/api/fleet/sessions/sess-dev/peers/messages').set('X-Podium-Token', s.ed.token).send({ to: v, text: 'x' });
+    for (const v of ['a'.repeat(201), '   ']) {
+      const out = await to(v);
+      expect(out.status).toBe(400);
+      expect(out.body).toEqual({ ok: false, error: 'to must be name@machine', path: '$.to' });
+    }
+    expect(storedMessages(s)).toBe(0);
+    // 200 characters is inside the limit: the address is looked up, finds nobody, and the answer is the one for an unknown agent.
+    expect((await to('a'.repeat(200))).status).toBe(404);
+  });
+
   it('answers a delivery result for an unknown id with 404, and checks the result', async () => {
     const s = await linked('send');
     const route = '/api/fleet/sessions/sess-tester/peers/deliveries/dlv_nope/result';
     expect((await request(s.app).post(route).set('X-Podium-Token', s.ed.token).send({ result: 'took' })).status).toBe(404);
     expect((await request(s.app).post(route).set('X-Podium-Token', s.ed.token).send({ result: 'eaten' })).status).toBe(400);
+  });
+});
+
+// The gate a reporter's token passes to act for one of its person's live orchestrators is one function for the peer routes and the Chat agent routes: same order of
+// checks, same words, each logged under its own name with the session it was about.
+describe('the session gate of the mod routes and the Chat agent routes', () => {
+  const routes = [
+    { name: 'a peer route', path: (sid: string) => `/api/fleet/sessions/${sid}/peers`, kind: 'peers.refused' },
+    { name: 'a Chat agent route', path: (sid: string) => `/api/fleet/sessions/${sid}/chat/channels`, kind: 'chat.refused' },
+  ];
+  const refused = (s: S, kind: string) => s.lines.map((l) => JSON.parse(l) as { event?: string; message?: string; status?: number; reason?: string; session_id?: string | null }).filter((l) => l.event === kind);
+
+  it.each(routes)('answers $name in the same order of checks, and logs each refusal with its session', async ({ path, kind }) => {
+    const off = await setup({ flag: false });
+    expect((await devReport(off)).status).toBe(200);
+    const none = await request(off.app).get(path('sess-dev')).set('X-Podium-Token', off.ed.token);
+    expect([none.status, none.body]).toEqual([403, { ok: false, error: 'orchestrator messaging is off' }]);
+    expect(refused(off, kind)).toHaveLength(1);
+    expect(refused(off, kind)[0]).toMatchObject({ status: 403, reason: 'orchestrator messaging is off', session_id: 'sess-dev' });
+
+    const s = await linked('send');
+    const get = (sid: string, token: string) => request(s.app).get(path(sid)).set('X-Podium-Token', token);
+    const unknown = await get('sess-none', s.ed.token);
+    expect([unknown.status, unknown.body]).toEqual([404, { ok: false, error: 'unknown session', path: '$.id' }]);
+    const admin = await get('sess-dev', SECRET);
+    expect([admin.status, admin.body]).toEqual([403, { ok: false, error: 'a reporter on the admin secret cannot take part' }]);
+    const other = await get('sess-dev', s.alex.token);
+    expect([other.status, other.body]).toEqual([403, { ok: false, error: 'not your session' }]);
+    await devReport(s, { peers: false });
+    const noPeers = await get('sess-dev', s.ed.token);
+    expect([noPeers.status, noPeers.body]).toEqual([403, { ok: false, error: "messaging is off on this machine: turn on the reporter's peers option there" }]);
+    expect(refused(s, kind).map((l) => l.reason)).toEqual(['a reporter on the admin secret cannot take part', 'not your session', "messaging is off on this machine: turn on the reporter's peers option there"]);
+    expect(refused(s, kind).every((l) => l.session_id === 'sess-dev')).toBe(true);
+    expect((await get('sess-tester', s.ed.token)).status).toBe(200);
+  });
+
+  it('logs a refusal of a browser route with no session, under the route file\'s own name', async () => {
+    const s = await linked('send');
+    const chat = await request(s.app).get('/api/fleet/respond/chat');
+    expect([chat.status, chat.body]).toEqual([403, { ok: false, error: 'sign in to use Chat' }]);
+    const mine = await request(s.app).get('/api/fleet/respond/peers');
+    expect([mine.status, mine.body]).toEqual([403, { ok: false, error: 'sign in to manage your reporters' }]);
+    expect(refused(s, 'chat.refused')).toEqual([expect.objectContaining({ status: 403, reason: 'sign in to use Chat' })]);
+    expect(refused(s, 'peers.refused')).toEqual([expect.objectContaining({ status: 403, reason: 'sign in to manage your reporters' })]);
+    expect([...refused(s, 'chat.refused'), ...refused(s, 'peers.refused')].some((l) => 'session_id' in l)).toBe(false);
   });
 });
 
@@ -609,6 +675,23 @@ describe('the Admin’s side (#412)', () => {
     expect(rows.find((r) => r.kind === 'peer_links_paused')?.detail).toBe(`${SECRET_ACTOR} paused all messaging links of Ed's reporter ${MAC.name}`);
   });
 
+  it('keeps an Admin\'s stop owed to the person until they have seen it: a session that reports later is told, with one id, and a look at the console ends it (#1328)', async () => {
+    const s = await linked('send');
+    const admin = await adminAgent(s);
+    expect((await admin.put(`/api/admin/reporters/${MAC.id}/peers/pause`).set(HA).send({ paused: true })).status).toBe(200);
+    // A session of Ed's that had not reported when the Admin stopped (so it was never live then) is told when it first reports, and says the same thing on its next report with the same id.
+    const late = () => report('Ed', 'sess-late', 'late', MAC);
+    const first = (await post(s, s.ed.token, late())).body as { adminNotices?: { id: string; text: string }[] };
+    const again = (await post(s, s.ed.token, late())).body as { adminNotices?: { id: string; text: string }[] };
+    expect(first.adminNotices?.map((n) => n.text)).toEqual([`${SECRET_ACTOR} (an Admin) paused all messaging links of your reporter ${MAC.name}.`]);
+    expect(again.adminNotices?.map((n) => n.id)).toEqual(first.adminNotices?.map((n) => n.id));
+    // The record is Ed's: Alex is told nothing, and the Admin log says how many of Ed's sessions were live.
+    expect(((await post(s, s.alex.token, report('Alex', 'sess-alex', 'review', ALEX_BOX))).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+    // Ed's console shows the line once, and then the reporters stop repeating it.
+    expect(((await s.edBrowser.get('/api/fleet/respond/chat').set(H)).body as { goneReads: { kind: string }[] }).goneReads).toMatchObject([{ kind: 'links_paused' }]);
+    expect(((await post(s, s.ed.token, late())).body as { adminNotices?: unknown[] }).adminNotices ?? []).toEqual([]);
+  });
+
   it('keeps the stop and still writes the Admin log line when the person cannot be told (#1077)', async () => {
     const s = await linked('send', { toldThrows: true });
     const admin = await adminAgent(s);
@@ -688,5 +771,39 @@ describe('retention (#412)', () => {
     s.tick(31 * 86_400_000);
     expect((await s.fleet.retain()).peerMessages).toBe(1);
     expect(storedMessages(s)).toBe(0);
+  });
+});
+
+describe('Podium’s own credentials in peer text (#1329)', () => {
+  const stored = (s: S) => (s.db.prepare('SELECT text FROM peer_messages').all() as { text: string }[]).map((r) => r.text);
+
+  it('stores the admin secret, a person token and a secret-shaped value as [redacted], and says how many the server replaced', async () => {
+    const s = await linked();
+    const out = await send(s, `key ${SECRET} and ${s.alex.token} and sk-live-PEERROUTE1234567890 done`);
+    expect(out.status).toBe(202);
+    expect(out.body.redactions).toBe(3);
+    const [text] = stored(s);
+    expect(text).toBe('key [redacted] and [redacted] and [redacted] done');
+  });
+
+  it('leaves a clean message as it was and reports no replacement', async () => {
+    const s = await linked();
+    const out = await send(s, 'run the tests, then tell me what failed');
+    expect(out.status).toBe(202);
+    expect(out.body.redactions).toBeUndefined();
+    expect(stored(s)).toEqual(['run the tests, then tell me what failed']);
+  });
+
+  it('does not count a [redacted] the reporter already put in', async () => {
+    const s = await linked();
+    const out = await send(s, 'it was [redacted] already');
+    expect(out.status).toBe(202);
+    expect(out.body.redactions).toBeUndefined();
+  });
+
+  it('counts the length of the scrubbed text against the limit, not the raw text', async () => {
+    const s = await linked();
+    const out = await send(s, `${SECRET} `.repeat(900));
+    expect(out.status).toBe(202);
   });
 });

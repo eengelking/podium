@@ -9,7 +9,8 @@ import { jsonBody } from '../jsonBody.js';
 import { metaOfRow, type Fleet } from './fleet.js';
 import type { BrowserHelpers, PeerDeps } from './peerRoutes.js';
 import { credentialOwns, viewerOwns } from './respondRoutes.js';
-import { ADMIN_OWNER, nameKey, sourceAddress, type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { type SessionRow, type RecordingTrail } from '../storage/rows.js';
+import { refuser, sourceOf } from './routeGate.js';
 import { replayThread } from './chatAdminReads.js';
 import type { PeopleStoreApi } from '../storage/types.js';
 import { sizeText } from './sizeText.js';
@@ -20,14 +21,12 @@ import { asyncHandler } from './asyncHandler.js';
 /** The mod's batch is at most 480,000 bytes of JSON; the router's body limit is the report's. */
 const BATCH_BODY_LIMIT = '512kb';
 
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
-
 /** Authentication on and the Admin's flag (#353). The reporter's `sessionRecording` option is checked per session. */
 export const recordingEnabled = (fleet: Fleet, token: string | null): boolean => token !== null && fleet.recordings.enabled();
 
 
 /** The Admin log row and the server log line for one recording event, never any text of the recording. */
-export async function logRecording(people: PeopleStoreApi | null, logger: Logger, now: number, kind: string, detail: string, source: string, actor: string | null, fields: Record<string, string | number | boolean | null>): Promise<void> {
+async function logRecording(people: PeopleStoreApi | null, logger: Logger, now: number, kind: string, detail: string, source: string, actor: string | null, fields: Record<string, string | number | boolean | null>): Promise<void> {
   await people?.log(kind, detail, source, now, actor);
   logger.info(`recording.${kind.replace(/^recording_/, '')}`, `podium: ${detail}`, { ...fields, source });
 }
@@ -92,10 +91,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
   const { fleet, logger, people } = d;
   const now = fleet.now;
 
-  const refuse = (req: Request, res: Response, status: number, reason: string, extra: Record<string, unknown> = {}) => {
-    logger.warn('recording.refused', `podium: refused ${req.method} ${req.baseUrl}${req.path} from ${sourceOf(req)}: ${reason}`, { status, reason, source: sourceOf(req), session_id: typeof req.params.id === 'string' ? req.params.id : null });
-    res.status(status).json({ ok: false, error: reason, ...extra });
-  };
+  const refuse = refuser(logger, 'recording.refused', { session: true });
 
   /**
    * The signed-in viewer and the session they may use (its owner, or an Admin); otherwise answers and returns null. The viewer is
@@ -150,7 +146,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     // An Admin's replay of someone else's session is recorded and the owner is told (#1075): in their reporter session through the record, and on their console. Paging back keeps the reading live.
     if (got.v.admin && (await fleet.chat.adminReads.noteReplay(got.v, got.row))) fleet.replayChanged();
     if (before === null) await audit(req, got.v, got.row, 'recording_read', `${got.v.name} opened the replay${loop ? ` of ${loop === MAIN_LOOP ? 'the orchestrator' : 'one agent'}` : ''}`, { entries: page.entries.length });
-    const body: RecordingPage = { ...page, grant: await fleet.recordings.grant(got.row.id), loops, owner: got.row.owner };
+    const body: RecordingPage = { ...page, grant: await fleet.recordings.grant(got.row.id), loops, owner: got.row.owner, ownerId: got.row.owner_id };
     res.json(body);
   }));
 
@@ -161,7 +157,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     const v = await h.viewerOf(req);
     if (!v) return void refuse(req, res, 401, 'sign in to see who is replaying your recordings');
     const sessions: Record<string, { admin: string; since: number; until: number }[]> = {};
-    for (const [id, list] of await fleet.chat.adminReads.replayersOf(v.name)) sessions[id] = list;
+    if (v.personId !== null) for (const [id, list] of await fleet.chat.adminReads.replayersOf(v.personId)) sessions[id] = list;
     res.json({ ok: true, serverTime: now(), sessions });
   }));
 
@@ -182,12 +178,12 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     const got = await access(req, res);
     if (!got) return;
     // The owner's own look at the replay's record (#1075): who replayed it and when, and who is replaying it now. Never any text. Loading it is the owner seeing it.
-    const own = got.row.owner !== null && got.row.owner !== ADMIN_OWNER && nameKey(got.row.owner) === nameKey(got.v.name);
+    const own = got.row.owner_id !== null && got.row.owner_id === got.v.personId;
     const reads = fleet.chat.adminReads;
     const thread = replayThread(got.row.id);
     const adminReads = own ? await reads.list(thread) : [];
     const adminReading = own ? ((await reads.liveFor([thread])).get(thread) ?? []) : [];
-    if (own && adminReads.length) await reads.seen(thread, got.v.name);
+    if (own && adminReads.length && got.v.personId !== null) await reads.seen(thread, got.v.personId);
     res.json({ ok: true, grant: await fleet.recordings.grant(got.row.id), keepHours: fleet.recordingSettings.get().keepHours, adminReads, adminReading });
   }));
 
@@ -233,7 +229,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     if (out.changed) {
       await audit(req, got.v, got.row, 'recording_stopped', `${got.v.name} stopped the recording`, { by: got.v.name });
       // An Admin stopping a person's recording from the session's page tells the owner, as the Admin page does (#1078). The owner stopping their own tells no one.
-      await fleet.adminActs.onSession(got.v.name, 'recording_stopped', got.row.id);
+      await fleet.adminActs.onSession({ name: got.v.name, id: got.v.personId }, 'recording_stopped', got.row.id);
       fleet.recordingChanged(got.row.id);
     }
     res.json({ ok: true, grant: out.grant });
@@ -249,7 +245,7 @@ export function mountRecordingBrowserRoutes(browser: Router, d: PeerDeps, h: Bro
     try {
       const out = await fleet.recordings.removeMany([got.row.id]);
       await audit(req, got.v, got.row, 'recording_deleted', `${got.v.name} deleted the recording (${out.entries} entries, ${sizeText(out.bytes)})`, { entries: out.entries, bytes: out.bytes });
-      await fleet.adminActs.onSession(got.v.name, 'recording_deleted', got.row.id);
+      await fleet.adminActs.onSession({ name: got.v.name, id: got.v.personId }, 'recording_deleted', got.row.id);
       fleet.recordingChanged(got.row.id);
       res.json({ ok: true, entries: out.entries, bytes: out.bytes });
     } catch {

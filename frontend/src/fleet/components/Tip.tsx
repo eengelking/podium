@@ -8,8 +8,12 @@ const GUTTER = 8;
  * the trigger names with `aria-describedby`, so a screen reader reads it whether or not the box is open. Replaces `title`
  * plus `tabIndex`, which a browser does not show on focus (issue #275). The box is `position: fixed` and placed from the
  * trigger's rectangle, so a table's scroll container cannot clip it.
+ *
+ * `bare` is for a trigger that is already a button or a link (the Chat sidebar's `+`): the wrapper takes no tab stop of its own, the
+ * tip opens when the control inside takes the focus or is pointed at, and `children` is a function that is given the tip's id to put in
+ * the control's own `aria-describedby`.
  */
-export function Tip({ text, className, style, label, children }: { text: string; className?: string; style?: CSSProperties; label?: string; children: ReactNode }) {
+export function Tip({ text, className, style, label, bare, children }: { text: string; className?: string; style?: CSSProperties; label?: string; bare?: boolean; children: ReactNode | ((describedBy: string) => ReactNode) }) {
   const id = useId();
   const trigger = useRef<HTMLSpanElement>(null);
   const box = useRef<HTMLSpanElement>(null);
@@ -48,10 +52,10 @@ export function Tip({ text, className, style, label, children }: { text: string;
       ref={trigger}
       className={className ? `tip ${className}` : "tip"}
       style={style}
-      tabIndex={0}
-      aria-describedby={id}
-      role={label ? "img" : undefined}
-      aria-label={label}
+      tabIndex={bare ? undefined : 0}
+      aria-describedby={bare ? undefined : id}
+      role={label && !bare ? "img" : undefined}
+      aria-label={bare ? undefined : label}
       onMouseEnter={() => {
         setHover(true);
         setDismissed(false);
@@ -63,7 +67,7 @@ export function Tip({ text, className, style, label, children }: { text: string;
       }}
       onBlur={() => setFocus(false)}
     >
-      {children}
+      {typeof children === "function" ? children(id) : children}
       <span ref={box} id={id} role="tooltip" className="tipbox" hidden={!open} style={pos ? { top: pos.top, left: pos.left } : { visibility: "hidden" }}>
         {text}
       </span>

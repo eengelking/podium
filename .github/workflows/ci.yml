@@ -36,6 +36,11 @@ jobs:
       - name: Build (UI, server, scripts type-check)
         run: npm run build
 
+      # Unused code (#1210). The build above already fails on an unused import or local (`noUnusedLocals` in every tsconfig, tests
+      # included); knip fails on a file, dependency or export that nothing reaches, and prints the file and the name.
+      - name: No unused files, dependencies or exports (knip)
+        run: npm run knip
+
       # The standards pages follow main, so development may be ahead of them. A PR into main (a release or a hotfix) and a push
       # to main must leave them identical to the app: docs/standards/ and the app agree on every token, class and component.
       - name: Standards match the app (PRs into main, and main)

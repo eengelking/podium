@@ -13,12 +13,11 @@ const CWD = '/Users/dev/app/.claude/worktrees/feat-x'
 /** A pre-warmed spare of the desktop app, and the project it is moved to (#382). */
 const SPARE = '/Users/dev/.claude/spares/spare-eB3Cs1'
 const PROJECT = '/Users/dev/web/podium'
+/** One rev-parse answers the git dir, common dir, top level, HEAD commit and branch (#753). */
+const REV = 'rev-parse --git-dir --git-common-dir --show-toplevel HEAD --abbrev-ref HEAD'
 const PROJECT_GIT: Record<string, string> = {
-  'rev-parse --abbrev-ref HEAD': 'main',
-  'rev-parse --git-dir': '.git',
-  'rev-parse --git-common-dir': '.git',
+  [REV]: `.git\n.git\n${PROJECT}\n${'d'.repeat(40)}\nmain`,
   'rev-parse --path-format=absolute --git-common-dir': `${PROJECT}/.git`,
-  'rev-parse --show-toplevel': PROJECT,
   'status --porcelain=v1 -b': '## main...origin/main\n',
   'config --get remote.origin.url': 'git@github.com:acme/podium.git',
 }
@@ -38,6 +37,12 @@ interface World {
   watch: { value: string[] }
   /** The loops the reply says a viewer has the feed open on (#431); null leaves the field out, as an older server does. */
   watchOutput: { value: string[] | null }
+  /** The modification time of a kept file, by path (#897); a path not listed is old. */
+  mtimes: Record<string, number>
+  /** Every path `$.fs.read` was asked for, in order (#897). */
+  reads: string[]
+  /** The loops the reply says a viewer has the Background tab open on (#897); null leaves the field out, as an older server does. */
+  watchBackground: { value: string[] | null }
   /** What a Bash call returns, by a word in its command (#431); the default is the plain mock. */
   bash: { results: Record<string, unknown> }
   /** What each model request streams before it ends. */
@@ -65,10 +70,7 @@ interface World {
 }
 
 const GIT: Record<string, string> = {
-  'rev-parse --abbrev-ref HEAD': 'feat/x',
-  'rev-parse --git-dir': '/Users/dev/app/.git/worktrees/feat-x',
-  'rev-parse --git-common-dir': '/Users/dev/app/.git',
-  'rev-parse --show-toplevel': CWD,
+  [REV]: `/Users/dev/app/.git/worktrees/feat-x\n/Users/dev/app/.git\n${CWD}\n${'d'.repeat(40)}\nfeat/x`,
   'status --porcelain=v1 -b': '## feat/x...origin/feat/x [ahead 2]\n M src/a.ts\n',
 }
 
@@ -88,9 +90,21 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const clock = mock.clock(on, { now: 1_800_000_000_000 })
   mock.store(on, store)
   const kept: World['files'] = { text: { ...files }, broken: false }
+  const mtimes: Record<string, number> = {}
+  const reads: string[] = []
   on('fs.read', (_$, e) => {
+    reads.push(e.path)
     if (kept.broken || !(e.path in kept.text)) throw new Error('ENOENT')
     return { value: kept.text[e.path]! }
+  })
+  // A path under `/links/` is a link to the same name under `/tmp/` (#897); a path kept in `files` is a file, and a path that is a folder of one is a dir.
+  on('fs.stat', (_$, e) => {
+    if (kept.broken) throw new Error('EACCES')
+    const isLink = e.path.startsWith('/links/')
+    const real = isLink ? e.path.replace('/links/', '/tmp/') : e.path
+    const isDir = Object.keys(kept.text).some((k) => k.startsWith(`${real}/`))
+    if (!isDir && !(real in kept.text)) throw new Error('ENOENT')
+    return { value: { kind: isDir ? 'dir' : 'file', size: isDir ? 0 : kept.text[real]!.length, mtimeMs: mtimes[real] ?? 1_700_000_000_000, isLink, ...(e.resolve ? { realPath: real } : {}) } }
   })
   on('fs.write', (_$, e) => {
     if (kept.broken) throw new Error('EACCES')
@@ -111,6 +125,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   const toasts: string[] = []
   const watch: World['watch'] = { value: [] }
   const watchOutput: World['watchOutput'] = { value: null }
+  const watchBackground: World['watchBackground'] = { value: null }
   const bash: World['bash'] = { results: {} }
   const chunks: World['chunks'] = { value: [] }
   on('session.id', () => ({ value: sessionId.value }))
@@ -166,11 +181,11 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
     if (fetchMode.mode === 'down') throw new Error('ECONNREFUSED')
     fetched.push({ url: e.url, socketPath: e.init?.socketPath })
     if (fetchMode.mode === 'denied') return { value: { status: 401, ok: false, headers: {}, text: '{"ok":false,"error":"client certificate refused"}' } }
-    const body = JSON.parse(e.init?.body ?? '{}') as Report
+    const body = JSON.parse(typeof e.init?.body === 'string' ? e.init.body : '{}') as Report
     if (fetchMode.mode === 'hang') return new Promise(() => {})
     posts.push(body)
     headers.push(e.init?.headers ?? {})
-    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 3, watch: watch.value, ...(watchOutput.value ? { watchOutput: watchOutput.value } : {}), serverVersion: '1.1.0', serverBuild: serverBuild.value }) } }
+    return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true, ackedEvents: body.events.length, liveSessions: 3, watch: watch.value, ...(watchOutput.value ? { watchOutput: watchOutput.value } : {}), ...(watchBackground.value ? { watchBackground: watchBackground.value } : {}), serverVersion: '1.1.0', serverBuild: serverBuild.value }) } }
   })
   on('session.start', () => ({ cwd: CWD }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -178,9 +193,10 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('turn.complete', () => ({ text: '' }))
   on('session.measure', (_$, e) => ({ changed: e.changed }))
   on('session.compact', () => ({ messages: SUMMARY, tokensBefore: 1_000_000, tokensAfter: 300_000 }))
-  on('agent.spawn', (_$, e) => ({ model: e.fork ? e.parentModel : e.model === 'haiku' ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', agentId: e.fork ? 'a-fork' : e.description === 'Backfill dry run' ? 'a-fail' : 'a-sub' }))
+  on('agent.spawn', (_$, e) => ({ model: e.fork ? e.parentModel : e.model === 'haiku' ? 'claude-haiku-5-5' : 'claude-sonnet-5-5', agentId: e.fork ? 'a-fork' : e.description.startsWith('many-') ? e.description : e.description === 'Backfill dry run' ? 'a-fail' : 'a-sub' }))
   on('tool.call', async (_$, e) => {
     toolUseId = e.tool_use_id
+    if (e.tool === 'Monitor') return { result: { taskId: 'mon1' }, text: 'Monitor started' } as never
     if (e.tool === 'TaskCreate') return { result: { task: { id: '1', subject: e.subject } } }
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }
     if (e.tool === 'Bash') {
@@ -213,7 +229,7 @@ function world(on: On, store: Record<string, unknown> = {}, files: Record<string
   on('classic.Notification', () => ({}))
   on('classic.SessionStart', () => ({}))
   on('classic.UserPromptSubmit', () => ({}))
-  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, bash, chunks, files: kept, place, gitAt, devBuild, hosts, agents, statuses, serverBuild, fetched, toasts }
+  return { posts, headers, clock, lastToolUseId: () => toolUseId, sessionId, fetchMode, surfaces, ran, watch, watchOutput, watchBackground, mtimes, reads, bash, chunks, files: kept, place, gitAt, devBuild, hosts, agents, statuses, serverBuild, fetched, toasts }
 }
 
 type StepArgs = Parameters<Engine['turn']['step']>[0]
@@ -242,6 +258,36 @@ const spawnInput = (over: Partial<AgentSpawnInput> & { tool_use_id: string }): A
 const podium = (args: string): CommandRunInput => ({ command: 'podium', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
 
 describe('podium-reporter end to end', () => {
+  test('a large session that only counted is held until the hold, a permission prompt is not, and the close is never held (#752)', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
+    for (let i = 0; i < 60; i++) await $.agent.spawn(spawnInput({ tool_use_id: `tu-${i}`, description: `many-${i}`, prompt: 'x'.repeat(2000) }))
+    await w.clock.advance(1000)
+    const first = w.posts.length
+    expect(JSON.stringify(w.posts.at(-1)).length).toBeGreaterThan(32 * 1024)
+
+    // a step moves counters only: the next flush builds the report and holds it
+    await stepOnce($, { turnId: 'tc', index: 0, model: 'claude-sonnet-5-5', messageCount: 2, agentId: 'many-3' })
+    await w.clock.advance(1000)
+    expect(w.posts.length).toBe(first)
+    // ...and it is still owed: it goes once the hold has passed
+    await w.clock.advance(4000)
+    expect(w.posts.length).toBe(first + 1)
+    expect(w.posts.at(-1)!.agents.find((a) => a.id === 'many-3')!.steps?.done).toBeGreaterThan(0)
+
+    // a permission prompt is not a counter
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf dist' } })
+    await w.clock.advance(1000)
+    expect(w.posts.length).toBe(first + 2)
+    expect(w.posts.at(-1)!.session.status).toBe('waiting')
+
+    // the report of a session that ends goes at once even when only counters moved since the last one
+    await stepOnce($, { turnId: 'td', index: 0, model: 'claude-sonnet-5-5', messageCount: 3, agentId: 'many-4' })
+    await $.session.end({ reason: 'other', sessionId: SID, resume: { id: SID } })
+    expect(w.posts.length).toBe(first + 3)
+    expect(w.posts.at(-1)!.session.status).toBe('done')
+  })
+
   test('raises every hooked event and posts agents, plan, failure, blowouts and skills', async ($, on) => {
     const w = world(on)
     await $.session.start({ cwd: CWD, surface: 'terminal', isInteractive: true })
@@ -1109,6 +1155,191 @@ describe('podium-reporter end to end', () => {
     await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
     await w.clock.advance(1000)
     expect(w.posts[0]!.session.name).toBe('from-option')
+  })
+
+  describe('background shells and monitors (#897)', () => {
+    const SECRET = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz'
+    const SCRATCH = '/tmp/claude/proj/sess/scratchpad'
+    const TASKS = '/tmp/claude/proj/sess/tasks'
+    const FEED = { options: { activityFeed: true } }
+    const FULL = { options: { activityFeed: true, backgroundOutput: true } }
+    async function begun($: Engine, on: On, watch: string[] = [MAIN_LOOP, 'a-sub'], bg: string[] | null = null) {
+      const w = world(on)
+      on('classic.Stop', () => ({}))
+      on('classic.SubagentStop', () => ({}))
+      w.watch.value = watch
+      w.watchBackground.value = bg
+      await $.session.start({ cwd: CWD, surface: null, isInteractive: false })
+      await $.agent.spawn(spawnInput({ tool_use_id: 'f1' }))
+      await w.clock.advance(1000)
+      return w
+    }
+    const last = (w: World) => w.posts.at(-1)!
+    const mainItems = (w: World) => last(w).session.backgroundItems
+    const subItems = (w: World) => last(w).agents.find((a) => a.id === 'a-sub')!.backgroundItems
+    const stop = ($: Engine, tasks: unknown[], extra: object = {}) => $.classic.Stop({ stop_hook_active: false, background_tasks: tasks, ...extra } as never)
+
+    test('a Bash call run in the background and a Monitor are listed under the loop whose call it was, with the first word only', FEED, async ($, on) => {
+      const w = await begun($, on)
+      w.bash.results['npm run watch'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      w.bash.results['npm run build'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg2' }, text: 'Command running in background with ID: bg2' }
+      await $.tool.call({ tool: 'Bash', command: `API_KEY=${SECRET} npm run watch`, run_in_background: true } as never)
+      await $.tool.call({ tool: 'Bash', command: 'npm run build', run_in_background: true, agentId: 'a-sub' } as never)
+      await $.tool.call({ tool: 'Monitor', command: 'tail -f log', agentId: 'a-sub' } as never)
+      await w.clock.advance(1000)
+      // the orchestrator lists its own and its agent's (#1242); the agent's carry its id as their owner
+      expect(mainItems(w)).toMatchObject([{ id: 'bg1', kind: 'shell', state: 'running', startedKnown: false, label: 'npm' }, { id: 'bg2', ownerId: 'a-sub' }, { id: 'mon1', ownerId: 'a-sub' }])
+      expect(mainItems(w)![0]).not.toHaveProperty('command')
+      expect(mainItems(w)![0]).not.toHaveProperty('ownerId')
+      expect(subItems(w)!.map((i) => [i.id, i.kind])).toEqual([['bg2', 'shell'], ['mon1', 'monitor']])
+      expect(JSON.stringify(w.posts)).not.toContain(SECRET)
+      expect(last(w).session.backgroundOutput).toBe(false)
+    })
+
+    test('a foreground Bash call is not a background item, and nothing is kept with the feed off', { options: {} }, async ($, on) => {
+      const w = await begun($, on)
+      w.bash.results['sleep 9'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      await $.tool.call({ tool: 'Bash', command: 'sleep 9', run_in_background: true } as never)
+      await w.clock.advance(1000)
+      expect(JSON.stringify(w.posts)).not.toContain('backgroundItems')
+    })
+
+    test('sends only the loops the server says are watched', FEED, async ($, on) => {
+      const w = await begun($, on, ['a-sub'])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      await w.clock.advance(1000)
+      expect(last(w).session).not.toHaveProperty('backgroundItems')
+      expect(subItems(w)).toEqual([])
+    })
+
+    test('Stop lists a shell not seen starting under the orchestrator, SubagentStop one under its agent, and a Stop that omits it ends it', FEED, async ($, on) => {
+      const w = await begun($, on)
+      await stop($, [{ id: 'old1', type: 'shell', status: 'running', description: 'x', command: 'make all' }, { id: 'sub', type: 'subagent', status: 'running', description: 'an agent' }])
+      await $.classic.SubagentStop({ stop_hook_active: false, agent_id: 'a-sub', background_tasks: [{ id: 'old1', type: 'shell', status: 'running', description: 'x', command: 'make all' }, { id: 'old2', type: 'shell', status: 'running', description: 'y', command: 'sleep 5' }] } as never)
+      await w.clock.advance(1000)
+      expect(mainItems(w)!.map((i) => i.id)).toEqual(['old1', 'old2'])
+      expect(subItems(w)!.map((i) => i.id)).toEqual(['old2'])
+      await stop($, [{ id: 'old2', type: 'shell', status: 'running', description: 'y' }])
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ id: 'old1', state: 'exited' })
+      expect(mainItems(w)![1]).toMatchObject({ id: 'old2', state: 'running', ownerId: 'a-sub' })
+      expect(mainItems(w)![0]!.endedAt).toBeGreaterThan(mainItems(w)![0]!.startedAt - 1)
+      expect(mainItems(w)![0]).not.toHaveProperty('exitCode')
+      expect(subItems(w)![0]).toMatchObject({ id: 'old2', state: 'running' })
+    })
+
+    test('reads the output file in the folder beside the scratchpad: when it last printed, how it ended, and with the option and the lease its output, redacted', FULL, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP, 'a-sub'], [MAIN_LOOP])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      await $.tool.call({ tool: 'Bash', command: `make TOKEN=${SECRET}`, run_in_background: true } as never)
+      w.files.text[`${TASKS}/bg1.output`] = `building\nTOKEN=${SECRET}\n`
+      w.mtimes[`${TASKS}/bg1.output`] = 1_800_000_000_500
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'make' }], { scratchpad_dir: SCRATCH })
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ id: 'bg1', state: 'running', lastOutputAt: 1_800_000_000_500, command: 'make TOKEN=[redacted]', output: 'building\nTOKEN=[redacted]\n' })
+      expect(JSON.stringify(w.posts)).not.toContain(SECRET)
+      // the shell ends: its output file says how
+      w.files.text[`${TASKS}/bg1.output`] += '[exited with code 2]\n'
+      w.mtimes[`${TASKS}/bg1.output`] = 1_800_000_000_900
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ state: 'exited', exitCode: 2 })
+    })
+
+    test('without the option, or for a loop the server did not list in watchBackground, the output is read for its exit and its time but never sent', FEED, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP], [MAIN_LOOP])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      w.files.text[`${TASKS}/bg1.output`] = `TOKEN=${SECRET}\n[exited with code 0]`
+      w.mtimes[`${TASKS}/bg1.output`] = 1_800_000_000_700
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'make' }], { scratchpad_dir: SCRATCH })
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ state: 'exited', exitCode: 0, lastOutputAt: 1_800_000_000_700 })
+      expect(mainItems(w)![0]).not.toHaveProperty('output')
+      expect(mainItems(w)![0]).not.toHaveProperty('command')
+      expect(JSON.stringify(w.posts)).not.toContain(SECRET)
+    })
+
+    test('with no folder named by any hook, the list still shows, with no time of last output and no output', FULL, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP], [MAIN_LOOP])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      w.files.text[`${TASKS}/bg1.output`] = 'built'
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'make' }])
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      const item = mainItems(w)![0]!
+      expect(item).toMatchObject({ id: 'bg1', state: 'running', command: 'make' })
+      expect(item).not.toHaveProperty('output')
+      expect(item).not.toHaveProperty('lastOutputAt')
+    })
+
+    test('never reads an output file that is a link, and a task id that is not a token is never made into a path', FULL, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP], [MAIN_LOOP])
+      w.files.text['/tmp/claude/proj/sess/tasks/bg1.output'] = `TOKEN=${SECRET}`
+      w.files.text['/tmp/escape'] = `TOKEN=${SECRET}`
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'x', command: 'make' }, { id: '../escape', type: 'shell', status: 'running', description: 'x', command: 'make' }], { scratchpad_dir: '/links/claude/proj/sess/scratchpad' })
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      for (const i of mainItems(w)!) expect(i).not.toHaveProperty('output')
+      expect(JSON.stringify(w.posts)).not.toContain(SECRET)
+    })
+
+    test('a Stop with no list of tasks does not end the shells it never listed', FEED, async ($, on) => {
+      const w = await begun($, on)
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'running' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      await $.classic.Stop({ stop_hook_active: false } as never)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ id: 'bg1', state: 'running' })
+    })
+
+    test('leaves a file alone while it has not changed, and takes the exit line off the output it sends', FULL, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP], [MAIN_LOOP])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'running' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      const file = `${TASKS}/bg1.output`
+      w.files.text[file] = 'tick 1\n'
+      w.mtimes[file] = 1_800_000_000_100
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'make' }], { scratchpad_dir: SCRATCH })
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      const first = w.reads.filter((p) => p === file).length
+      expect(first).toBeGreaterThan(0)
+      await w.clock.advance(3000)
+      await w.clock.advance(3000)
+      expect(w.reads.filter((p) => p === file).length).toBe(first)
+      w.files.text[file] = 'tick 1\n\n[exited with code 0]\n'
+      w.mtimes[file] = 1_800_000_000_900
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toMatchObject({ state: 'exited', exitCode: 0, output: 'tick 1\n' })
+    })
+
+    test('a loop that leaves watchBackground forgets the output it held', FULL, async ($, on) => {
+      const w = await begun($, on, [MAIN_LOOP], [MAIN_LOOP])
+      w.bash.results['make'] = { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'bg1' }, text: 'Command running in background with ID: bg1' }
+      await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true } as never)
+      w.files.text[`${TASKS}/bg1.output`] = 'built'
+      await stop($, [{ id: 'bg1', type: 'shell', status: 'running', description: 'make' }], { scratchpad_dir: SCRATCH })
+      await w.clock.advance(1000)
+      await w.clock.advance(3000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).toHaveProperty('output', 'built')
+      // The reply to the next report (a heartbeat, when nothing changed) takes the lease away; the report after it carries no output.
+      w.watchBackground.value = []
+      await w.clock.advance(60_000)
+      await w.clock.advance(1000)
+      expect(mainItems(w)![0]).not.toHaveProperty('output')
+      expect(mainItems(w)![0]).not.toHaveProperty('command')
+    })
   })
 
   describe('activity command and output (#431)', () => {

@@ -35,6 +35,7 @@ interface SessionView {
   background: { tasks: { type: string; description: string; status: string }[]; wakeAt: number | null } | null;  // what the session is idle on (#119); not a wait on the person, so it is left out of the waiting count
   hideAt: number | null;                // epoch ms when a session nobody is attached to is set aside from the wall; null while attached or unknown (7.5)
   owner: string | null;                 // who the server decided the session belongs to from the token (7.7): a person's name, 'Admin', or null
+  ownerId: number | null;               // the owner's people.id (#1284): what the console compares to decide whose a session is, never the name; null for Admin, no owner, or a person since deleted
   ownerGroup: string | null;            // that person's group from Admin; null for Admin, no owner, or no group
   machine: { name: string; id: string } | null;  // Report.machine as last sent; null when none was
   reporter: 'mod' | 'hooks';            // 'mod': the reporter (full detail); 'hooks': classic settings hooks only (no usage, cost, plan)
@@ -42,10 +43,12 @@ interface SessionView {
   cwd: string;
   waitReason: 'permission' | 'input' | null;
   activityOutput: boolean | null;       // the reporter's activityOutput option (#431); null as for activityFeed
+  backgroundOutput: boolean | null;     // the reporter's backgroundOutput option (#897); null as for activityFeed (an older reporter sends no background items)
   fileDiff: boolean | null;             // the reporter's fileDiff option (#319); null as for activityFeed
   fileDiffPreload: boolean | null;      // the reporter's fileDiffPreload option (#631); null as for fileDiff
   activityFeed: boolean | null;         // the reporter's activityFeed option (6.4); null for a reporter older than 0.13.0, a settings-hooks session, or no report since the server started (held in memory)
   respond: { level: string; accepts: RespondKind[]; limits: string[] } | null;  // Report.session.respond (#206); null for a reporter older than 0.14.0, a settings-hooks session, or no report since the server started (held in memory)
+  adminRespond: boolean;                // whether the owner has allowed an Admin to respond to this session (#1251); false until they do, and for a session with no reporter Podium knows
   asks: {                               // the session's asks, open, or closed and not yet forgotten (7.2: at idle, or 10 minutes), without their content: that is served only to the owner or an Admin (7.1)
     id: string; kind: 'question' | 'plan' | 'permission'; agentId: string | null; openedAt: number;
     count: number;                      // questions in a question ask (the Respond button's number); 1 otherwise
@@ -53,7 +56,7 @@ interface SessionView {
   }[];
   clearedFrom: string | null;           // the session this one continues after a /clear (5.8)
   recording?: RecordingView | null;     // #353: { state: 'recording' | 'stopped' | 'limit', limit, startedBy, startedAt, stoppedBy, stoppedAt, keptUntil, bytes, loops: { loop, name, recorded }[], ownerAllows }; everything the wall and the page show about a recording and no text; null or absent when nothing is chosen or kept
-  agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst + modelLabel and modelProvider (string | null, #945; the row and the panel read the label, with `model` as its title)
+  agents: AgentView[];                  // AgentReport + modelFamily + costUsdEst + modelLabel and modelProvider (string | null, #945; the row and the panel read the label, with `model` as its title) + promptChars and answerChars (number | null: the length of the agent's prompt and of its answer in characters, from the stored `prompt_chars` and `answer_chars`; null when the reporter did not send them)
   series: { tokensPerSec: number[]; peakContext: number[]; running: number[]; blowoutSecondsAgo: number[] };  // 60 points, oldest first; peakContext in 0..1; missing seconds zero-filled
 }
 ```

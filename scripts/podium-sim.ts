@@ -19,7 +19,7 @@ Usage: npm run podium:sim -- [options]
 
 Options:
   --url URL         Server base URL (default http://127.0.0.1:4317)
-  --sessions N      Sessions kept running at once (default 5, max 50)
+  --sessions N      Sessions kept running at once (default 5, max 200)
   --speed X         Simulated seconds per real second (default 1)
   --seed N          Random seed; the same seed gives the same reports (default 1)
   --duration S      Stop after S real seconds and exit 0 (default: run until Ctrl-C)
@@ -925,7 +925,7 @@ export function parseArgs(argv: string[]): Args | 'help' {
     switch (k) {
       case '-h': case '--help': return 'help';
       case '--url': a.url = trimTrailingSlashes(val()); break;
-      case '--sessions': a.sessions = Math.round(num(1, 50)); break;
+      case '--sessions': a.sessions = Math.round(num(1, 200)); break;
       case '--speed': a.speed = num(0.1, 50); break;
       case '--seed': a.seed = Math.round(num(0, 2 ** 32)); break;
       case '--duration': a.duration = num(0, 7 * 24 * 3600); break;

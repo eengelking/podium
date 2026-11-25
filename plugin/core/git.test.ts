@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'claude-code/testing'
-import { EMPTY_TREE, MAX_FILES, parseNameStatus, parseNumstat, parseStatus, readChanges, readGit, resolvePath, type Runner } from './git.ts'
+import { EMPTY_TREE, MAX_FILES, parseNameStatus, parseNumstat, parseStatus, readChanges, readGit, readGitState, resolvePath, type Runner } from './git.ts'
 
 function runner(map: Record<string, { exitCode?: number; stdout?: string }>): Runner {
   return async (argv) => {
@@ -8,11 +8,12 @@ function runner(map: Record<string, { exitCode?: number; stdout?: string }>): Ru
   }
 }
 
+// One rev-parse answers the git dir, the common dir, the top level, the HEAD commit and the branch, in that order (#753).
+const REV = 'rev-parse --git-dir --git-common-dir --show-toplevel HEAD --abbrev-ref HEAD'
+const SHA = 'c'.repeat(40)
+const rev = (gitDir: string, common: string, top: string, branch: string) => ({ [REV]: { stdout: [gitDir, common, top, SHA, branch].join('\n') + '\n' } })
 const base = {
-  'rev-parse --abbrev-ref HEAD': { stdout: 'feat/x\n' },
-  'rev-parse --git-dir': { stdout: '.git\n' },
-  'rev-parse --git-common-dir': { stdout: '.git\n' },
-  'rev-parse --show-toplevel': { stdout: '/repo\n' },
+  ...rev('.git', '.git', '/repo', 'feat/x'),
   'status --porcelain=v1 -b': { stdout: '## feat/x...origin/feat/x [ahead 3, behind 1]\n' },
 }
 
@@ -22,7 +23,7 @@ describe('git', () => {
   })
 
   test('detached head reports the short sha', async () => {
-    const g = await readGit(runner({ ...base, 'rev-parse --abbrev-ref HEAD': { stdout: 'HEAD\n' }, 'rev-parse --short HEAD': { stdout: '1a2b3c4\n' }, 'status --porcelain=v1 -b': { stdout: '## HEAD (no branch)\n' } }), '/repo')
+    const g = await readGit(runner({ ...base, ...rev('.git', '.git', '/repo', 'HEAD'), 'rev-parse --short HEAD': { stdout: '1a2b3c4\n' }, 'status --porcelain=v1 -b': { stdout: '## HEAD (no branch)\n' } }), '/repo')
     expect(g).toMatchObject({ branch: '1a2b3c4', detached: true, ahead: 0, behind: 0 })
   })
 
@@ -30,9 +31,7 @@ describe('git', () => {
     const g = await readGit(
       runner({
         ...base,
-        'rev-parse --git-dir': { stdout: '/repo/.git/worktrees/feat-x\n' },
-        'rev-parse --git-common-dir': { stdout: '/repo/.git\n' },
-        'rev-parse --show-toplevel': { stdout: '/repo/.claude/worktrees/feat-x\n' },
+        ...rev('/repo/.git/worktrees/feat-x', '/repo/.git', '/repo/.claude/worktrees/feat-x', 'feat/x'),
       }),
       '/repo/.claude/worktrees/feat-x',
     )
@@ -40,20 +39,21 @@ describe('git', () => {
   })
 
   test('relative git dirs resolve against the working directory', async () => {
-    const g = await readGit(runner({ ...base, 'rev-parse --git-dir': { stdout: '.git\n' }, 'rev-parse --git-common-dir': { stdout: '/repo/.git\n' } }), '/repo')
+    const g = await readGit(runner({ ...base, ...rev('.git', '/repo/.git', '/repo', 'feat/x') }), '/repo')
     expect(g!.isWorktree).toBe(false)
     expect(resolvePath('/a/b', '../c/./d')).toBe('/a/c/d')
   })
 
   test('not a repository (non-zero exit) gives null', async () => {
-    expect(await readGit(runner({ 'rev-parse --abbrev-ref HEAD': { exitCode: 128, stdout: '' } }), '/tmp')).toBeNull()
+    expect(await readGit(runner({ [REV]: { exitCode: 128, stdout: '' } }), '/tmp')).toBeNull()
   })
 
   test('a repository with no commits reports its unborn branch, worktree state and status (#1013)', async () => {
     const g = await readGit(
       runner({
         ...base,
-        'rev-parse --abbrev-ref HEAD': { exitCode: 128, stdout: 'HEAD\n' },
+        [REV]: { exitCode: 128, stdout: 'HEAD\n' },
+        'rev-parse --git-dir --git-common-dir --show-toplevel': { stdout: '.git\n.git\n/repo\n' },
         'symbolic-ref --short HEAD': { stdout: 'main\n' },
         'status --porcelain=v1 -b': { stdout: '## No commits yet on main\n?? a.txt\n' },
       }),
@@ -63,7 +63,32 @@ describe('git', () => {
   })
 
   test('a directory that is not a repository still gives null when symbolic-ref fails too (#1013)', async () => {
-    expect(await readGit(runner({ 'rev-parse --abbrev-ref HEAD': { exitCode: 128 }, 'symbolic-ref --short HEAD': { exitCode: 128 } }), '/tmp')).toBeNull()
+    expect(await readGit(runner({ [REV]: { exitCode: 128 }, 'symbolic-ref --short HEAD': { exitCode: 128 } }), '/tmp')).toBeNull()
+  })
+
+  test('a poll of a branch starts two git processes for the branch, not five (#753)', async () => {
+    const calls: string[] = []
+    const inner = runner(base)
+    await readGit(async (argv) => (calls.push(argv.slice(1).join(' ')), inner(argv)), '/repo')
+    expect([...calls].sort()).toEqual([REV, 'status --porcelain=v1 -b'].sort())
+  })
+
+  test('readGitState also hands back the top level and the HEAD commit, so the file read need not ask again (#753)', async () => {
+    const s = await readGitState(runner(base), '/repo')
+    expect(s).toMatchObject({ top: '/repo', head: SHA, info: { branch: 'feat/x' } })
+  })
+
+  test('an unborn branch has no HEAD commit to hand back (#753)', async () => {
+    const s = await readGitState(runner({ ...base, [REV]: { exitCode: 128 }, 'rev-parse --git-dir --git-common-dir --show-toplevel': { stdout: '.git\n.git\n/repo\n' }, 'symbolic-ref --short HEAD': { stdout: 'main\n' } }), '/repo')
+    expect(s).toMatchObject({ top: '/repo', head: null, info: { branch: 'main' } })
+  })
+
+  test('a runner that throws gives null (#753)', async () => {
+    // The status read starts beside the rev-parse and is guarded in readGitState; the hooks sandbox has no `process` to watch for an unhandled rejection, so this covers the path, not the guard.
+    const run: Runner = async () => {
+      throw new Error('git is gone')
+    }
+    expect(await readGitState(run, '/repo')).toBeNull()
   })
 
   test('dirty counts modified, untracked and renamed lines', () => {
@@ -273,5 +298,19 @@ describe('changed files', () => {
   test('a failing diff gives null, so the caller keeps what it had', async () => {
     const m = { ...top, [`-C /repo diff --numstat -z -M ${BASE}`]: { exitCode: 128 } }
     expect(await readChanges(runner(m), '/repo', BASE)).toBeNull()
+  })
+
+  test('given the top level and HEAD from the branch read, the file read starts no rev-parse of its own (#753)', async () => {
+    const calls: string[] = []
+    const inner = runner(top)
+    const r = await readChanges(async (argv) => (calls.push(argv.slice(1).join(' ')), inner(argv)), '/repo', BASE, { top: '/repo', head: HEAD })
+    expect(r!.files.total).toBe(6)
+    expect(calls.filter((c) => c.includes('rev-parse'))).toEqual([])
+  })
+
+  test('a handed-over unborn HEAD still diffs against the empty tree (#753)', async () => {
+    const m = { [`-C /repo diff --name-status -z -M ${EMPTY_TREE}`]: { stdout: `A${Z}first.ts${Z}` }, [`-C /repo diff --numstat -z -M ${EMPTY_TREE}`]: { stdout: `5\t0\tfirst.ts${Z}` }, '-C /repo ls-files -z --others --exclude-standard --full-name': { stdout: '' } }
+    const r = await readChanges(runner(m), '/repo', null, { top: '/repo', head: null })
+    expect(r!.base).toBe(EMPTY_TREE)
   })
 })

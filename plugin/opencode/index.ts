@@ -71,7 +71,7 @@ const withMachine = async <T extends { userName: string | null; machine: unknown
 /** The calls answering makes into OpenCode, from the plugin context. */
 const apiOf = (ctx: Plugin.Context): Api => ({
   permissionReply: (i) => ctx.permission.reply({ sessionID: i.sessionID, requestID: i.requestID, decision: i.reply, ...(i.message === undefined ? {} : { message: i.message }) }),
-  prompt: (i) => ctx.session.prompt({ sessionID: i.sessionID, id: i.id, text: i.text, delivery: 'queue' }),
+  prompt: (i) => ctx.session.prompt({ sessionID: i.sessionID, id: i.id, text: i.text, delivery: i.delivery ?? 'queue' }),
   compact: (i) => ctx.session.compact({ sessionID: i.sessionID, id: i.id, delivery: 'queue' }),
 });
 
@@ -132,6 +132,8 @@ async function createHolder(ctx: Plugin.Context): Promise<Holder> {
       problem: link?.problem,
       answering,
       loadName: async (id) => { const v = await ctx.storage.get(`name:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
+      loadTitle: async (id) => { const v = await ctx.storage.get(`title:${id}`).catch(() => undefined); return typeof v === 'string' && v ? v : null; },
+      saveTitle: (id, title) => void ctx.storage.set(`title:${id}`, title).catch(() => undefined),
       windowOf: async (provider, model) => windowFromList(await ctx.model.list(), provider, model),
       // Only where the person allowed it, so a model is asked and a message accepted by nothing else.
       ...(options.explainFailures ? { explain: (prompt: string) => explainWith((input) => ctx.experimental.generate.text(input), () => ctx.model.list(), prompt) } : {}),

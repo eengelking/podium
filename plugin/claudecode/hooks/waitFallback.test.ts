@@ -35,7 +35,7 @@ function world(on: On) {
   on('ui.log', () => ({ value: undefined }))
   on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
   on('http.fetch', (_$, e) => {
-    const body = JSON.parse(e.init?.body ?? '{}') as Report
+    const body = JSON.parse(typeof e.init?.body === 'string' ? e.init.body : '{}') as Report
     // Responding adds calls of its own (an ask's announcement, its answer poll): only the report is a report.
     if (!new URL(e.url).pathname.endsWith('/report')) return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ ok: true }) } }
     posts.push(body)
@@ -121,6 +121,51 @@ describe('waiting on a permission prompt without classic hooks (#741)', () => {
     await $.tool.check({ ...BASH, tool_use_id: 'toolu_w4' } as never)
     await w.clock.advance(2500)
     expect(waits(w)).toHaveLength(0)
+  })
+})
+
+// #1351: where Claude Code runs the classic hooks, every real prompt fires a PermissionRequest, so a tool.check `ask`
+// with none after it is an auto-mode call the classifier let through: no wait on the card, and no held message.
+describe('an ask the classifier answered, with the classic hooks running (#1351)', () => {
+  test('a long main-loop call after an ask with no PermissionRequest is not a permission wait', async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.classic.UserPromptSubmit({ prompt: 'go', cwd: CWD } as never)
+    w.call.hold = true
+    w.check.decision = 'allow' // the engine's own check before the call
+    const running = $.tool.call({ tool: 'Bash', command: 'sleep 20' } as never)
+    for (let i = 0; i < 200 && !w.call.release; i++) await w.clock.advance(10)
+    w.check.decision = 'ask'
+    await $.tool.check({ tool: 'Bash', input: { command: 'sleep 20' }, tool_use_id: w.call.id } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(1000)
+    expect(waits(w)).toHaveLength(0)
+    expect(w.posts.at(-1)!.session.waitReason).not.toBe('permission')
+    w.call.release!()
+    await running
+  })
+
+  test('a long subagent call after such an ask is not a permission wait either, so a message to an idle main loop is taken', async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.classic.UserPromptSubmit({ prompt: 'go', cwd: CWD } as never)
+    await $.tool.check({ ...BASH, tool_use_id: 'toolu_sub2', agentId: 'agent-1' } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(1000)
+    expect(waits(w)).toHaveLength(0)
+    expect(w.posts.at(-1)!.session.waitReason).not.toBe('permission')
+  })
+
+  test('a real prompt there still waits: its PermissionRequest is what marks it', async ($, on) => {
+    const w = world(on)
+    await started($, w)
+    await $.classic.UserPromptSubmit({ prompt: 'go', cwd: CWD } as never)
+    await $.tool.check({ ...BASH, tool_use_id: 'toolu_real1' } as never)
+    await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: 'rm -rf dist' } } as never)
+    await w.clock.advance(2500)
+    await w.clock.advance(1000)
+    expect(w.posts.at(-1)!.session).toMatchObject({ status: 'waiting', waitReason: 'permission' })
+    expect(waits(w)).toHaveLength(1)
   })
 })
 

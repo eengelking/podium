@@ -10,7 +10,7 @@ Starts a throwaway Podium server (built server/dist, a free port, a temp databas
 in headless Chrome (scripts/page-shot.mjs) and, over --seconds, reports as JSON: DOM node count, JS heap, long tasks (over 50 ms)
 and how many frames the page drew. Needs `npm run build` first.
 
-  --sessions N   Simulated sessions (default 20, max 50)
+  --sessions N   Simulated sessions (default 20, max 200)
   --agents N     Extra agents per session (default 10)
   --seconds N    How long the tab is watched (default 30)
   --width PX     Viewport width (default 1440)

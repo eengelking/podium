@@ -45,19 +45,27 @@ export function peopleActive(sessions: readonly SessionView[]): boolean {
   return sessions.some((s) => isPerson(s.owner));
 }
 
-export function isPerson(owner: string | null | undefined): owner is string {
+function isPerson(owner: string | null | undefined): owner is string {
   return !!owner && owner !== ADMIN;
 }
+
+/** The signed-in person as the wall knows them: the id decides which sessions are theirs (#1284), the name is only text. */
+export interface MeRef {
+  id: number;
+  name: string;
+}
+
+const owns = (s: Pick<SessionView, "ownerId">, me: MeRef | null): boolean => !!me && s.ownerId === me.id;
 
 const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 /** The person band a session goes in. */
-export function personKey(owner: string | null): string {
+function personKey(owner: string | null): string {
   return owner === null ? "unassigned" : owner === ADMIN ? "admin" : `p:${owner}`;
 }
 
 /** The group band a session goes in. Admin and unowned sessions have no group. */
-export function groupKey(s: Pick<SessionView, "owner" | "ownerGroup">): string {
+function groupKey(s: Pick<SessionView, "owner" | "ownerGroup">): string {
   return isPerson(s.owner) && s.ownerGroup ? `g:${s.ownerGroup}` : "nogroup";
 }
 
@@ -105,9 +113,10 @@ const counted = (sessions: SessionView[]) => ({
  * The bands for a Group by choice, from the live sessions, each with its counts and today's spend.
  * Empty groups never appear: a band exists only for sessions that are live now. `none` has no bands.
  */
-export function buildUnits(sessions: readonly SessionView[], by: GroupBy, spend: readonly OwnerSpend[], me: string | null): Unit[] {
+export function buildUnits(sessions: readonly SessionView[], by: GroupBy, spend: readonly OwnerSpend[], me: MeRef | null): Unit[] {
   if (isFlat(by)) return [];
-  const myGroup = me ? sessions.find((s) => same(s.owner, me))?.ownerGroup ?? spend.find((r) => same(r.owner, me))?.group ?? null : null;
+  // The group comes from my own live session (by id). Today's spend is split by name until it carries an id, so a person with no live session falls back to it.
+  const myGroup = me ? sessions.find((s) => owns(s, me))?.ownerGroup ?? spend.find((r) => same(r.owner, me.name))?.group ?? null : null;
   const buckets = new Map<string, SessionView[]>();
   for (const s of sessions) {
     const k = by === "people" ? personKey(s.owner) : groupKey(s);
@@ -130,7 +139,7 @@ export function buildUnits(sessions: readonly SessionView[], by: GroupBy, spend:
         spend: spendOf(spend, (r) => r.owner === owner),
         group: kind === "person" ? list.find((s) => s.ownerGroup)?.ownerGroup ?? null : null,
         members: [],
-        mine: kind === "person" && same(owner, me),
+        mine: kind === "person" && list.some((s) => owns(s, me)),
       });
     } else {
       const group = key === "nogroup" ? null : first.ownerGroup!;
@@ -144,7 +153,7 @@ export function buildUnits(sessions: readonly SessionView[], by: GroupBy, spend:
         spend: spendOf(spend, (r) => (group === null ? !isPerson(r.owner) || !r.group : isPerson(r.owner) && r.group === group)),
         group: null,
         members,
-        mine: group === null ? !!me && !myGroup && members.some((m) => same(m, me)) : same(group, myGroup),
+        mine: group === null ? !!me && !myGroup && list.some((s) => owns(s, me)) : same(group, myGroup),
       });
     }
   }
@@ -170,6 +179,8 @@ export function orderUnits(units: readonly Unit[], order: UnitOrder): Unit[] {
 
 /** Who the wall is narrowed to: a band picked in the left list, or "Only me". */
 export interface PeopleFilter {
+  /** Only the sessions this person owns, by id (the Me wall, #1284). A same-named newcomer's sessions are not theirs. */
+  ownerId?: number;
   /** A person band key (`p:<name>`, `admin`, `unassigned`). */
   person: string | null;
   /** A group band key (`g:<group>`, `nogroup`). */
@@ -178,14 +189,12 @@ export interface PeopleFilter {
 export const NO_FILTER: PeopleFilter = { person: null, group: null };
 
 export function filterByPeople(sessions: readonly SessionView[], f: PeopleFilter): SessionView[] {
-  return sessions.filter((s) => (!f.person || personKey(s.owner) === f.person) && (!f.group || groupKey(s) === f.group));
+  return sessions.filter((s) => (f.ownerId === undefined || s.ownerId === f.ownerId) && (!f.person || personKey(s.owner) === f.person) && (!f.group || groupKey(s) === f.group));
 }
 
-/** The viewer's band key, for the Me wall. */
-export function meKey(sessions: readonly SessionView[], me: string | null): string | null {
-  if (!me) return null;
-  const s = sessions.find((x) => same(x.owner, me));
-  return personKey(s?.owner ?? me);
+/** The Me wall's filter: the viewer's own sessions, by id. */
+export function meFilter(me: MeRef): PeopleFilter {
+  return { person: null, group: null, ownerId: me.id };
 }
 
 export interface SpendRow {

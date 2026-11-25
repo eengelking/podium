@@ -2,14 +2,23 @@
 // acks by count, backoff 1 s, 2 s, 5 s, 10 s while the server is unreachable. Nothing here awaits
 // anything a tool call waits on: hooks only call `enqueue`; the flush timer calls `send`.
 import { withBuild } from './build.ts';
+import { reportBody } from './feed.ts';
 import { trimTrailingSlashes } from './machine.ts';
+import { attentionKey, HOLD_FROM_BYTES, holdMs } from './pacing.ts';
 import { PEER_LIMITS, RECORDING_STATES, type RecordingGrant, type ActivityEvent, type AdminNotice, type Delivery, type DiffRequest, type PeerDelivery, type PeerRequest, type Report } from './protocol.ts';
 
 export const QUEUE_MAX = 500;
 export const BACKOFF_MS = [1000, 2000, 5000, 10_000] as const;
 export const EVENTS_PER_REPORT = 100;
+/**
+ * How long one report POST may wait for the server's answer (#757) before it counts as a failed send and the backoff applies.
+ * Longer than the connection helper's own waits (30 s upstream, 45 s through the mailbox), so a helper that answers still
+ * answers first and says why; this only ends a request nothing else ends, such as a plain fetch (`$.http.fetch`, OpenCode's
+ * `plainFetch`) to a server that accepts the connection and goes quiet.
+ */
+export const REPORT_TIMEOUT_MS = 60_000;
 /** How long to wait after the server refuses the token or name: it will not change until the settings do. */
-export const REFUSED_RETRY_MS = 60_000;
+const REFUSED_RETRY_MS = 60_000;
 /** More watched loops than a report can carry agents is not a list the mod takes whole. */
 const MAX_WATCHED = 201;
 /** File diffs one reply can ask for (#319). */
@@ -38,13 +47,13 @@ export function isDelivery(v: unknown): v is Delivery {
 }
 
 /** A message or notice for this orchestrator as the server sends it (#347): only its shape is checked here; whether it is taken is the mod's to decide (SPEC 5.3). */
-export function isPeerDelivery(v: unknown): v is PeerDelivery {
+function isPeerDelivery(v: unknown): v is PeerDelivery {
   const d = v as Partial<PeerDelivery> | null;
   return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && (d.kind === 'message' || d.kind === 'notice') && typeof d.at === 'number' && typeof d.text === 'string';
 }
 
 /** One of the owner's open requests as the server sends it (#347): only its shape is checked here. */
-export function isPeerRequest(v: unknown): v is PeerRequest {
+function isPeerRequest(v: unknown): v is PeerRequest {
   const r = v as Partial<PeerRequest> | null;
   const side = (s: unknown) => !!s && typeof s === 'object' && typeof (s as { machine?: unknown }).machine === 'string';
   return !!r && typeof r === 'object' && typeof r.id === 'string' && r.id.length > 0 && (r.kind === 'proposal' || r.kind === 'access' || r.kind === 'message') && side(r.from) && side(r.to) && typeof r.by === 'string';
@@ -74,7 +83,7 @@ export function isRecordingGrant(v: unknown): v is RecordingGrant {
 }
 
 /** A request for a file's diff as the server sends it (#319): only its shape is checked here. */
-export function isDiffRequest(v: unknown): v is DiffRequest {
+function isDiffRequest(v: unknown): v is DiffRequest {
   const d = v as Partial<DiffRequest> | null;
   return !!d && typeof d === 'object' && typeof d.id === 'string' && d.id.length > 0 && typeof d.path === 'string' && d.path.length > 0;
 }
@@ -109,6 +118,8 @@ export interface TransportConfig {
   version: string;
   /** The commit of a dev build of this reporter (#400); absent or null for a release. */
   build?: string | null;
+  /** How long a report POST waits for an answer; `REPORT_TIMEOUT_MS` when absent. Tests set it small. */
+  timeoutMs?: number;
 }
 
 /** The oldest and newest reporter the server reads correctly (SPEC 6.8). */
@@ -123,7 +134,8 @@ function minorOf(v: string): [number, number] | null {
   return m ? [Number(m[1]), Number(m[2])] : null;
 }
 
-export type SendOutcome = 'ok' | 'rejected' | 'refused' | 'failed' | 'busy';
+/** `held` (#752): the report was built and not sent, because a large one that only counted is not due yet. Its events stay queued and the session is still changed. */
+export type SendOutcome = 'ok' | 'rejected' | 'refused' | 'failed' | 'busy' | 'held';
 
 export class Transport {
   queue: ActivityEvent[] = [];
@@ -136,6 +148,9 @@ export class Transport {
   failures = 0;
   lastError: string | null = null;
   lastSentAt = 0;
+  /** The size in characters (close enough to bytes for pacing) and the `attentionKey` of the last report the server took (#752); what a later one is held against. */
+  private lastBytes = 0;
+  private lastKey: string | null = null;
   nextAttemptAt = 0;
   liveSessions: number | null = null;
   /** Where the server places this reporter's version; null until a reply says (an older server never does). */
@@ -149,6 +164,8 @@ export class Transport {
   watch: string[] = [];
   /** The loops of `watch` a viewer has the feed open on (#431); empty from a server that predates it, which asks for no output. */
   watchOutput: string[] = [];
+  /** The loops of `watch` a viewer has the Background tab open on (#897); empty from a server that predates it, which asks for no background output. */
+  watchBackground: string[] = [];
   /** Whether the last accepted report's reply said the server takes answers for this session (#206); false from an older server. */
   respond = false;
   /** Messages and commands from Podium the last reply handed over (#206). */
@@ -212,14 +229,21 @@ export class Transport {
   /**
    * Posts one report built from the oldest queued events (at most 100). 200 acks them; 400 or 413 drops
    * that report and its events (it would never be accepted) and backs off before the next attempt;
-   * anything else keeps them and backs off.
+   * anything else keeps them and backs off. A large report that differs from the last one only in counters is `held` until
+   * `holdMs` has passed since the last one (#752) unless `force` is set; nothing is posted and the events stay queued.
    */
-  send(build: (events: ActivityEvent[]) => Report, now: number): Promise<SendOutcome> {
+  send(build: (events: ActivityEvent[]) => Report, now: number, force = false): Promise<SendOutcome> {
     if (this.inFlight) return Promise.resolve('busy');
     this.inFlight = true;
-    const p = this.post(build, now);
+    const p = this.post(build, now, force);
     this.current = p;
     return p;
+  }
+
+  /** Whether a report with this `attentionKey` waits: it is the last accepted one but for counters, it is not yet the hold after that one, and the queue is not a full batch (#752). */
+  private holds(now: number, key: string): boolean {
+    if (this.lastKey !== key || this.lastSentAt === 0 || this.queue.length >= EVENTS_PER_REPORT) return false;
+    return now - this.lastSentAt < holdMs(this.lastBytes, this.cfg.heartbeatMs);
   }
 
   /** Resolves when no POST is in flight (at once when none is). */
@@ -227,19 +251,30 @@ export class Transport {
     if (this.current) await this.current.catch(() => undefined);
   }
 
-  private async post(build: (events: ActivityEvent[]) => Report, now: number): Promise<SendOutcome> {
+  private async post(build: (events: ActivityEvent[]) => Report, now: number, force: boolean): Promise<SendOutcome> {
     const events = this.queue.slice(0, EVENTS_PER_REPORT);
     try {
       const report = build(events);
+      const body = reportBody(report);
+      // Pacing never fails a send: a report whose key cannot be read is sent at once. The key is only read when a large report is involved.
+      let key: string | null = null;
+      if (body.length > HOLD_FROM_BYTES || this.lastBytes > HOLD_FROM_BYTES) {
+        try {
+          key = attentionKey(report);
+        } catch {
+          key = null;
+        }
+      }
+      if (!force && key !== null && this.holds(now, key)) return 'held';
       // A refusal only stands until the next attempt: a 401, an outage or a success must not leave an old reason showing.
       this.rejectReason = null;
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (this.cfg.token) headers['X-Podium-Token'] = this.cfg.token;
-      const res = await this.fetch(this.url, { method: 'POST', headers, body: JSON.stringify(report) });
+      const res = await this.withTimeout(this.fetch(this.url, { method: 'POST', headers, body }));
       if (res.ok) {
         let acked = events.length;
         try {
-          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; adminNotices?: unknown; recording?: unknown };
+          const body = JSON.parse(res.text) as { ackedEvents?: unknown; liveSessions?: unknown; reporterCompat?: unknown; serverVersion?: unknown; serverBuild?: unknown; reporterSupport?: unknown; watch?: unknown; watchOutput?: unknown; watchBackground?: unknown; respond?: unknown; deliveries?: unknown; diffs?: unknown; peers?: unknown; peerDeliveries?: unknown; peerRequests?: unknown; adminNotices?: unknown; recording?: unknown };
           if (typeof body.ackedEvents === 'number') acked = Math.max(0, Math.min(events.length, body.ackedEvents));
           if (typeof body.liveSessions === 'number') this.liveSessions = body.liveSessions;
           this.compat = body.reporterCompat === 'outdated' || body.reporterCompat === 'newer' || body.reporterCompat === 'ok' ? body.reporterCompat : null;
@@ -249,6 +284,7 @@ export class Transport {
           this.support = sup && typeof sup.min === 'string' && typeof sup.max === 'string' ? { min: sup.min, max: sup.max } : null;
           this.watch = Array.isArray(body.watch) ? body.watch.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
           this.watchOutput = Array.isArray(body.watchOutput) ? body.watchOutput.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
+          this.watchBackground = Array.isArray(body.watchBackground) ? body.watchBackground.filter((id): id is string => typeof id === 'string').slice(0, MAX_WATCHED) : [];
           this.respond = body.respond === true;
           this.deliveries = this.respond && Array.isArray(body.deliveries) ? body.deliveries.filter(isDelivery).slice(0, MAX_DELIVERIES) : [];
           this.diffs = Array.isArray(body.diffs) ? body.diffs.filter(isDiffRequest).slice(0, MAX_DIFF_REQUESTS) : [];
@@ -266,6 +302,8 @@ export class Transport {
         this.rejectStreak = 0;
         this.nextAttemptAt = 0;
         this.lastSentAt = now;
+        this.lastBytes = body.length;
+        this.lastKey = key;
         this.lastError = null;
         this.rejectReason = null;
         this.sent++;
@@ -284,6 +322,7 @@ export class Transport {
         this.rejectStreak++;
         this.nextAttemptAt = now + Transport.backoff(this.rejectStreak);
         this.lastSentAt = now;
+        this.lastKey = null;
         this.lastError = `server rejected a report (${res.status})`;
         this.rejectReason = rejectReasonOf(res.status, res.text, report.v);
         // The server read the credential and answered about the report, so an earlier 401 no longer stands.
@@ -318,6 +357,7 @@ export class Transport {
         // The events stay queued: they go out once the mod and the helper agree.
         this.nextAttemptAt = now + REFUSED_RETRY_MS;
         this.lastSentAt = now;
+        this.lastKey = null;
         this.lastError = 'the connection helper does not carry this route (403)';
         if (!this.loggedReject) {
           this.loggedReject = true;
@@ -333,6 +373,7 @@ export class Transport {
         this.online = false;
         this.nextAttemptAt = now + REFUSED_RETRY_MS;
         this.lastSentAt = now;
+        this.lastKey = null;
         this.lastError = 'server refused the token or name (401)';
         if (!this.loggedRefusal) {
           this.loggedRefusal = true;
@@ -345,6 +386,7 @@ export class Transport {
       this.failures++;
       this.failed++;
       this.online = false;
+      this.lastKey = null;
       this.lastError = (err as Error)?.message ?? 'network error';
       this.nextAttemptAt = now + Transport.backoff(this.failures);
       return 'failed';
@@ -352,6 +394,18 @@ export class Transport {
       this.inFlight = false;
       this.current = null;
     }
+  }
+
+  /** Settles with `request`, or fails once the timeout passes (#757). The request is left to finish or fail on its own; its late answer is ignored. */
+  private withTimeout(request: Promise<HttpResult>): Promise<HttpResult> {
+    const ms = this.cfg.timeoutMs ?? REPORT_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`the server did not answer within ${Math.round(ms / 1000)} s (timed out)`)), ms);
+    });
+    // A request abandoned at the timeout may still fail later: that must not become an unhandled rejection.
+    request.catch(() => undefined);
+    return Promise.race([request, late]).finally(() => clearTimeout(timer));
   }
 
   /** Removes the first `n` of `sent` from the queue (events queued meanwhile stay). */

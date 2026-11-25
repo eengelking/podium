@@ -11,7 +11,7 @@ import type { Screen } from "./screens";
 
 const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60)); });
-const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
+const ME: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
 const respondApi = (me: RespondMe = ME) => ({ me: async () => me }) as unknown as RespondApi;
 const ALL = ["question", "message", "plan-approve", "plan-feedback", "permission", "command"] as const;
 const asks = [{ id: "q1", kind: "question" as const, agentId: null, openedAt: 1_900_000, count: 2, state: "open" as const }];
@@ -112,19 +112,18 @@ const railPaged = (sessions: SessionView[], after: (body: HTMLElement) => Promis
   return { make: () => { fakeRailLayout(); return base.make(); }, act: base.act, cleanup: restoreRailLayout };
 };
 const pick = (b: HTMLElement, id: string) => void fireEvent.click(b.querySelector(`[data-session="${id}"]`)!);
-const many = Array.from({ length: 30 }, (_, i) => ({ path: `src/module-${String(i).padStart(2, "0")}/file.ts`, status: "modified" as const, added: i + 1, removed: i, from: null }));
 const crowded = makeSession({ id: "s5", name: "many-files", effort: "high", git: { branch: "main", detached: false, isWorktree: false, worktreePath: null, ahead: 0, behind: 0, dirty: 0 }, blowouts: { orchestrator: 1, agents: 1, total: 2, level: 1, loopsHit: 1, loopsTotal: 3, log: [{ t: 1_900_000, agentId: null, kind: "compact", tokensBefore: 900_000, tokensAfter: 100_000 }] }, files: { files: Array.from({ length: 45 }, (_, i) => ({ path: `src/module-${String(i).padStart(2, "0")}/file.ts`, status: "modified" as const, added: i + 1, removed: i, from: null })), total: 45, added: 465, removed: 435, since: "start" }, agents: [makeAgent({ id: "a1", description: "Watch me", activityFeed: true } as never)] });
 
 export const STATE_SCREENS: Record<string, Screen> = {
-  "app-respond-wall": fleet([responding({ id: "s1", name: "mine", owner: "Ed" }), responding({ id: "s2", name: "theirs", owner: "Alex" }), makeSession({ id: "s3", name: "running", owner: "Ed" })]),
-  "app-signed-out": fleet([responding({ id: "s1", name: "mine", owner: "Ed" })], { me: { enabled: true, signedIn: false, name: null, admin: false } }),
-  "app-board-me": fleet([responding({ id: "s1", name: "mine", owner: "Ed" }), makeSession({ id: "s2", name: "theirs", owner: "Alex" })], { board: true }),
+  "app-respond-wall": fleet([responding({ id: "s1", name: "mine", owner: "Ed", ownerId: 1 }), responding({ id: "s2", name: "theirs", owner: "Alex", ownerId: 2 }), makeSession({ id: "s3", name: "running", owner: "Ed", ownerId: 1 })]),
+  "app-signed-out": fleet([responding({ id: "s1", name: "mine", owner: "Ed", ownerId: 1 })], { me: { enabled: true, signedIn: false, name: null, id: null, admin: false } }),
+  "app-board-me": fleet([responding({ id: "s1", name: "mine", owner: "Ed", ownerId: 1 }), makeSession({ id: "s2", name: "theirs", owner: "Alex", ownerId: 2 })], { board: true }),
   "app-board-empty": fleet([], { board: true }),
   "app-board-quiet": fleet([makeSession({ id: "s1", name: "api-refactor", plan: planOf(stepOf("1", "active"), stepOf("2", "pending")) })], { board: true }),
   "app-board-grouped": fleet(
     [
-      makeSession({ id: "s1", name: "api-refactor", owner: "Ed", ownerGroup: "Platform", plan: planOf(stepOf("1", "active"), stepOf("2", "done")) }),
-      makeSession({ id: "s2", name: "docs-rewrite", owner: "Alex", ownerGroup: "Data", plan: planOf(stepOf("1", "pending")) }),
+      makeSession({ id: "s1", name: "api-refactor", owner: "Ed", ownerId: 1, ownerGroup: "Platform", plan: planOf(stepOf("1", "active"), stepOf("2", "done")) }),
+      makeSession({ id: "s2", name: "docs-rewrite", owner: "Alex", ownerId: 2, ownerGroup: "Data", plan: planOf(stepOf("1", "pending")) }),
     ],
     { board: true, prefs: undefined },
   ),
@@ -181,10 +180,10 @@ export const STATE_SCREENS: Record<string, Screen> = {
     entries: feedEntries,
     act: async (b) => { pick(b, "s6"); await flush(); fireEvent.click(b.querySelector("#row-a1")!); await settle(); if (vi.isFakeTimers()) await act(async () => { await vi.advanceTimersByTimeAsync(5100); }); await settle(); },
   }),
-  "app-sign-in-dialog": fleet([makeSession()], { me: { enabled: true, signedIn: false, name: null, admin: false }, act: async () => { fireEvent.click(screen.getByRole("button", { name: /^Sign in/ })); await flush(); } }),
+  "app-sign-in-dialog": fleet([makeSession()], { me: { enabled: true, signedIn: false, name: null, id: null, admin: false }, act: async () => { fireEvent.click(screen.getByRole("button", { name: /^Sign in/ })); await flush(); } }),
   "app-people-groups": fleet([
-    makeSession({ id: "s1", name: "api-refactor", owner: "Dana", ownerGroup: "Platform" }),
-    makeSession({ id: "s2", name: "docs", owner: "Priya", ownerGroup: null }),
+    makeSession({ id: "s1", name: "api-refactor", owner: "Dana", ownerId: 3, ownerGroup: "Platform" }),
+    makeSession({ id: "s2", name: "docs", owner: "Priya", ownerId: 4, ownerGroup: null }),
   ], { prefs: { groupBy: "group", order: "name", collapsed: [] } }),
   "app-rail-paged": railPaged(many24(), async (b) => { pick(b, "s20"); await flush(); }),
   "app-rail-paged-people": railPaged(many24((i) => (i < 12 ? "Dana" : "Priya")), async () => { fireEvent.click(screen.getByRole("button", { name: "Next page" })); await flush(); }),

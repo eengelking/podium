@@ -6,8 +6,9 @@ import { randomBytes } from 'node:crypto';
 import { Router, type NextFunction, type Request, type Response } from 'express';
 import { jsonBody } from '../jsonBody.js';
 import type { AdminActs } from '../fleet/adminActs.js';
-import { ADMIN_SECRET_ACTOR, PeopleError, sourceAddress, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
-import type { ActivityHistoryApi, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
+import { ADMIN_SECRET_ACTOR, PeopleError, NOTICES, isNoticeId, REPORTER_STATES, FEATURES, isFeatureId, RESPOND, type PersonRow, type ForgetSetting, type IgnoreKind, type ReporterState } from '../storage/rows.js';
+import { sourceOf } from '../fleet/routeGate.js';
+import type { ActivityHistoryApi, AdminStopKindName, ChatSettingsApi, PeerStoreApi, PeopleStoreApi, PersonCertsApi, ReporterStoreApi, SessionRecordingsApi, Storage } from '../storage/types.js';
 import { asyncHandler } from '../fleet/asyncHandler.js';
 import { checkNameToken } from '../fleet/nameToken.js';
 import type { RespondBridge } from '../fleet/respondBridge.js';
@@ -31,7 +32,7 @@ import { CROSS_DAYS } from '../tlsRotation.js';
 import { fileSafe, issueConfigFor, type ConfigFile, type PersonIssuer } from '../tlsPeople.js';
 import { sizeText } from '../fleet/sizeText.js';
 import { capWords, countWords, policyWords } from '../fleet/activityHistoryWords.js';
-import { ACTIVITY_LOG_KINDS, type ActivityHistorySettings, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult, type StoredFilter } from '../fleet/activityHistoryTypes.js';
+import { ACTIVITY_LOG_KINDS, type ActivityHistoryState, type StoredDeleteBody, type StoredDeleteResult, type StoredFilter } from '../fleet/activityHistoryTypes.js';
 import { parseDeleteBody, parseFilter, parsePaging, parseSettings } from '../fleet/activityHistoryInput.js';
 import type { RecordingState } from '../fleet/protocol.js';
 import { createLogger, loggerFromLine, type Fields, type Logger } from '../logging/logger.js';
@@ -57,8 +58,8 @@ export interface AdminRouterOptions {
   peers?: PeerStoreApi;
   /** The Chat limits (#1034): kept in the settings table. Without it the Chat settings are not offered. */
   chat?: ChatSettingsApi;
-  /** Tells a person's live reporter sessions that an Admin paused, resumed or removed their links (#1077). Returns how many sessions were told. */
-  toldLinkStop?: (admin: string, owner: string, what: string) => number;
+  /** Keeps an Admin's pause, resume or removal of a person's links owed to them and shown in their reporter sessions until they have seen it (#1077, #1328). Returns how many live sessions show it now. */
+  stopOwed?: (admin: { name: string; id: number | null }, ownerId: number, kind: AdminStopKindName, what: string) => Promise<number>;
   /** Records an Admin's read of a conversation between agents and tells its people, before the text is answered (#1072). False when there is no such conversation. Without it the text is not served. */
   noteConversationRead?: (viewer: { name: string; actor: string; admin: boolean; personId: number | null }, a: string, b: string) => Promise<boolean>;
   /** The Activity history (#432): its store and the Admin's choice. Without it the Activity history routes answer 404. */
@@ -105,8 +106,6 @@ export interface AdminRouterOptions {
 const COOKIE = 'podium_admin';
 const MAX_SESSIONS = 20;
 export const ADMIN_IDLE_MS = 10 * 60_000;
-
-const sourceOf = (req: Request): string => sourceAddress(req.ip);
 
 function readCookie(req: Request, name: string): string | null {
   for (const part of (req.get('cookie') ?? '').split(';')) {
@@ -398,7 +397,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!out) return void res.status(404).json({ ok: false, error: 'unknown person' });
     if (out.revoked) {
       await audit(req, 'token_revoked', `Revoked the token of ${out.p.name}${out.certsRevoked > 0 ? ' and their certificate' : ''}`, { person_id: id, certificates_revoked: out.certsRevoked });
-      await acts?.onPerson(await adminName(req), 'access_revoked', out.p.name);
+      await acts?.onPerson(await adminRef(req), 'access_revoked', { id: out.p.id, name: out.p.name });
     }
     res.json({ ok: true });
   }));
@@ -475,7 +474,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     }
     if (out.n > 0 || out.tokenRevoked) {
       await audit(req, 'revoked_all', `Revoked the certificate and the token of ${t.person.name}`, { person_id: t.person.id });
-      await acts?.onPerson(await adminName(req), 'access_revoked', t.person.name);
+      await acts?.onPerson(await adminRef(req), 'access_revoked', { id: t.person.id, name: t.person.name });
     }
     res.json({ ok: true, revoked: out.n, tokenRevoked: out.tokenRevoked });
   }));
@@ -503,10 +502,10 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     try {
       const gone = await people.deleteMany(ids as number[]);
       if (gone.length === 0) return void res.status(404).json({ ok: false, error: 'unknown person' });
-      const by = await adminName(req);
+      const by = await adminRef(req);
       for (const p of gone) {
         await audit(req, 'person_deleted', `Deleted ${p.name}`, { person_id: p.id });
-        await acts?.onPerson(by, 'person_deleted', p.name);
+        await acts?.onPerson(by, 'person_deleted', { id: p.id, name: p.name });
       }
       res.json({ ok: true, removed: gone.length });
     } catch (err) {
@@ -582,22 +581,22 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   // Bulk removal and ignore rules (issue #167). These come before `/reporters/:key`, which would take "ignores" for a key.
   const MAX_BULK = 500;
   /** Who owns each of these reporters and what it is called, read before they go. A reporter on the admin secret has no person to tell. */
-  const reporterOwners = async (keys: string[]): Promise<{ who: string; name: string }[]> => {
+  const reporterOwners = async (keys: string[]): Promise<{ who: string; whoId: number | null; name: string }[]> => {
     if (!acts) return [];
-    const out: { who: string; name: string }[] = [];
+    const out: { who: string; whoId: number | null; name: string }[] = [];
     for (const k of keys) {
       const d = await reporters?.get(k, now(), { page: 1, pageSize: 1 });
-      if (d && !d.adminSecret && d.who) out.push({ who: d.who, name: d.name });
+      if (d && !d.adminSecret && d.who) out.push({ who: d.who, whoId: d.whoId, name: d.name });
     }
     return out;
   };
-  const tellReporterOwners = async (req: Request, owners: { who: string; name: string }[]): Promise<void> => {
+  const tellReporterOwners = async (req: Request, owners: { who: string; whoId: number | null; name: string }[]): Promise<void> => {
     if (!acts || owners.length === 0) return;
-    const by = await adminName(req);
+    const by = await adminRef(req);
     // One record and one callout for each person, however many of their reporters went (#1078).
-    const byWho = new Map<string, string[]>();
-    for (const o of owners) byWho.set(o.who, [...(byWho.get(o.who) ?? []), o.name]);
-    for (const [who, names] of byWho) await acts.onPerson(by, 'reporter_removed', who, names.length === 1 ? `your reporter ${names[0]}` : `${names.length} of your reporters`);
+    const byWho = new Map<number, { who: string; names: string[] }>();
+    for (const o of owners) if (o.whoId !== null) byWho.set(o.whoId, { who: o.who, names: [...(byWho.get(o.whoId)?.names ?? []), o.name] });
+    for (const [id, { who, names }] of byWho) await acts.onPerson(by, 'reporter_removed', { id, name: who }, names.length === 1 ? `your reporter ${names[0]}` : `${names.length} of your reporters`);
   };
   const plural = (n: number) => `${n} reporter${n === 1 ? '' : 's'}`;
 
@@ -605,7 +604,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!reporters) return void res.status(404).json({ ok: false, error: 'not available' });
     const { keys, state, match } = (req.body ?? {}) as { keys?: unknown; state?: unknown; match?: unknown };
     let removed: number;
-    let owners: { who: string; name: string }[] = [];
+    let owners: { who: string; whoId: number | null; name: string }[] = [];
     if (match !== undefined) {
       // Every reporter a filter holds, which can be more than one page: what "select all that match" asks for.
       const m = match as { q?: unknown; state?: unknown; admin?: unknown };
@@ -683,17 +682,17 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
   const peerFail = (res: Response, out: Refusal) => res.status(out.status).json({ ok: false, error: out.error });
   const withPeerSource = <T>(req: Request, fn: () => T): T => (peers ? peers.withSource(sourceOf(req), fn) : fn());
 
-  // An Admin's stop on a person's links is told to the person in their reporter session (`opts.toldLinkStop`) and written to the Admin log, with who and whose and
+  // An Admin's stop on a person's links is told to the person in their reporter session (`opts.stopOwed`) and written to the Admin log, with who and whose and
   // never any text (#1077). `what` gives the words after the Admin's name, for the person ("your reporter") or the log ("Ed's reporter"). The stop is already
   // done, so a failure to tell is logged, not raised, and the Admin log line still records how many sessions were told.
-  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; machine: string }, what: (whose: string) => string, kind: string): Promise<void> => {
+  const linkStopTold = async (req: Request, actor: Actor, ref: { owner: string | null; ownerId: number | null; machine: string }, what: (whose: string) => string, kind: AdminStopKindName, auditKind: string): Promise<void> => {
     let told = 0;
     try {
-      told = ref.owner && opts.toldLinkStop ? opts.toldLinkStop(actor.name, ref.owner, what('your')) : 0;
+      told = ref.ownerId !== null && opts.stopOwed ? await opts.stopOwed({ name: actor.name, id: (await adminRef(req)).id }, ref.ownerId, kind, what('your')) : 0;
     } catch (err) {
       opts.logger?.warn('admin.link_stop_not_told', `podium: an Admin's link stop could not be told to the person: ${(err as Error).message}`, { reporter: ref.machine });
     }
-    await audit(req, kind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
+    await audit(req, auditKind, `${actor.name} ${what(`${ref.owner ?? 'the person'}'s`)}`, { reporter: ref.machine, told });
   };
 
   router.get('/reporters/:key/peers', asyncHandler(async (req, res) => {
@@ -723,7 +722,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const out = await withPeerSource(req, () => peers.rights.pauseReporter(req.params.key, paused, actor));
     if (!out.ok) return void peerFail(res, out);
     // The person is told once for the whole bulk change, in the session and in the Admin log, by the Admin's name (#1077).
-    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'peer_links_paused' : 'peer_links_resumed');
+    if (mine) await linkStopTold(req, actor, mine, (whose) => `${paused ? 'paused' : 'resumed'} all messaging links of ${whose} reporter ${mine.machine}`, paused ? 'links_paused' : 'links_resumed', paused ? 'peer_links_paused' : 'peer_links_resumed');
     res.json(out);
   }));
 
@@ -733,7 +732,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const [a, b] = [(await peers.adminView(req.params.key))?.reporter, (await peers.adminView(req.params.other))?.reporter];
     const out = await withPeerSource(req, () => peers.removeLink(null, req.params.key, req.params.other, actor));
     if (!out.ok) return void peerFail(res, out);
-    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'peer_link_removed');
+    if (a) await linkStopTold(req, actor, a, (whose) => `removed the messaging link between ${whose} reporters ${a.machine} and ${b?.machine ?? 'another of theirs'}`, 'link_removed', 'peer_link_removed');
     res.json(out);
   }));
 
@@ -768,7 +767,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     const d = await reporters.get(key, now());
     if (!d || !await reporters.remove(key)) return void res.status(404).json({ ok: false, error: 'unknown reporter' });
     await audit(req, 'reporter_removed', `Removed the reporter ${d.name} from the list`, { reporter: key });
-    await tellReporterOwners(req, [{ who: d.who, name: d.name }]);
+    await tellReporterOwners(req, [{ who: d.who, whoId: d.whoId, name: d.name }]);
     res.json({ ok: true });
   }));
 
@@ -983,6 +982,12 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     return who === null || who === ADMIN_SECRET_ACTOR ? 'Admin' : who;
   };
 
+  /** The Admin as an act's record names them: the name shown, and the Admin's `people.id` (null for the admin secret), so the person told is never the Admin by a same name (#1284). */
+  const adminRef = async (req: Request): Promise<{ name: string; id: number | null }> => {
+    const sid = readCookie(req, COOKIE);
+    return { name: await adminName(req), id: (sid ? sessions.get(sid)?.personId : null) ?? null };
+  };
+
   /** The sessions a stored-activity delete reaches: the ticked ones, or every session a filter (or everything) holds, a page at a time. */
   const storedSessionsOf = async (h: NonNullable<typeof history>['history'], body: StoredDeleteBody): Promise<string[]> => {
     if ('ids' in body) return body.ids;
@@ -1003,7 +1008,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
       rec.service.removeFor(body.value).then(async (out) => {
         for (const g of out.each) {
           await recordingDeleted(req, g);
-          await acts?.onSession(await adminName(req), 'recording_deleted', g.sessionId);
+          await acts?.onSession(await adminRef(req), 'recording_deleted', g.sessionId);
           rec.changed(g.sessionId);
         }
         res.json({ entries: out.entries, sessions: out.sessions, bytes: out.bytes, freed: out.freed });
@@ -1014,7 +1019,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     // The sessions that lose entries are read before they go, so each owner can be told (#1078).
     const affected = acts ? await storedSessionsOf(history.history, body.value) : [];
     history.history.deleteBy(body.value).then(async (out) => {
-      for (const sid of affected) await acts?.onSession(await adminName(req), 'activity_deleted', sid);
+      for (const sid of affected) await acts?.onSession(await adminRef(req), 'activity_deleted', sid);
       await audit(req, ACTIVITY_LOG_KINDS.deleted, deletedWords(out, body.value), { entries: out.entries, sessions: out.sessions, bytes: out.bytes, chosen: how(body.value) });
       res.json(out);
     }).catch(storeFailed(res));
@@ -1134,7 +1139,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     if (!out) return void res.status(404).json({ ok: false, error: 'this session has no recording' });
     if (out.changed) {
       await audit(req, 'recording_stopped', `Stopped the recording of ${shortId(sid)}`, { session_id: sid });
-      await acts?.onSession(await adminName(req), 'recording_stopped', sid);
+      await acts?.onSession(await adminRef(req), 'recording_stopped', sid);
       rec.changed(sid);
     }
     res.json({ ok: true, grant: out.grant });
@@ -1147,7 +1152,7 @@ export function createAdminRouter(opts: AdminRouterOptions): Router {
     rec.service.removeMany([sid]).then(async (out) => {
       for (const g of out.each) {
         await recordingDeleted(req, g);
-        await acts?.onSession(await adminName(req), 'recording_deleted', g.sessionId);
+        await acts?.onSession(await adminRef(req), 'recording_deleted', g.sessionId);
       }
       rec.changed(sid);
       res.json({ ok: true, entries: out.entries, bytes: out.bytes });

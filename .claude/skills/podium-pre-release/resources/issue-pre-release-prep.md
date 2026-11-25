@@ -30,7 +30,7 @@ The issue before the last of milestone v<X.Y>. Every other v<X.Y> issue, the doc
 ## Validation
 
 - `npm test`, `npm run build`, `npm run plugin:dist:check`, `npm run standards:parity`
-- `scripts/test-db.sh` on every adapter, and `npm run e2e` on every registered database
+- `npm run test:all` for the whole pass (its `TEST ALL RESULT:` line, nothing NOT RUN), or, to repeat one suite, `npm run test:db` on every adapter and `npm run e2e:fast -- --db "sqlite postgres mariadb"` (every registered database) The command takes the machine's database lock (`scripts/db-lock.sh`) and waits its turn when another run holds it: give a time estimate before waiting and say when a run was delayed by it, never kill the holder, and never set `PODIUM_DB_LOCK=off` to get ahead (CI is the only place it is off).
 - `node scripts/atlas-functions.mjs --check`, `node site/scripts/build.mjs`
 - The evidence checks in the run record
 

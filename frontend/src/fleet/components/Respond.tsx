@@ -2,16 +2,18 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { familyName, ORCHESTRATOR_ROW as MAIN_LOOP, reporterBelow } from "../logic";
 import { RespondError } from "../respondApi";
 import { HarnessContext } from "../harnessContext";
-import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, isMine, minSec, nameKey, planBackOnly, respondGate, shownAsk } from "../respond";
+import { askLead, ASK_WORD, canAnswer, cantReason, clockOf, deliverySummary, canRespond, isMine, minSec, ownsSession, planBackOnly, respondGate, shownAsk } from "../respond";
 import { useReadingPing } from "../sessionReads";
 import type { AskDetail, SessionView } from "../types";
 import { readEvery, useActivityFeed, writeEvery } from "../useActivityFeed";
 import { useRespond } from "../useRespond";
+import { BackgroundPane } from "./BackgroundList";
+import { ActivityTabs, type ActivityTab } from "./ActivityTabs";
 import { ACTIVITY_REPORTER_MINOR, AdminOffNote, EverySelect, FeedList, FeedStatus, feedEmpty, feedNote, footer, OlderRow } from "./ActivityFeed";
 import { Compose, OffNote } from "./Compose";
 import { Modal } from "./Modal";
 import { SessionReadNotes } from "./SessionReadNotes";
-import { draftToAnswer, ICONS, Outcome, PermissionForm, PlanForm, Q, QuestionForm, type Draft, type PlanChoice } from "./RespondForms";
+import { AskReadOnly, draftToAnswer, ICONS, Outcome, PermissionForm, PlanForm, Q, QuestionForm, type Draft, type PlanChoice } from "./RespondForms";
 import { SignInPanel } from "./SignIn";
 
 // Responding to a waiting session from Podium (#206, mockup/podium-respond.html). Respond sits at the right end of the
@@ -32,7 +34,7 @@ export function RespondButton({ s }: { s: SessionView }) {
         className="respond"
         aria-haspopup="dialog"
         disabled={dimmed}
-        title={dimmed ? `Only ${gate.owner}, who owns this session, or an Admin can respond.` : undefined}
+        title={dimmed ? `Only ${gate.owner}, who owns this session, or an Admin ${gate.owner} has allowed, can respond.` : undefined}
         onClick={(e) => {
           e.stopPropagation();
           ctx.open(s.id, e.currentTarget);
@@ -67,6 +69,7 @@ function caseOf(detail: AskDetail, stale: boolean): Case {
 function refusedLine(err: RespondError): string {
   if (err.status === 422) return "This session doesn't take that from Podium now. Answer it in the terminal.";
   if (err.status === 429) return "20 messages are already waiting for this session. Send more once it has caught up.";
+  if (err.status === 403 && err.body.code === "admin-not-allowed") return err.message;
   if (err.status === 403) return "Podium won't take this from you: it isn't your session, or responding was turned off.";
   if (err.status === 400) return `Podium couldn't send that: ${err.message}.`;
   return "Podium couldn't send that. Try again.";
@@ -98,6 +101,8 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   const me = ctx.me;
   const signedIn = !!me?.signedIn;
   const mine = isMine(s, me);
+  // An Admin who is not the owner reads an ask here but answers and sends only when the owner has allowed it (#1251).
+  const acts = canRespond(s, me);
   const ask = shownAsk(s);
   const kind = ask?.kind ?? null;
   const can = canAnswer(s, kind);
@@ -105,6 +110,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
 
   // The feed, as the Activity modal shows it today.
   const [every, setEvery] = useState(readEvery);
+  const [activityTab, setActivityTab] = useState<ActivityTab>("output");
   const [nudge, setNudge] = useState(0);
   const feedOn = s.reporter === "mod" && !reporterBelow(s, ACTIVITY_REPORTER_MINOR) && s.activityFeed !== false;
   const active = s.status !== "done";
@@ -130,8 +136,8 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
     void load();
   }, [load]);
   // An Admin who has this ask open and is not its owner keeps the owner's notice alive (#1073); the open itself was recorded when the ask was loaded.
-  const ownsSession = !!me?.name && !!s.owner && s.owner !== "Admin" && nameKey(s.owner) === nameKey(me.name);
-  useReadingPing("ask", s.id, undefined, !!me?.admin && !ownsSession && !!ask && detail?.ask.id === ask.id);
+  const owns = ownsSession(s, me);
+  useReadingPing("ask", s.id, undefined, !!me?.admin && !owns && !!ask && detail?.ask.id === ask.id);
 
   // What the person has chosen so far, kept per ask.
   const [forAsk, setForAsk] = useState("");
@@ -183,7 +189,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
 
   const stale = s.status === "stale";
   const kase: Case = detail && ask && detail.ask.id === ask.id ? caseOf(detail, stale) : ask?.state === "closed" ? "hidden" : "form";
-  const formShowing = !!ask && ask.state !== "closed" && kase === "form" && !!detail;
+  const formShowing = !!ask && ask.state !== "closed" && kase === "form" && !!detail && acts;
   const backOnly = kind === "plan" && planBackOnly(s);
 
   const send = async (text: string) => {
@@ -223,7 +229,19 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
     const what = ASK_WORD[detail.ask.kind];
     const d = detail.delivery;
     const summary = d ? deliverySummary(detail, d, s.harness) : "";
-    if (kase === "form") {
+    if (kase === "form" && !acts) {
+      const owner = s.owner ?? "The owner";
+      panel = (
+        <Panel lead={lead} ago={ago} also="Also open in the terminal">
+          <AskReadOnly detail={detail} />
+          <div className="ab">
+            <Outcome cls="info" icon={ICONS.info} title={`${owner} hasn't allowed an Admin to respond.`}>
+              You can read this, and {owner} is told you did. {owner} can allow responding in My reporters.
+            </Outcome>
+          </div>
+        </Panel>
+      );
+    } else if (kase === "form") {
       const body =
         detail.ask.kind === "question" ? (
           <QuestionForm
@@ -345,7 +363,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
   // ---- the message box ----
   let compose: ReactNode = null;
   if (edge) compose = <OffNote edge={edge} reason={cantReason(s)} reporterVersion={s.reporterVersion} />;
-  else if (signedIn && mine)
+  else if (signedIn && mine && acts)
     compose = (
       <Compose
         name={s.name}
@@ -386,8 +404,11 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
       }}
       actions={active && !adminOff ? <EverySelect id="every-respond" every={every} onChange={(n) => (setEvery(n), writeEvery(n))} /> : undefined}
     >
-      <div className="mb feedmb respondmb">
-        {adminOff ? (
+      <ActivityTabs tab={activityTab} onTab={setActivityTab} count={s.backgroundOutput == null ? null : feed.background.length} idPrefix="respond" />
+      <div className="mb feedmb respondmb" role="tabpanel" id="respond-panel" aria-labelledby={`respond-tab-${activityTab}`}>
+        {activityTab === "background" ? (
+          <BackgroundPane s={s} items={feed.background} now={Date.now()} when={when} adminOff={adminOff} refused={feed.refused ? "The live activity is open to its owner and an Admin." : null} />
+        ) : adminOff ? (
           <AdminOffNote />
         ) : (
           <>
@@ -401,7 +422,7 @@ export function RespondModal(props: { s: SessionView; now: number; adminFeedOn: 
             )}
           </>
         )}
-        <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="above" />
+        <SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner, ownerId: s.ownerId }} placement="above" />
         {panel}
         {compose ?? <div className="mpad" />}
       </div>

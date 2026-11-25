@@ -1,33 +1,53 @@
 /* Chat (#1034, mockup/podium-chat.html). Colors come from tokens.css; the ch- classes are new. */
-.ch-split { display: grid; grid-template-columns: 280px minmax(0, 1fr); min-height: 560px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
-.ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 8px 0; overflow-y: auto; max-height: 720px; }
-.ch-sec { padding: 4px 0 8px; }
-.ch-sec > h2 { margin: 0; padding: 6px 20px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
-.ch-list { list-style: none; margin: 0; padding: 0; }
-.ch-item { position: relative; display: flex; align-items: center; padding-right: 6px; }
+.ch-split { position: relative; display: grid; grid-template-rows: minmax(0, 1fr); flex: 1; grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr); min-height: 360px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); overflow: hidden; }
+/* Sidebar (#1234, mockup/podium-chat-redesign.html): today's type (13 px rows with an 11 px muted line), capital 12 px section titles that stick and fold,
+   a hairline between sections, a "+" in a title, and a "..." button on every row, over the sidebar's own tone. */
+.ch-side { border-right: 1px solid var(--grid); min-width: 0; padding: 4px 0 8px; overflow-y: auto; background: var(--raised); }
+.ch-sec { padding: 0; border-top: 1px solid var(--grid); }
+.ch-sec:first-child { border-top: 0; }
+.ch-sec > h2 { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; margin: 0; padding: 4px 8px 0 8px; background: var(--raised); font-size: 12px; font-weight: 650; letter-spacing: .05em; text-transform: uppercase; color: var(--ink2); }
+.podium .ch-sec > h2 .ch-fold { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; min-height: 34px; margin: 0; padding: 0 6px; border: 0; border-radius: 6px; background: transparent; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; cursor: pointer; }
+.podium .ch-sec > h2 .ch-fold:hover { background: var(--hover); }
+.podium .ch-sec > h2 .ch-fold:focus-visible, .podium .ch-sec > h2 .ch-add:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.ch-fold svg { width: 12px; height: 12px; flex: none; transition: transform .12s; }
+.ch-sec.shut .ch-fold svg { transform: rotate(-90deg); }
+.ch-sec.shut .ch-list { display: none; }
+.ch-sec > h2 .ch-count { font-weight: 500; letter-spacing: 0; color: var(--muted); }
+/* The "+": 28 px, with the shared Tip around it. `.podium button` pads an icon-only button to nothing, so the padding is cleared here. A disabled one lets the pointer through to the Tip. */
+.ch-addwrap { flex: none; display: inline-flex; align-self: center; }
+.podium .ch-sec > h2 .ch-add { width: 28px; height: 28px; margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.podium .ch-sec > h2 .ch-add:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.podium .ch-sec > h2 .ch-add:disabled { color: var(--muted); cursor: not-allowed; pointer-events: none; }
+.ch-add svg { width: 16px; height: 16px; }
+.ch-list { list-style: none; margin: 0; padding: 0 0 8px; }
+.ch-item { position: relative; display: flex; align-items: center; margin: 0 8px; padding-right: 0; border-radius: 6px; }
 .ch-item:hover { background: var(--hover); }
-.ch-item.on { background: var(--sel); }
+.ch-item.on { background: var(--sel); box-shadow: inset 3px 0 0 var(--sonnet); }
 /* People and agents: the hover (and keyboard focus) highlight takes the color of the agent's state, the same colors as its icon. */
 .ch-item.hl-running:hover, .ch-item.hl-running:focus-within { background: color-mix(in srgb, var(--good-text) 16%, transparent); }
 .ch-item.hl-waiting:hover, .ch-item.hl-waiting:focus-within { background: color-mix(in srgb, var(--warn) 20%, transparent); }
 .ch-item.hl-deleg:hover, .ch-item.hl-deleg:focus-within, .ch-item.hl-bg:hover, .ch-item.hl-bg:focus-within { background: color-mix(in srgb, var(--deleg-text) 16%, transparent); }
 .ch-item.hl-stale:hover, .ch-item.hl-stale:focus-within { background: color-mix(in srgb, var(--serious) 18%, transparent); }
 .ch-item.hl-done:hover, .ch-item.hl-done:focus-within { background: color-mix(in srgb, var(--ink2) 14%, transparent); }
-.podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 20px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
-.podium .ch-item.on .ch-row { font-weight: 600; }
-.podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 0; }
+.podium .ch-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 4px 6px 8px; border: 0; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.podium .ch-item.on .ch-row .nm, .podium .ch-item.un .ch-row .nm { font-weight: 650; }
+.podium .ch-row:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 6px; }
 .ch-row .ic { flex: none; width: 16px; height: 16px; color: var(--ink2); }
+.ch-row .ic-wrap { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
 .ch-row .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
 .ch-row .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-row .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-row .tag { font-size: 11px; font-weight: 500; color: var(--muted); display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+/* admin.css puts a dot before every .tag; a row's tag already has an icon. */
+.adminv .ch-row .tag::before { display: none; }
 .ch-row .tag svg { width: 12px; height: 12px; flex: none; }
 .ch-row .tag.warn { color: var(--warn-text); }
 .ch-row .unread { flex: none; min-width: 18px; padding: 0 6px; border-radius: 9px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 650; text-align: center; }
-.podium .ch-more { flex: none; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
+.podium .ch-more { flex: none; width: 28px; height: 28px; margin-right: 2px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ink2); cursor: pointer; }
 .podium .ch-more:hover { background: var(--hover); border-color: var(--border); }
+.podium .ch-more[aria-expanded="true"] { background: var(--hover); border-color: var(--border); }
 .ch-more svg { width: 16px; height: 16px; }
-.ch-menu { position: absolute; right: 8px; top: 100%; z-index: 10; min-width: 190px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); }
+.ch-menu { position: absolute; right: 8px; top: 100%; z-index: 20; min-width: 190px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); }
 .podium .ch-menu button { display: flex; width: 100%; gap: 8px; align-items: center; padding: 7px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
 .podium .ch-menu button:hover, .podium .ch-menu button:focus-visible { background: var(--hover); outline: none; }
 .podium .ch-menu button:focus-visible { box-shadow: inset 0 0 0 2px var(--sonnet); }
@@ -35,6 +55,10 @@
 .ch-menu svg { width: 14px; height: 14px; flex: none; }
 .ch-menu .why { padding: 6px 10px; font-size: 11px; color: var(--muted); }
 .ch-menu { max-width: min(320px, calc(100vw - 32px)); }
+/* A row's menu opens under the row and flips up when there is no room below it. */
+.ch-item .ch-menu.up { top: auto; bottom: 100%; }
+/* A sender's menu (#1235) hangs at the pointer or under the avatar, fixed, above the thread and its members panel. */
+.podium .ch-menu.at { position: fixed; right: auto; bottom: auto; z-index: 30; }
 .ch-menu .sub { display: block; font-size: 11px; color: var(--muted); white-space: normal; }
 .podium .ch-menu button[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
 .podium .ch-menu button[aria-disabled="true"]:hover { background: transparent; }
@@ -50,69 +74,99 @@
 .ch-head { padding: 12px 16px 8px; border-bottom: 1px solid var(--grid); }
 .ch-head h2 { margin: 0; font-size: 15px; font-weight: 650; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ch-head h2 .nm { overflow-wrap: anywhere; }
-.ch-head .sub { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 12px; }
-.ch-who { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 16px 0; }
-.ch-who .m { display: inline-flex; gap: 6px; align-items: center; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--ink2); }
-.ch-who .m svg { width: 12px; height: 12px; }
-.ch-body { flex: 1; min-height: 0; overflow-y: auto; max-height: 520px; padding: 8px 16px; }
+/* `.adminv .sub { display: block }` (admin.css) is as specific as `.ch-head .sub`, and the Chat page renders inside .adminv, so the header's line names .adminv too. */
+.adminv .ch-head .sub { margin-top: 2px; display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); font-size: 12px; }
+.ch-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px; display: flex; flex-direction: column; }
+/* The page fills the window (#1230): the same gutter on all four sides, the chat takes the height left under the banners, and only the
+   sidebar and the message list scroll. The thread is anchored to the bottom: .ch-flow's margin-top:auto puts a short thread just above the
+   composer without making the top of a long one unreachable (justify-content:flex-end would). */
+.podium .adminv .apage.ch-fill { padding: 16px; }
+.adminv .apage-in.ch-page { display: flex; flex-direction: column; gap: 0; padding-bottom: 0; align-content: normal; min-height: 0; }
+/* `.asec` is also in the selector so this wins over `.adminv .asec { display: grid }` (admin.css, which Chat.tsx imports after this file): as a grid, the rows (a banner, the split) shared the free height, and a one-line banner grew tall (#1340). */
+.adminv .asec.ch-asec { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.ch-flow { margin-top: auto; }
+/* At 1040 px and under the console stacks and its height is auto (fleet.css), so there is no window height to fill; the chat is most of the window tall and its sidebar and list scroll inside it, and the page scrolls as a whole like every stacked page. */
+@media (max-width: 1040px) { .ch-split { flex: none; height: max(360px, calc(100svh - 240px)); } }
+.ch-intro { padding: 24px 8px 20px; }
+.ch-intro-av { display: flex; margin-bottom: 12px; }
+.ch-intro-av .mono-g { margin-left: -8px; box-shadow: 0 0 0 3px var(--surface); }
+.ch-intro-av .mono-g:first-child { margin-left: 0; }
+.ch-intro h3 { margin: 0 0 4px; font-size: 18px; font-weight: 650; }
+.ch-intro p { margin: 0; max-width: 52ch; color: var(--ink2); font-size: 14px; line-height: 1.5; }
 .ch-earlier { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 8px 0 12px; color: var(--muted); font-size: 12px; }
-.ch-body .feed { height: auto; max-height: none; }
-.ch-body .feed .body { white-space: pre-wrap; color: var(--ink); overflow-wrap: anywhere; }
-.ch-body .feed .who { display: block; font-weight: 600; color: var(--ink); white-space: normal; }
-.ch-body .feed .ds { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 11.5px; margin-top: 2px; white-space: normal; }
-.ch-body .feed .ds svg { width: 12px; height: 12px; flex: none; }
-.ch-body .feed .ds.wait { color: var(--warn-text); }
-.ch-body .feed li.mine .body { border-left: 2px solid var(--sonnet); padding-left: 8px; }
-.ch-composer { display: grid; gap: 6px; padding: 10px 16px 12px; border-top: 1px solid var(--grid); }
-.ch-composer label { font-size: 12px; color: var(--ink2); }
-.ch-composer .row { display: flex; gap: 8px; align-items: flex-end; }
-.ch-composer textarea { flex: 1; min-height: 44px; resize: vertical; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; }
-.ch-composer textarea:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
-.ch-composer textarea:disabled { color: var(--muted); }
+/* Composer (#1233, mockup/podium-chat-redesign.html): one bordered box, the text on top and a tools row under it, Send an icon at the far end. It is the
+   one primary button, muted until there is something to send. The textarea's own outline is removed because the box's 1 px --sonnet outline on
+   focus-within is the focus ring. */
+.ch-composer { display: grid; gap: 6px; flex: none; padding: 8px 16px 12px; border-top: 0; }
 .ch-composer .note { font-size: 12px; color: var(--muted); }
 .ch-composer .note.warn { color: var(--warn-text); }
-.ch-body .feed li { position: relative; }
+.ch-box { display: flex; flex-direction: column; border: 1px solid var(--axis); border-radius: 10px; background: var(--surface); transition: border-color .12s, box-shadow .12s; }
+.ch-box:hover { border-color: var(--muted); }
+.ch-box:focus-within { border-color: var(--sonnet); box-shadow: 0 0 0 1px var(--sonnet); }
+.ch-box textarea { display: block; width: 100%; box-sizing: border-box; min-height: 24px; max-height: 180px; resize: none; padding: 14px 18px 4px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 15px; line-height: 1.5; overflow-y: auto; }
+.ch-box textarea::placeholder { color: var(--muted); }
+.ch-box textarea:focus-visible { outline: none; }
+.ch-box textarea:disabled { color: var(--muted); }
+.ch-box:has(textarea:disabled) { background: var(--sel); }
+.ch-box:has(textarea:disabled):hover { border-color: var(--axis); }
+.ch-box .cr-tools { display: flex; align-items: center; gap: 4px; padding: 2px 8px 8px 10px; }
+.podium .ch-box .cr-tool { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--ink2); cursor: pointer; }
+.podium .ch-box .cr-tool:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.podium .ch-box .cr-tool:disabled { color: var(--muted); cursor: not-allowed; }
+.podium .ch-box .cr-tool:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.ch-box .cr-tool svg { width: 18px; height: 18px; }
+/* admin.css caps .hint at 66ch; the hint has to grow so that Send ends at the box's right edge. */
+.adminv .ch-box .hint { flex: 1; min-width: 0; max-width: none; margin: 0; padding: 0 12px; text-align: right; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-box .hint kbd { font: inherit; font-weight: 600; color: var(--ink2); }
+.podium .btn.ch-send { flex: none; width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px; }
+.ch-send svg { width: 18px; height: 18px; }
+.podium .btn.ch-send:disabled { background: var(--sel); color: var(--muted); border-color: transparent; cursor: not-allowed; }
+/* A failed send: the server's own words in a red box above the composer; the draft stays in the box. */
+.adminv .ch-composer .errbox { margin: 0; padding: 8px 12px; border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); background: color-mix(in srgb, var(--crit) 16%, var(--raised)); color: var(--ink); }
+.adminv .ch-composer .err { padding: 0; border-top: 0; }
+@media (max-width: 760px) {
+  .ch-composer { padding: 8px 12px 12px; }
+  .adminv .ch-box .hint { font-size: 0; padding: 0; }
+  .ch-box .cr-tools { padding: 2px 8px 8px 8px; }
+}
 .ch-mention { display: inline-block; padding: 0 5px; border-radius: 4px; background: var(--sel); color: var(--ink); font-weight: 600; }
-.ch-body .feed li.reply .body { border-left: 2px solid var(--axis); padding-left: 8px; margin-left: 14px; }
-.ch-body .feed .who .re { font-weight: 400; color: var(--muted); }
 .ch-st { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .ch-st .s { display: inline-flex; gap: 4px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 10px; font-size: 11.5px; color: var(--ink2); }
 .ch-st .s svg { width: 12px; height: 12px; flex: none; }
 .ch-st .s.done { color: var(--good-text); }
 .ch-st .s.wait { color: var(--warn-text); }
-.ch-composer .row { position: relative; }
-.ch-ac { position: absolute; left: 0; right: 80px; bottom: 100%; z-index: 12; margin: 0 0 4px; padding: 4px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); max-height: 240px; overflow-y: auto; }
+.cr-wrap { position: relative; }
+/* The @ list: avatar, @name in bold with its role under it, the state at the right. An entry that is off shows its reason and cannot be picked. */
+.ch-ac { position: absolute; left: 0; width: min(400px, 100%); bottom: calc(100% + 8px); z-index: 20; margin: 0; padding: 6px; list-style: none; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); box-shadow: 0 6px 20px var(--grid); max-height: 340px; overflow-y: auto; }
 .ch-ac[hidden] { display: none; }
-/* The command list of a message to your own agent (#1051) is the Activity window's .typeahead, as wide as the message row. */
-.ch-composer .row .typeahead { left: 0; right: 0; }
+/* The command list of a message to your own agent (#1051) is the Activity window's .typeahead, opened above the box. */
+.cr-wrap .typeahead { left: 0; right: auto; width: min(440px, 100%); bottom: calc(100% + 8px); }
 .ch-composer .confirm { margin-bottom: 8px; }
-.ch-ac li { display: flex; flex-wrap: wrap; gap: 2px 10px; align-items: baseline; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.ch-ac li { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
 .ch-ac li[aria-selected="true"] { background: var(--sel); }
-.ch-ac li[aria-disabled="true"] { color: var(--muted); cursor: default; }
-.ch-ac .ic0 { display: inline-flex; align-items: center; min-width: 18px; }
-.ch-ac .h { font-weight: 600; }
-.ch-ac .r { font-size: 11px; color: var(--muted); }
-.ch-ac .off { flex-basis: 100%; font-size: 11px; color: var(--warn-text); }
-.podium .ch-split .si { width: 16px; height: 16px; flex: none; }
-.podium .ch-split .si-running { color: var(--good-text); }
-.podium .ch-split .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
-.podium .ch-split .si-bg, .podium .ch-split .si-deleg { color: var(--deleg-text); }
-.podium .ch-split .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
-.podium .ch-split .si-done { color: var(--ink2); }
+.ch-ac li[aria-disabled="true"] { cursor: not-allowed; }
+.ch-ac li[aria-disabled="true"] .ch-av { opacity: .55; }
+.ch-ac .t { flex: 1; min-width: 0; display: grid; }
+.ch-ac .h { font-weight: 600; overflow-wrap: anywhere; }
+.ch-ac .r { font-size: 11.5px; color: var(--muted); }
+.ch-ac .off { font-size: 11.5px; color: var(--warn-text); }
+.ch-ac .ch-av.person svg { width: 55%; height: 55%; }
+.ch-ac .stw { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; color: var(--ink2); }
+.ch-ac .stw svg { width: 12px; height: 12px; }
+.ch-ac li.ft { cursor: default; padding: 6px 8px 2px; margin-top: 4px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--grid); border-radius: 0; }
+.podium .ch-split .si, .podium .dm-pick .si { width: 16px; height: 16px; flex: none; }
+.podium .ch-split .si-running, .podium .dm-pick .si-running { color: var(--good-text); }
+.podium .ch-split .si-waiting, .podium .dm-pick .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .ch-split .si-bg, .podium .ch-split .si-deleg, .podium .dm-pick .si-bg, .podium .dm-pick .si-deleg { color: var(--deleg-text); }
+.podium .ch-split .si-stale, .podium .dm-pick .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.podium .ch-split .si-done, .podium .dm-pick .si-done { color: var(--ink2); }
 .ch-st .s .si { width: 12px; height: 12px; }
-.ch-chipwrap { position: relative; display: inline-flex; }
-.podium .ch-chipwrap .m { cursor: pointer; background: transparent; color: var(--ink2); }
-.podium .ch-chipwrap .m:hover { background: var(--hover); }
-.ch-chipwrap .ch-menu { top: calc(100% + 4px); left: 0; right: auto; min-width: 220px; white-space: nowrap; }
 .ch-nav { margin: 0 0 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); font-size: 12px; color: var(--ink2); }
 .ch-blank { padding: 40px 24px; text-align: center; color: var(--ink2); }
 .ch-thread .ch-back { display: none; }
-.ch-body .feed li { grid-template-columns: 74px 16px minmax(0, 1fr); }
-.ch-body .feed li .at { white-space: nowrap; }
-.ch-body .feed .ch-st .s.bad { color: var(--crit-text); }
-.ch-ac .ic0:empty { display: none; }
 /* Narrow: the list and the thread are two screens, with "Back to the list" on the thread (data-pane says which one shows). */
 @media (max-width: 760px) {
+  .podium .adminv .apage.ch-fill { padding: 8px; }
   .ch-split { grid-template-columns: minmax(0, 1fr); }
   .ch-side { border-right: 0; max-height: none; }
   .ch-split[data-pane="side"] .ch-thread { display: none; }
@@ -125,10 +179,12 @@
 .ch-pad { padding: 6px 20px; }
 
 /* An Admin reading (#1034, mockup/podium-chat.html): the picker, the red banner and tags, and the record line. The red is the critical tokens, with an icon and words, never color alone. */
-.ch-read { display: grid; gap: 6px; padding: 4px 20px 8px; }
+.ch-sec > h2.ch-static { padding: 12px 20px 4px; }
+.ch-read { display: grid; gap: 6px; padding: 4px 20px 12px; }
 .ch-read label { font-size: 12px; color: var(--ink2); }
 .ch-read .rd-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.ch-read .rd-i { display: inline-flex; color: var(--muted); cursor: help; }
+.podium .ch-read .rd-i { display: inline-flex; padding: 0; border: 0; background: transparent; color: var(--muted); cursor: help; }
+.ch-read .rd-i svg { width: 16px; height: 16px; }
 .ch-read .rd-i:hover, .ch-read .rd-i:focus-visible { color: var(--ink); }
 .ch-read .btn { justify-self: start; }
 .ch-composer .note.with-btn { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
@@ -145,7 +201,6 @@
 .ch-head .sub .tag svg { width: 12px; height: 12px; flex: none; }
 .ch-row .tags { display: flex; flex-wrap: wrap; gap: 2px 6px; }
 /* The record line an Admin's reading leaves in the thread: not a message, so no checkbox, no delivery line, not selectable. */
-.ch-body .feed li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
 .ch-rec svg { width: 12px; height: 12px; flex: none; }
 .podium .ch-nav .tip { text-decoration: underline dotted; text-underline-offset: 3px; cursor: help; white-space: nowrap; }
 
@@ -167,3 +222,231 @@
 .rl h3 + ul li:first-child { border-top: 0; }
 .rl li .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--ink2); }
 .rl li p { margin: 0; max-width: 64ch; }
+
+/* Public channels and the two forms (#1035, mockup/podium-channels.html): New channel and New direct message sit in their section's heading, a channel
+   shows its description and its link, and the forms are the console's modal. */
+.ch-head .ch-desc { margin-top: 4px; color: var(--ink2); font-size: 13px; overflow-wrap: anywhere; max-width: 80ch; }
+.ch-link { display: inline-flex; gap: 6px; align-items: center; padding: 1px 8px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; font-weight: 400; color: var(--ink2); white-space: nowrap; }
+.ch-link svg { width: 12px; height: 12px; flex: none; }
+.ch-form { display: grid; gap: 12px; }
+.ch-form label { display: grid; gap: 4px; font-size: 12px; color: var(--ink2); }
+.ch-form .hint, .ch-form p { margin: 0; }
+.ch-form .hint { color: var(--muted); font-size: 12px; }
+/* The modal sits outside .adminv, so its fields are styled here with the same tokens as .adminv .field. */
+.podium .ch-form .field { width: 100%; min-width: 0; box-sizing: border-box; min-height: 32px; padding: 0 10px; background: var(--raised); border: 1px solid var(--border); border-radius: 6px; color: var(--ink); font: inherit; }
+.podium .ch-form textarea.field { min-height: 72px; padding: 8px 10px; resize: vertical; }
+.podium .ch-form .field:focus-visible { outline: 2px solid var(--sonnet); outline-offset: 1px; }
+.podium .ch-form .field[aria-invalid="true"] { border-color: var(--crit-text); }
+.podium .ch-form .field:disabled { color: var(--muted); }
+.ch-form .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; }
+.ch-form .count { justify-self: end; margin-top: -8px; font-size: 11px; color: var(--muted); }
+.ch-form .acts { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.ch-form .dm-set { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; }
+.podium .modal .mb .dm-pick { box-sizing: border-box; width: 100%; max-width: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 8px; max-height: 232px; overflow: auto; list-style: none; }
+.dm-pick li { margin: 0; }
+.dm-pick h3 { margin: 0; padding: 6px 12px; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.dm-pick label { display: flex; gap: 10px; align-items: center; padding: 8px 12px; cursor: pointer; color: var(--ink); font-size: 13px; }
+.dm-pick label:hover { background: var(--hover); }
+.dm-pick label:has(input:checked) { background: var(--sel); font-weight: 600; }
+.dm-pick label:has(input:focus-visible) { outline: 2px solid var(--sonnet); outline-offset: -2px; }
+.dm-pick label[aria-disabled="true"] { color: var(--muted); cursor: not-allowed; }
+.dm-pick label[aria-disabled="true"]:hover { background: transparent; }
+.dm-pick .stack { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.dm-pick .sub { font-size: 11px; font-weight: 400; color: var(--muted); overflow-wrap: anywhere; }
+.dm-pick .none { padding: 12px; color: var(--muted); }
+@media (max-width: 760px) {
+  .ch-form .row2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The two dialogs (#1237, mockup/podium-chat-redesign.html): a 520 px Modal (.ch-dlg), fields in 13 px type, the agent picker with avatars and
+   13 px sentence-case group titles, and Cancel and the primary button pinned to the bottom of the body while the form scrolls. */
+.podium .modal.ch-dlg { width: min(520px, 100%); }
+.podium .ch-dlg .ch-form label { font-size: 13px; color: var(--ink); font-weight: 600; }
+.podium .ch-dlg .ch-form label .cr-opt { display: inline; font-weight: 400; color: var(--muted); }
+.podium .ch-dlg .ch-form .ch-nav.ro { margin: 0; max-width: none; font-size: 12.5px; }
+.podium .ch-dlg .ch-form .hint { max-width: none; font-size: 12.5px; }
+.podium .ch-dlg .ch-form textarea.field { min-height: 56px; }
+.podium .ch-dlg .ch-form .acts { position: sticky; bottom: -22px; z-index: 1; margin: 0 -20px -22px; padding: 12px 20px; border-top: 1px solid var(--border); background: var(--surface); }
+.podium .modal.ch-dlg .mb .dm-pick { max-height: 320px; }
+.podium .ch-dlg .dm-pick h3 { padding: 6px 12px 2px; font-size: 13px; font-weight: 650; letter-spacing: 0; text-transform: none; color: var(--ink2); }
+.podium .ch-dlg .dm-pick label { gap: 12px; padding: 5px 12px; }
+.podium .ch-dlg .dm-pick .stack > span:first-child { font-size: 14px; }
+.podium .ch-dlg .dm-pick .sub { font-size: 12px; }
+.podium .ch-dlg .dm-pick input[type="radio"] { margin: 0; accent-color: var(--ink); }
+.podium .ch-dlg .dm-pick label[aria-disabled="true"] .ch-av { opacity: .55; }
+
+/* The avatar (#1231, mockup/podium-chat-redesign.html; ChatAvatar.tsx). Shape says the kind, color the model, a state mark what an agent is doing.
+   An agent is a tile in its model's color (--c, set from the wall's FAMILY_COLOR). A person is never a hue (color means model and status, see
+   Monogram): a ring, a gap and a disc. You are the same disc turned inside out. Sizes are the five Chat draws; the text sizes and radii are on
+   docs/standards/scale.html. The state colors are the ones the sidebar's agent list already uses (.si-* above). */
+.podium .ch-av { --gap: 2px; position: relative; flex: none; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; font-weight: 650; letter-spacing: .01em; line-height: 1; user-select: none; }
+.podium .ch-av.s22 { width: 22px; height: 22px; font-size: 10.5px; --gap: 1.5px; }
+.podium .ch-av.s28 { width: 28px; height: 28px; font-size: 11px; }
+.podium .ch-av.s30 { width: 30px; height: 30px; font-size: 12px; }
+.podium .ch-av.s40 { width: 40px; height: 40px; font-size: 13px; }
+.podium .ch-av.s44 { width: 44px; height: 44px; font-size: 15px; }
+.podium .ch-av.person { border-radius: 50%; border: 1.5px solid var(--ink2); background: color-mix(in srgb, var(--ink) 14%, var(--surface)); color: var(--ink); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.podium .ch-av.me { border-radius: 50%; border: 1.5px solid var(--ink); background: var(--ink); color: var(--bg); font-weight: 700; box-shadow: inset 0 0 0 var(--gap) var(--surface); }
+.podium .ch-av.agent { border-radius: 8px; border: 1.5px solid var(--c, var(--other)); background: color-mix(in srgb, var(--c, var(--other)) 20%, var(--surface)); color: var(--ink); }
+.podium .ch-av.agent.s22 { border-radius: 6px; }
+.podium .ch-av .ch-av-chip { width: 58%; height: 58%; }
+.podium .ch-av .ch-av-st { position: absolute; right: -3px; bottom: -3px; width: 14px; height: 14px; padding: 1px; border-radius: 50%; background: var(--surface); box-sizing: border-box; color: var(--ink2); }
+.podium .ch-av.s22 .ch-av-st, .podium .ch-av.s28 .ch-av-st { width: 11px; height: 11px; padding: 0; }
+.podium .ch-av .ch-av-st svg { width: 100%; height: 100%; display: block; }
+.podium .ch-av .ch-av-st .si-running { color: var(--good-text); }
+.podium .ch-av .ch-av-st .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.podium .ch-av .ch-av-st .si-bg, .podium .ch-av .ch-av-st .si-deleg { color: var(--deleg-text); }
+.podium .ch-av .ch-av-st .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.podium .ch-av .ch-av-st .si-done { color: var(--ink2); }
+/* Two parties: the first sits top left, the second bottom right, with a ring of the surface between them. */
+.podium .ch-av-pair { position: relative; flex: none; display: inline-block; width: 38px; height: 30px; }
+.podium .ch-av-pair .ch-av { position: absolute; }
+.podium .ch-av-pair .ch-av:first-child { left: 0; top: 0; z-index: 1; }
+.podium .ch-av-pair .ch-av:last-child { right: 0; bottom: 0; box-shadow: 0 0 0 2px var(--raised); }
+.podium .ch-av-pair .ch-av.person:last-child, .podium .ch-av-pair .ch-av.me:last-child { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--raised); }
+/* An avatar that opens a menu is a real button around the same tile; `.podium button` carries padding that would squeeze it, so it is cleared here. */
+.podium .ch-av-btn { display: inline-flex; flex: none; padding: 0; margin: 0; border: 0; background: none; border-radius: 8px; cursor: pointer; color: inherit; }
+.podium .ch-av-btn:has(.ch-av.person), .podium .ch-av-btn:has(.ch-av.me) { border-radius: 50%; }
+.podium .ch-av-btn:has(.ch-av.agent.s22) { border-radius: 6px; }
+
+/* Messages (#1232, mockup/podium-chat-redesign.html): flat rows with an avatar column, one bubble for everyone (yours on the right), a run of messages
+   from one sender sharing one avatar, name and time. The text has no character cap. Class names carry ch- because Chat renders inside .adminv and
+   .podium, whose .feed, .who, .at and .chip rules would otherwise apply. */
+.podium { --ch-code: color-mix(in srgb, var(--ink) 12%, var(--sel)); }
+:root[data-theme="dark"] .podium { --ch-code: color-mix(in srgb, var(--bg) 55%, var(--sel)); }
+.ch-msgs { list-style: none; margin: 0; padding: 0; height: auto; max-height: none; }
+.ch-msg { position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr); column-gap: 14px; padding: 3px 0; font-size: 15px; line-height: 1.55; }
+.ch-msg.first { padding-top: 26px; }
+.ch-msg.first:first-child { padding-top: 8px; }
+.ch-gut { grid-column: 1; align-self: start; display: flex; }
+.ch-msg.cont .ch-gut { justify-content: flex-end; font-size: 11px; line-height: 23px; color: transparent; white-space: nowrap; user-select: none; }
+.ch-msg.cont:hover .ch-gut { color: var(--muted); }
+.ch-col { grid-column: 2; min-width: 0; }
+.ch-mh { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; line-height: 22px; margin-bottom: 3px; }
+.ch-msgs .who { font-size: 15px; font-weight: 650; color: var(--ink); white-space: normal; overflow-wrap: anywhere; }
+.ch-msgs .who .re, .ch-msgs .who .chip { font-size: 12px; font-weight: 400; }
+.ch-msgs .who .re { color: var(--muted); }
+.ch-msgs .at { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ch-msgs .ch-mh .chip.model { align-self: center; }
+.ch-tx { width: fit-content; max-width: 100%; box-sizing: border-box; padding: 8px 12px; border-radius: 10px; background: var(--sel); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ch-tx:empty { display: none; }
+.ch-msg.reply .ch-col { border-left: 2px solid var(--axis); padding-left: 8px; }
+.ch-msg.mine { grid-template-columns: minmax(0, 1fr) 40px; }
+.ch-msg.mine .ch-col { grid-column: 1; grid-row: 1; justify-self: end; max-width: 90%; display: flex; flex-direction: column; align-items: flex-end; }
+.ch-msg.mine .ch-gut { grid-column: 2; grid-row: 1; }
+.ch-msg.mine.cont .ch-gut { justify-content: flex-start; }
+.ch-msg.mine .ch-mh { justify-content: flex-end; }
+.ch-msg.mine .ch-tx { text-align: left; }
+.ch-msg.mine.reply .ch-col { border-left: 0; padding-left: 0; border-right: 2px solid var(--axis); padding-right: 8px; }
+.ch-msg .ch-st { margin-top: 4px; }
+/* Who a message of a Direct Message was for (#1282): one muted line under the text, an icon and words, so it is never color alone. */
+.ch-msg .ch-for { display: flex; align-items: center; gap: 5px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.ch-msg .ch-for svg { width: 12px; height: 12px; flex: none; }
+.ch-msg.mine .ch-for { justify-content: flex-end; }
+.ch-msg.mine .ch-st { justify-content: flex-end; }
+.ch-msgs .ch-st .s.bad { color: var(--crit-text); border-color: color-mix(in srgb, var(--crit-text) 55%, transparent); font-weight: 600; }
+.ch-msgs .ch-st .s.ds { white-space: normal; max-width: 100%; }
+.ch-inline { padding: 0 6px; border-radius: 4px; background: var(--ch-code); color: var(--ink); font-family: var(--font-mono); font-size: 13px; font-weight: 600; line-height: 1.4; white-space: pre-wrap; }
+/* Dividers: a day divider and the New line are rows with a rule on each side, or one side for New. */
+.ch-day, .ch-newline { display: flex; align-items: center; gap: 12px; list-style: none; }
+.ch-day { margin: 20px 0 6px; color: var(--ink2); font-size: 12.5px; font-weight: 600; }
+.ch-day::before, .ch-day::after { content: ""; flex: 1; height: 1px; background: var(--grid); }
+.ch-newline { margin: 12px 0 0; gap: 10px; color: var(--crit-text); font-size: 11.5px; font-weight: 650; }
+.ch-newline::before { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--crit-text) 55%, transparent); }
+/* A fenced block: darker than the bubble, never wrapped; it scrolls sideways inside the bubble and the page does not. */
+.ch-code { margin: 6px 0; min-width: 0; max-width: 100%; border-radius: 8px; background: var(--ch-code); white-space: normal; }
+.ch-code:first-child { margin-top: 0; }
+.ch-code:last-child { margin-bottom: 0; }
+.ch-code-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 0 10px; }
+.ch-code-lang { color: var(--ink2); font-size: 12px; font-weight: 600; }
+.podium .ch-copy { margin-left: auto; }
+.ch-code pre { margin: 0; padding: 6px 10px 10px; overflow-x: auto; font-family: var(--font-mono); font-size: 13px; line-height: 1.5; white-space: pre; color: var(--ink); }
+.ch-code pre:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-code code { font: inherit; }
+.ch-msgs li.ch-rec { display: flex; gap: 6px; align-items: center; justify-content: center; padding: 8px 0; color: var(--muted); font-size: 12px; border: 0; user-select: none; }
+
+/* The members stack in the thread header and the panel it opens (#1236, mockup/podium-chat-redesign.html). Names are prefixed ch-mem and
+   ch-stack; `.podium button` (fleet.css) zeroes padding, border and background at 0,1,1, so every button rule here names .podium. */
+.ch-head-top { display: flex; align-items: flex-start; gap: 12px; }
+.ch-head-top h2 { flex: 1; min-width: 0; }
+.ch-head h2 .ch-av-pair { flex: none; }
+.podium .ch-stack { flex: none; display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px 4px 6px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--ink2); font-size: 12px; font-weight: 600; cursor: pointer; }
+.podium .ch-stack:hover, .podium .ch-stack[aria-expanded="true"] { background: var(--sel); border-color: var(--axis); }
+.ch-stack-av { display: inline-flex; align-items: center; }
+.podium .ch-av[data-i]::before { content: attr(data-i); }
+.ch-stack-av > span { display: inline-flex; margin-left: -6px; }
+.ch-stack-av > span:first-child { margin-left: 0; }
+.podium .ch-stack-av .ch-av.person, .podium .ch-stack-av .ch-av.me { box-shadow: inset 0 0 0 var(--gap) var(--surface), 0 0 0 2px var(--surface); }
+.podium .ch-stack-av .ch-av.agent { box-shadow: 0 0 0 2px var(--surface); }
+.ch-split.mem-open { grid-template-columns: clamp(300px, 30%, 360px) minmax(0, 1fr) 300px; }
+.ch-mem { display: flex; min-width: 0; min-height: 0; flex-direction: column; border-left: 1px solid var(--grid); background: var(--surface); }
+.ch-mem-h { display: flex; align-items: center; gap: 8px; padding: 10px 12px 10px 16px; border-bottom: 1px solid var(--grid); }
+.ch-mem-h h3 { flex: 1; margin: 0; font-size: 14px; font-weight: 650; }
+.ch-mem-h h3 .n, .ch-mem h4 .n { font-weight: 500; color: var(--muted); }
+.podium .ch-mem-x { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; color: var(--ink2); }
+.podium .ch-mem-x:hover { background: var(--hover); }
+.ch-mem-x svg { width: 14px; height: 14px; }
+.ch-mem-q { display: grid; gap: 8px; padding: 10px 12px 6px; }
+.ch-mem-srch { position: relative; display: block; }
+.ch-mem-srch svg { position: absolute; left: 10px; top: 50%; width: 14px; height: 14px; margin-top: -7px; color: var(--muted); pointer-events: none; }
+.podium .ch-mem-srch input { width: 100%; box-sizing: border-box; height: 32px; padding: 0 10px 0 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--raised); color: var(--ink); font: inherit; }
+.ch-mem-filt { display: flex; flex-wrap: wrap; gap: 4px; }
+.podium .ch-mem-filt button { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--ink2); font-size: 12px; }
+.podium .ch-mem-filt button[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); color: var(--ink); font-weight: 600; }
+.ch-mem-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 8px; }
+.ch-mem h4 { margin: 0; padding: 12px 16px 4px; font-size: 12px; font-weight: 650; color: var(--ink2); }
+.ch-mem ul { margin: 0; padding: 0 8px; list-style: none; }
+.podium .ch-mem-row { position: relative; display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 6px; font-size: 14px; }
+.podium .ch-mem-row:hover { background: var(--hover); }
+.ch-mem-t { flex: 1; min-width: 0; display: grid; }
+.ch-mem-t b { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-t span { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.ch-mem-st { flex: none; display: inline-flex; align-items: center; gap: 4px; color: var(--ink2); font-size: 11.5px; }
+.ch-mem-st svg { width: 12px; height: 12px; }
+.ch-mem-st .si-running { color: var(--good-text); }
+.ch-mem-st .si-waiting { color: color-mix(in srgb, var(--warn) 60%, var(--ink)); }
+.ch-mem-st .si-bg, .ch-mem-st .si-deleg { color: var(--deleg-text); }
+.ch-mem-st .si-stale { color: color-mix(in srgb, var(--serious) 60%, var(--ink)); }
+.ch-mem .ch-menu { top: calc(100% - 2px); left: 8px; right: auto; min-width: 220px; white-space: nowrap; }
+.adminv .ch-mem-none { padding: 8px 16px; }
+.ch-mem-more { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; padding: 8px 16px; border-top: 1px solid var(--grid); color: var(--muted); font-size: 12px; }
+.podium .ch-mem-more button { color: var(--ink); font-weight: 600; text-decoration: underline; }
+.ch-mem-note { flex-basis: 100%; }
+/* Narrow: the panel is a sheet over the thread, one layer above its header. */
+@media (max-width: 760px) {
+  .ch-split.mem-open { grid-template-columns: minmax(0, 1fr); }
+  .ch-split.mem-open .ch-mem { position: absolute; inset: 0; z-index: 7; border-left: 0; }
+}
+
+/* Edit and delete your own messages (#1269, mockup/podium-chat-edit-delete.html). There is no "..." button: a right-click, a long press or Enter on the
+   focused message opens the menu. New classes: ed-box (the editor), ed-del (a deleted message's note), ed-edited (the "edited" mark), ed-kbd (a key hint
+   in the menu), ed-q (the message quoted in the delete confirmation). The menu is the sidebar's `.ch-menu`, in the sidebar's 13 px type. */
+.podium .ch-menu.ed-menu { min-width: 220px; font-size: 13px; line-height: 1.4; font-weight: 400; }
+.ch-menu .ed-kbd { margin-left: auto; padding-left: 14px; font: 11px var(--font-mono); color: var(--muted); }
+/* The focused message of yours, and the one whose menu or confirmation is open, wear one 2 px ring. */
+.ch-msg.mine:focus-visible { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-msg.mine.ch-sel { outline: 2px solid var(--sonnet); outline-offset: -2px; border-radius: 8px; }
+.ch-msg.mine.menu-open { background: var(--hover); }
+/* While a message is edited, the box takes the place of its text: right-aligned like your other messages, one focus ring (the box's own), and nothing
+   else on the row competes with it (no delivery line). */
+.ed-box { margin: 2px 0 0 auto; width: min(100%, 560px); }
+.ed-box .ch-box textarea { padding-top: 10px; min-height: 44px; }
+.ch-msg.editing.ch-sel, .ch-msg.editing:focus-visible, .ch-msg.mine.editing { outline: none; background: transparent; }
+.ch-msg.editing .ch-st { display: none; }
+.ed-box .cr-tools { flex-wrap: wrap; gap: 8px; }
+.adminv .ed-box .ch-box .hint { flex: 1 1 100%; }
+.adminv .ed-box .err { padding: 6px 2px 0; border-top: 0; }
+.ch-msg .ch-col:has(.ed-box) { width: 100%; max-width: none; justify-self: stretch; }
+.ed-edited { margin-left: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+/* A deleted message keeps its row and place and says so, in a dashed pill. */
+.ed-del { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 12px; border: 1px dashed var(--axis); border-radius: 10px; color: var(--muted); font-size: 14px; }
+.ed-del svg { width: 14px; height: 14px; flex: none; }
+.podium .modal.ed-confirm { width: min(440px, 100%); }
+.ed-q { margin: 0 0 12px; padding: 8px 12px; border-left: 2px solid var(--axis); color: var(--ink2); overflow-wrap: anywhere; white-space: pre-wrap; }
+.podium .modal.ed-confirm .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.podium .modal.ed-confirm .err { margin: 0 0 12px; color: var(--crit-text); font-size: 12.5px; }
+
+/* Conversations of people and agents (#1278, mockup/podium-chat-person-dm.html). The lock or eye line under the title says who can read it; the actions under a
+   message are in the right-click menu (#1345); the members panel has one action under its title; Leave is in the header and in the row's menu. Every color is a token. */
+.ch-head .sub svg { width: 12px; height: 12px; vertical-align: -1px; flex: none; }
+.ch-mem-act { padding: 10px 12px 2px; }

@@ -58,7 +58,7 @@ rewritten. A serving certificate that exists is kept until `ServingRenewer` rene
 read from the certificates (`describeCert`) and logged as `tls.listening`, not stored twice.
 `/data/tls` holds `ca.crt`, `ca.key`, `serving.crt`, `serving.key` and `previous/`, keys at mode 0600. In container
 mode `podiumctl` keeps this folder on durable storage, and its remove path leaves it unless asked. Person
-certificates are rows in `podium.sqlite`, found by SHA-256 fingerprint. A serving renewal calls `setSecureContext`
+certificates are rows in the database (`podium.sqlite` on SQLite), found by SHA-256 fingerprint. A serving renewal calls `setSecureContext`
 on the live HTTPS server, so nothing restarts. `setSecureContext` replaces the whole context, so the renewer passes
 `ca` again with every new serving certificate; without it a renewed server would verify client certificates against
 the public roots and refuse every reporter.
@@ -66,7 +66,7 @@ the public roots and refuse every reporter.
 **Person certificates (#583).** `tlsPeople.ts` makes a person's key and `clientAuth` certificate with `openssl`
 (`issuePersonCert`) in a `.new-*` work folder that is deleted afterwards, so the key exists on disk only for those
 seconds and Podium never stores it. It builds the config file (`buildReporterConfig`) from the key, the certificate
-and the CA. `PersonCertStore` (`tlsClientAuth.ts`) is the `person_certificates` table (migration 23): fingerprint
+and the CA. `PersonCertsApi` (`storage/types.ts`; the SQLite class is `PersonCertStore` in `storage/sqlite/personCerts.ts`, and each adapter has one) is the `person_certificates` table (migration 23): fingerprint
 (primary key), serial, issuer fingerprint, person, the certificate PEM, dates and revocation. A reissue stores the
 new row and revokes the earlier live ones in one transaction. The rows go with the person (`ON DELETE CASCADE`).
 

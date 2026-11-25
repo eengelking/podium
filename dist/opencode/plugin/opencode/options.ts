@@ -52,6 +52,8 @@ export function optionsOf(projectOptions: Readonly<Record<string, any>> | null |
     activityFeed: t.consent.activityFeed,
     // A shell call's output goes out only with the feed on as well, as in the Claude Code reporter.
     activityOutput: t.consent.activityFeed && t.consent.activityOutput,
+    // A background shell's whole command and output go out only with the feed on as well (#897).
+    backgroundOutput: t.consent.activityFeed && t.consent.backgroundOutput,
     fullPrompts: t.consent.fullPrompts,
     sessionRecording: t.consent.sessionRecording,
     // Only narrows what the person already allowed, so a project may turn the preload off.

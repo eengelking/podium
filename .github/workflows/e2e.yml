@@ -20,6 +20,14 @@ on:
         description: "Which databases the server runs on, space separated: sqlite, postgres, mariadb, or any of them (E2E_DB in scripts/e2e-up.sh). Each is a full run of the suite."
         type: string
         default: "sqlite postgres mariadb"
+      shards:
+        description: "Parallel runs per database (scripts/e2e-all.sh --shards, #1174). Each run is a server, a Chrome and a database, about 1.1 GB and 1 to 2 cores. Keep shards x databases-at-once within the host's CPUs; the first trial is 3."
+        type: number
+        default: 3
+      databases_at_once:
+        description: "How many of the databases run side by side (1 = one after another). The default is all three: 9 runs at once measured about 18 of the 24 cores on the self-hosted host (#1174). Lower it if a trial shows the host struggling (docs/e2e/COVERAGE.md)."
+        type: number
+        default: 3
 
 permissions:
   contents: read
@@ -64,11 +72,11 @@ jobs:
     needs: changes
     if: needs.changes.outputs.run == 'true'
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
-    # A run takes about 8 minutes, so five repeats (the most the issue asks for) with a cold image build fit well inside this. A GitHub
-    # expression has no arithmetic, so the limit cannot scale with `repeat`.
-    # Each database is a full run of the suite, one after the other (the self-hosted host takes one e2e job at a time, see below), so the
-    # limit holds three databases at five repeats each.
-    timeout-minutes: 240
+    # Three databases at once, 3 shards each, take about 10 to 15 minutes (#1174; it was about 67 serial), and five repeats (the most the
+    # issue asks for) with a cold image build fit inside this. A GitHub
+    # expression has no arithmetic, so the limit cannot scale with `repeat`. A shard that hangs is caught by this limit, so it is not far
+    # above the longest run that is expected.
+    timeout-minutes: 120
     # The self-hosted runners share one Podman host, and `scripts/e2e-up.sh down` (the last step) removes every e2e container, network and
     # volume on it, whichever run made them. One e2e job at a time keeps it from tearing down another run's server.
     concurrency:
@@ -101,6 +109,10 @@ jobs:
         env:
           REPEAT: ${{ inputs.repeat || 1 }}
           DATABASES: ${{ inputs.databases || 'sqlite postgres mariadb' }}
+          # Parallel runs per database, and how many databases go side by side (#1174). The repository variables E2E_SHARDS and
+          # E2E_DATABASES_AT_ONCE set the value for the release PR, which has no inputs; change them after a measured trial, not in code.
+          SHARDS: ${{ inputs.shards || vars.E2E_SHARDS || 3 }}
+          AT_ONCE: ${{ inputs.databases_at_once || vars.E2E_DATABASES_AT_ONCE || 3 }}
           # The runner's /tmp is not the host's /tmp, and the engine resolves a bind mount on the host, so the script's temp folder goes in
           # the runner's temp folder, which is the same path on both. (The runner context is not available in a job-level env.)
           TMPDIR: ${{ runner.temp }}
@@ -108,30 +120,72 @@ jobs:
           set -u -o pipefail
           fail=0
           built=0
-          for db in $DATABASES; do
+          read -ra dbs <<< "$DATABASES"
+          for db in "${dbs[@]}"; do
             case "$db" in sqlite|postgres|mariadb) ;; *) echo "::error::unknown database $db (sqlite, postgres or mariadb)"; exit 1 ;; esac
+          done
+          for n in "$SHARDS" "$AT_ONCE" "$REPEAT"; do
+            [[ "$n" =~ ^[1-9][0-9]*$ ]] || { echo "::error::shards, databases_at_once and repeat must be whole numbers of 1 or more, not \"$n\""; exit 1; }
+          done
+          # The host's load, CPU, I/O and memory pressure, and its container and network counts, every 10 seconds while the suite runs (#1174),
+          # so the next increase in shards or databases at once is a measured one. The peaks and the whole table go in the log below.
+          bash scripts/e2e-host-sample.sh sample 10 > "$RUNNER_TEMP/host-sample.csv" 2>/dev/null &
+          sampler=$!
+          # The step runs under bash -e, so a kill of a sampler that has already been stopped must not fail the step.
+          trap 'kill "$sampler" 2>/dev/null || true' EXIT
+          # The databases go in groups of AT_ONCE, a group at a time. scripts/e2e-all.sh runs a group's databases, each in SHARDS runs, all at
+          # once, builds the image once, and checks that every spec file ran exactly once on each database.
+          for ((start = 0; start < ${#dbs[@]}; start += AT_ONCE)); do
+            group="${dbs[*]:start:AT_ONCE}"
+            tag="${group// /+}"
             for i in $(seq 1 "$REPEAT"); do
-              echo "::group::$db: run $i of $REPEAT"
+              echo "::group::$group: run $i of $REPEAT, $SHARDS shard(s)"
               # The first run builds the image; every later one, on any database, reuses it.
               if [ "$built" -eq 0 ]; then flags=""; else flags="--no-build"; fi
               built=1
-              if E2E_DB="$db" bash scripts/e2e-up.sh $flags --out "$RUNNER_TEMP/e2e-results/$db-run-$i" 2>&1 | tee "$RUNNER_TEMP/$db-run-$i.log"; then
-                echo "$db run $i: passed"
+              if bash scripts/e2e-all.sh $flags --databases "$group" --shards "$SHARDS" --out "$RUNNER_TEMP/e2e-results/$tag-run-$i" 2>&1 | tee "$RUNNER_TEMP/$tag-run-$i.log"; then
+                echo "$group run $i: passed"
               else
                 echo "::endgroup::"
-                echo "::error::$db run $i failed"
+                # The last line names each failing run by database and shard (sqlite.2=FAIL(1)).
+                echo "::error::$group run $i failed: $(grep '^E2E RESULT:' "$RUNNER_TEMP/$tag-run-$i.log" | tail -n 1)"
                 fail=1
                 break 2
               fi
               echo "::endgroup::"
             done
-            echo "$db" >> "$RUNNER_TEMP/e2e-passed"
+            printf '%s\n' $group >> "$RUNNER_TEMP/e2e-passed"
           done
+          kill "$sampler" 2>/dev/null || true
+          echo "::group::Host while the suite ran (peaks, then every sample)"
+          bash scripts/e2e-host-sample.sh summary "$RUNNER_TEMP/host-sample.csv"
+          cat "$RUNNER_TEMP/host-sample.csv"
+          echo "::endgroup::"
           # A database whose run is missing fails the run, so a skipped or dropped database cannot pass the release gate (#1008).
-          for db in $DATABASES; do
+          for db in "${dbs[@]}"; do
             grep -qx "$db" "$RUNNER_TEMP/e2e-passed" 2>/dev/null || { echo "::error::no passing run of the suite on $db"; fail=1; }
           done
           exit "$fail"
+
+      # The weights that split the suite into shards (e2e/spec-times.json) are refreshed from the logs of a whole run (#1174). The run's logs
+      # stay on the runner, so this makes the new file from them and uploads only that file (spec names and seconds, nothing else), for
+      # a person to commit when the shards finish far apart.
+      # Neither of the two steps may fail the run: they are bookkeeping, and the suite already passed.
+      - name: Record the spec times of this run
+        if: success()
+        continue-on-error: true
+        run: |
+          mapfile -t logs < <(find "$RUNNER_TEMP/e2e-results" -mindepth 2 -maxdepth 2 -name '*.log' ! -name build.log | sort)
+          node scripts/e2e-shards.mjs --record "${logs[@]}"
+
+      - name: Upload the recorded spec times
+        if: success()
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-spec-times
+          path: e2e/spec-times.json
+          retention-days: 7
 
       # Seven days, because the repo is public and artifacts are world-readable: screenshots and the server log only, never video. The server
       # log has the admin secret scrubbed by scripts/e2e-up.sh; this step checks every file (screenshots included, as bytes) and deletes the
@@ -139,6 +193,12 @@ jobs:
       - name: Check the uploaded files hold no secret
         if: failure()
         run: |
+          # scripts/e2e-all.sh keeps each run's own log (<database>.<shard>.log, build.log) in the results folder, and those logs are the
+          # script's output, which the server-log scrub does not reach. Scrub the secret from them, so the check below passes on them and
+          # the screenshots and the server logs are still uploaded (#1174).
+          if [ -d "$RUNNER_TEMP/e2e-results" ]; then
+            find "$RUNNER_TEMP/e2e-results" -mindepth 2 -maxdepth 2 -name '*.log' -exec sed -i "s/$E2E_SECRET/***/g" {} +
+          fi
           if [ -d "$RUNNER_TEMP/e2e-results" ] && grep -rlaF -- "$E2E_SECRET" "$RUNNER_TEMP/e2e-results"; then
             echo "::error::a file in the results still holds the admin secret; not uploading"
             rm -rf "$RUNNER_TEMP/e2e-results"

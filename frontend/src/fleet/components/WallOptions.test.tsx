@@ -7,6 +7,7 @@ import { HistoryView } from "../HistoryView";
 import { AdminView } from "../admin/AdminView";
 import { fakeServer } from "../admin/fakeAdmin";
 import { makeState } from "../fixtures";
+import { PAGE_INFO } from "../pageInfo";
 import { stateFrom } from "../testState";
 import { UPDATE_KEY } from "../updateInterval";
 import { SHORTCUTS_KEY } from "../useShortcuts";
@@ -205,6 +206,21 @@ describe("Wall options on every page", () => {
     expect((within(region).getByRole("combobox", { name: "Refresh every" }) as HTMLSelectElement).value).toBe("20");
     fireEvent.change(within(region).getByRole("combobox", { name: "Refresh every" }), { target: { value: "5" } });
     expect(localStorage.getItem(UPDATE_KEY)).toBe("5");
+  });
+
+  it("holds only the page's description on History and Admin, with no bold name before it (#1209)", async () => {
+    stubStream();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ day: "2026-10-10", sessions: [], total: 0, page: 1, pageSize: 20 }), { status: 200 })));
+    const history = render(<HistoryView initialDay="2026-10-10" fleetOptions={{ open: () => quiet, fetchState: async () => makeState() }} />);
+    const h = screen.getByRole("region", { name: "Display settings" });
+    expect(h).toHaveTextContent(PAGE_INFO.history.description);
+    expect(h.querySelector("b")).toBeNull();
+    history.unmount();
+    fakeServer();
+    render(<AdminView />);
+    const a = await screen.findByRole("region", { name: "Display settings" });
+    expect(a).toHaveTextContent(PAGE_INFO.admin.description);
+    expect(a.querySelector("b")).toBeNull();
   });
 
   it("is on Admin with Shortcuts too, and a Refresh every set there is what Live fleet starts with", async () => {

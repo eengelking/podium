@@ -11,7 +11,7 @@ order: 4
 ```
  Claude Code session A  ──┐   POST /api/fleet/report (JSON, ~1/s while changing, heartbeat every 5 s)
  Claude Code session B  ──┼──────────────────────────────►  Podium server (Express, 127.0.0.1:4317)
- Claude Code session C  ──┘   (reporter mod, via $.http.fetch)     │  validate → upsert → derive → persist (SQLite)
+ Claude Code session C  ──┘   (reporter mod, via $.http.fetch)     │  validate → upsert → derive → persist (storage adapter)
                                                                    │
  Browser tab  ◄──────────  GET /api/fleet/stream (SSE)  ◄──────────┘  sweeper: stale / done / dropped
               ───────────► GET /api/fleet/state (first paint + resync)
@@ -36,7 +36,7 @@ plugin/core/                         code every harness shares (#927); a harness
 plugin/claudecode/                   the Claude Code mod (what is specific to that harness)
   .claude-plugin/plugin.json
   hooks/hooks.json
-  hooks/register.ts                  wiring only: registers hooks, no logic
+  hooks/register.ts                  registers the hooks and runs what drives them; pure rules are in state.ts, respond.ts and plugin/core/
   hooks/state.ts                     in-memory session model and pure reducers
   hooks/report.ts                    builds a Report from state
   hooks/models.ts                    model family, context windows, price table
@@ -62,7 +62,8 @@ server/src/storage/                  the async interfaces the server calls, and 
 frontend/src/fleet/
   FleetApp.tsx, useFleet.ts (SSE + reducer), store.ts, format.ts
   components/…                       see section 8.2
-  fleet.css                          tokens and layout ported from the mockup
+  fleet.css, chat.css                layout and component styles, ported from the mockup
+  tokens.css                         every color token, the one source (8.3); a color is never written outside it
   *.test.tsx
 scripts/podium-sim.ts                simulator (has --help)
 scripts/podium-smoke.sh              end-to-end smoke check (has --help)
@@ -79,7 +80,7 @@ Containerfile, .containerignore      the server and UI as a container image (4.4
 .dockerignore                        the same rules as .containerignore, for a Docker build (4.4)
 ```
 
-`server/src/index.ts` mounts the fleet router and starts the sweeper. `frontend/src/main.tsx` renders:
+`server/src/index.ts` mounts the fleet router and starts the sweeper. `frontend/src/main.tsx` only renders `Root.tsx`, which picks the page from the address with `route.ts` (`routeFor`) and renders:
 
 - `FleetApp` for `#/` (the default);
 - `FleetApp` for `#/board` (the same console with the kanban board in the middle, [8.1](08-ui/08-01-what-the-ui-must-do.md));
@@ -126,7 +127,7 @@ of two modes: `container` (the default when Podman or Docker is installed) or `s
 Container mode uses Podman when it is installed and Docker otherwise; `--engine podman|docker` chooses.
 
 - Commands: `build`, `start`, `stop`, `restart`, `status`, `logs`, `health`, `url`, `token`, `config`,
-  `enable`, `disable`, `shell`, `rm` and `run`, and a `--help`.
+  `enable`, `disable`, `shell`, `rm`, `run` and `context`, and a `--help`.
 - `status` exits 3 when the server is stopped.
 - `--mode`, `--engine`, `--port` and `--bind` are saved in `~/.podium/config.env` (mode 0600, home overridable with
   `PODIUMCTL_HOME`).

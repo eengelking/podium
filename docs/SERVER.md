@@ -8,7 +8,7 @@ group: Running it
 
 This page is for whoever runs the Podium server: how to start it and keep it running, who can reach it, and
 the settings that change how it behaves. To set Podium up for the first time, start with the
-[user guide](user-guide/02-set-it-up.md). The mod that sends the data is in [REPORTER.md](REPORTER.md).
+[user guide](user-guide/02-set-it-up.md). The reporter that sends the data, for Claude Code and OpenCode, is in [REPORTER.md](REPORTER.md).
 
 Contents:
 
@@ -71,7 +71,7 @@ The first `start` generates a random token and saves it as `PODIUM_TOKEN` in `~/
 
 - `podiumctl token` shows it at any time. `podiumctl token --rotate` makes a new one.
 - This is the **admin secret**. It opens the Admin section (below). On a one-person setup you can also enter
-  it in the mod's `token` option (see [REPORTER.md](REPORTER.md)) and in the `X-Podium-Token` header of the
+  it in the mod's `token` option (or, for OpenCode, as `PODIUM_TOKEN` in `~/.podium/config.env`; see [REPORTER.md](REPORTER.md)) and in the `X-Podium-Token` header of the
   settings hooks ([REPORTER.md](REPORTER.md#sessions-without-the-mod)).
 - To run without auth, `podiumctl config set PODIUM_TOKEN=` (empty on purpose). Admin is switched off then,
   because nothing would protect it.
@@ -155,12 +155,12 @@ compare it with the one in the config.
 
 **3. Give each person a reporter config.** In Admin > People, **Create user** (or **Reissue config** on an existing
 person) shows a `reporter-config-<name>-<epoch>.pem` file once. Podium keeps no copy of the key, so save it then. The
-person puts it in `~/.podium/` (`%USERPROFILE%\.podium` on Windows, where there is no `chmod`), runs `chmod 600` on it, and starts Claude Code on a machine that has `node`. A session with no name of its own takes the file's name, so
+person puts it in `~/.podium/` (`%USERPROFILE%\.podium` on Windows, where there is no `chmod`), runs `chmod 600` on it, and starts Claude Code or OpenCode on a machine that has `node`. A session with no name of its own takes the file's name, so
 nothing else needs setting. A name the session already has (the `userName` option or `PODIUM_USER`) must be the file's
-name, or the status line says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
+name, or the status line (on OpenCode, a console line) says "wrong config for this name" and names where the other name came from. The server address in the file is the one your
 browser used when you created the person, plus the reporter port, so create people from the address they will reach. A person with files for more than one server chooses between them with a
 context ([REPORTER.md](REPORTER.md#contexts-more-than-one-podium-server)). The
-steps and the errors the status line can show are in [REPORTER.md](REPORTER.md#over-tls).
+steps and the errors the status line (or OpenCode's console line) can show are in [REPORTER.md](REPORTER.md#over-tls).
 
 **4. Decide about plain HTTP.** Admin > Server > Certificates has **Allow reporters to connect over HTTP**. It is on for
 a server that already had reporters when you turned TLS on, so nothing stops, and a warning line stays until you turn
@@ -175,7 +175,7 @@ the person can still sign in to the console. **Revoke token** (which revokes the
 **When a certificate expires.**
 
 - **A person's certificate** renews itself at 30 days left (half its lifetime for a certificate that lasts under 60 days).
-  There is no grace after it expires: the reporter cannot connect to the reporter port, and its status line says the
+  There is no grace after it expires: the reporter cannot connect to the reporter port, and its status line (on OpenCode, a console line) says the
   certificate expired on a date and that an Admin must generate a new one. Admin > People warns before that happens, with
   a *lapses soon* badge. After an expiry or a revoke, choose **Reissue config** for the person and send them the new file.
 - **The serving certificate** renews itself when 30 days are left (the setting is on Admin > Server > Certificates), checking at every start and once a day. A failed renewal shows in
@@ -331,6 +331,7 @@ These are environment variables (see `.env.example`). Under `podiumctl` you set 
 | `PODIUM_TLS_PUBLIC_PORT` | the listening reporter port | The reporter port people reach the server on, which goes into each reporter config. `podiumctl` sets it in container mode to your `PODIUM_TLS_PORT`. Set it yourself only when something else maps the port (a forwarder or a container you run by hand) |
 | `PODIUM_ALLOWED_HOSTS` | empty | Extra `Host` names the server accepts, comma-separated (see [A page on another site](#a-page-on-another-site)) |
 | `PODIUM_FAILURE_LIMIT` | `300` | Failed requests (a response of 400 or more) one address may make to `/api` in a minute before its requests get `429` (see [Failed requests are limited](#failed-requests-are-limited)). A value that is not a whole number of at least 1 stops the server at start |
+| `PODIUM_COMPRESSION` | `on` | `on` gzips `GET /api/fleet/state` for a client that sends `Accept-Encoding: gzip` (the large fleet's 1.39 MB becomes about 171 KB), and the console's own files (the script, the stylesheet and the page; the script goes from about 900 KB to 255 KB), which are gzipped once per process and kept; a client that does not accept gzip, such as a script, gets plain bytes. `off` never compresses either, for a proxy that mishandles the encoding. The event stream is never compressed (SPEC 7.6). A value other than `on` or `off` stops the server at start |
 | `PODIUM_TEST_TIMINGS` | off | For the end-to-end suite only. Never set it on a real server. `1` lets the three `PODIUM_TEST_*` times below take effect. One of them set without it stops the server at start, and so does a value here other than `0` or `1` (SPEC 7.7) |
 | `PODIUM_TEST_ADMIN_IDLE_MS` | `600000` | Test only. Milliseconds Admin may sit idle before it locks (10 minutes). Needs `PODIUM_TEST_TIMINGS=1`. A value that is not a whole number from 1 to 999999999 stops the server at start |
 | `PODIUM_TEST_SIGN_IN_IDLE_MS` | `43200000` | Test only. Milliseconds a sign-in to respond may sit idle before it ends (12 hours). Same rules as above |
@@ -380,7 +381,7 @@ limits below before you rely on it.
 - **Room for 15 connections.** The main schema uses a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
 - **PostgreSQL 17.** Podium supports PostgreSQL 17, the one version tested: every test of the PostgreSQL adapter, in CI
-  (`Test with PostgreSQL`) and in `scripts/test-db.sh`, runs on 17, and the end-to-end suite runs on `postgres:17-alpine`.
+  (`Test with PostgreSQL`) and in `npm run test:db`, runs on 17, and the end-to-end suite runs on `postgres:17-alpine`.
   Other versions are untested. The adapter does not check the server's version at start.
 
 **One server per database.** At start Podium takes a PostgreSQL session advisory lock on a connection of its own. A second
@@ -435,7 +436,7 @@ passed through. A URL with no database name, or with any other parameter, stops 
 - **Room for 15 connections.** The main tables use a pool of up to 10, the Activity history a pool of up to 4, and one more
   connection holds the lock described below. Check `max_connections` if the server is shared.
 - **MariaDB 11.x, tested on 11.4.** Podium supports MariaDB 11.x, and 11.4, the long-term release, is the one version tested:
-  every test of the adapter, in CI (`Test with MariaDB 11.4`) and in `scripts/test-db.sh`, runs on 11.4 (11.4.13 when this was
+  every test of the adapter, in CI (`Test with MariaDB 11.4`) and in `npm run test:db`, runs on 11.4 (11.4.13 when this was
   written), and the end-to-end suite runs on `mariadb:11.4.13`. Other versions, 10.x and other 11.x releases included, are
   untested. The adapter uses `INSERT ... RETURNING` and `ADD COLUMN IF NOT EXISTS`, which MariaDB 10.5 also has, but nothing
   older than 11.4 has been run, and the adapter does not check the server's version at start.
@@ -511,6 +512,7 @@ sends to the browser, and the browser draws it, so the work grows with the amoun
 As one example, Chrome on an M5 MacBook Pro used about 24% GPU with ten simulated sessions and a hundred
 agents on screen, against about 15% for a plain page (#81). That is one machine and one browser, not a
 promise. To measure your own, open a tab and run `scripts/gpu-sample.sh` (macOS; `--help` lists its options).
+In the #280 measurements the same ten-session wall read 20.7% live and 12.2% with the data frozen, and a live wall of 200 sessions read 55.2%. An open modal blurs the wall behind it, which more than doubles the load on a live wall (52.9% at ten sessions), so close a modal you are not using. The figures are in [Performance](PERFORMANCE.md#browser-gpu-load-280). `scripts/podium-throwaway-fleet.sh` keeps a throwaway server and the simulator up so a real tab can be measured.
 
 To lower it:
 

@@ -41,11 +41,11 @@ export function useSlashCommands(draft: string, onDraft: (t: string) => void, co
 }
 
 /** The list that opens above a message box on `/`. */
-export function CommandList(props: { matches: readonly { name: string; desc: string }[]; active: number; onChoose: (name: string) => void }) {
+export function CommandList(props: { id?: string; matches: readonly { name: string; desc: string }[]; active: number; onChoose: (name: string) => void }) {
   return (
-    <div className="typeahead" role="listbox" aria-label="Commands">
+    <div className="typeahead" id={props.id} role="listbox" aria-label="Commands">
       {props.matches.map((m, i) => (
-        <button key={m.name} type="button" role="option" aria-selected={i === props.active} className={i === props.active ? "on" : ""} onMouseDown={(e) => e.preventDefault()} onClick={() => props.onChoose(m.name)}>
+        <button key={m.name} id={props.id ? `${props.id}-${i}` : undefined} type="button" role="option" aria-selected={i === props.active} className={i === props.active ? "on" : ""} onMouseDown={(e) => e.preventDefault()} onClick={() => props.onChoose(m.name)}>
           <span className="cn">{m.name}</span>
           <span className="cd">{m.desc}</span>
         </button>

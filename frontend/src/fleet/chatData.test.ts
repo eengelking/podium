@@ -1,12 +1,17 @@
 // Chat's words and small rules (#1034): the tags, the delivery lines, the `@` query and the message parts, without drawing.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { RespondError } from "./respondApi";
 import {
   type AdminReadKind,
   addressMatches,
+  chatApi,
   adminPauseOf,
   adminWho,
   liveReaders,
   onDay,
+  orderPeople,
+  peopleSort,
+  PEOPLE_PER_PAGE,
   readersLine,
   readersStops,
   readersTip,
@@ -26,6 +31,11 @@ import {
   mentionQuery,
   plain,
   messageParts,
+  authorKey,
+  continuesRun,
+  dayLabel,
+  RUN_MS,
+  sameDay,
   stamp,
   type Address,
   type ChannelMessage,
@@ -56,7 +66,11 @@ const dm = (a: Party, b: Party, over: Partial<DirectInfo> = {}): DirectInfo => (
 });
 const chan = (over: Partial<ChatChannel> = {}): ChatChannel => ({
   id: "general",
+  kind: "public",
   name: "General",
+  description: "",
+  link: null,
+  openedBy: null,
   thread: "public",
   unread: 0,
   mentions: 0,
@@ -64,7 +78,7 @@ const chan = (over: Partial<ChatChannel> = {}): ChatChannel => ({
   paused: false,
   pausedForEveryone: false,
   disconnected: false,
-  can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false },
+  can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: false, removeChannel: false },
   ...over,
 });
 const cm = (over: Partial<ChannelMessage> = {}): ChannelMessage => ({
@@ -112,6 +126,35 @@ describe("a Direct Message's key and name", () => {
   });
 });
 
+describe("the order of People and agents (#1272)", () => {
+  const meP = { ...person };
+  it("is ten to a page", () => {
+    expect(PEOPLE_PER_PAGE).toBe(10);
+  });
+  it("finds the last message and the unread count in the Direct Messages with that agent, and needs a running agent without any", () => {
+    const ds = [
+      dm(meP, agent("s2", "infra"), { lastAt: 50, unread: 0, mentions: 0 }),
+      dm(agent("s1", "dash"), agent("s2", "infra"), { lastAt: 90, unread: 2, mentions: 1 }),
+      dm(meP, agent("s3", "other"), { lastAt: 70 }),
+    ];
+    expect(peopleSort(ds, (p) => p.sessionId === "s2", false)).toEqual({ needs: true, last: 90 });
+    expect(peopleSort(ds, (p) => p.sessionId === "s3", false)).toEqual({ needs: false, last: 70 });
+    expect(peopleSort(ds, (p) => p.sessionId === "s3", true)).toEqual({ needs: true, last: 70 });
+    expect(peopleSort(ds, (p) => p.sessionId === "nobody", false)).toEqual({ needs: false, last: 0 });
+  });
+  it("puts rows that need the person first, then the newest last message, then the name, and leaves its input alone", () => {
+    const rows = [
+      { key: "a", name: "Zed", needs: false, last: 5 },
+      { key: "b", name: "Ann", needs: false, last: 5 },
+      { key: "c", name: "Old", needs: true, last: 1 },
+      { key: "d", name: "New", needs: false, last: 9 },
+    ];
+    const before = rows.map((r) => r.key).join("");
+    expect(orderPeople(rows).map((r) => r.key).join("")).toBe("cdba");
+    expect(rows.map((r) => r.key).join("")).toBe(before);
+  });
+});
+
 describe("the state tags", () => {
   it("says Paused for a channel, and for everyone when an Admin paused General", () => {
     expect(channelTag(chan())).toBeNull();
@@ -130,9 +173,9 @@ describe("the state tags", () => {
 });
 
 describe("the delivery line of a channel message", () => {
-  it("is Posted, and says nobody was addressed when nobody was", () => {
+  it("is plain Posted for a message between people, with no line about agents (#1270)", () => {
     expect(channelDelivery(cm({ mine: false }))).toEqual({ icon: "ok", text: "Posted", wait: false });
-    expect(channelDelivery(cm()).text).toBe("Posted. No agent was addressed, so none will act on it.");
+    expect(channelDelivery(cm())).toEqual({ icon: "ok", text: "Posted", wait: false });
   });
   it("names who gets it when their turn ends, who is notified, what is held and what was not delivered with the reason", () => {
     const m = (state: ChannelMessage["mentions"][number]["state"], typed: string, why: string | null = null) => ({ typed, sessionId: "s", state, why, stateAt: 1 });
@@ -187,6 +230,22 @@ describe("the @ query", () => {
     expect(mentionQuery("no at here", 5)).toBeNull();
     expect(mentionQuery("done @a\nnew line", 16)).toBeNull();
   });
+  it("queries from the @ the caret is in, not the first @ of the draft (#1343)", () => {
+    // A second @ after a picked address opens a fresh query, with the address already typed left out of it.
+    expect(mentionQuery("@Lower Left@mbp @", 17)).toEqual({ from: 16, to: 17, q: "" });
+    expect(mentionQuery("hi @a@m @", 9)).toEqual({ from: 8, to: 9, q: "" });
+    // Five in a row.
+    const five = "@a@m @b@m @c@m @d@m @";
+    expect(mentionQuery(five, five.length)).toEqual({ from: five.length - 1, to: five.length, q: "" });
+    // A name with spaces still narrows, after earlier addresses.
+    expect(mentionQuery("@a@m @My Ag", 11)).toEqual({ from: 5, to: 11, q: "My Ag" });
+    // A caret in the middle: the @ before it, and only the text up to the caret.
+    expect(mentionQuery("@a@m @Te and @b@m", 8)).toEqual({ from: 5, to: 8, q: "Te" });
+    expect(mentionQuery("@a@m @Te and @b@m", 3)).toEqual({ from: 0, to: 3, q: "a@" });
+    // A new line starts afresh.
+    expect(mentionQuery("@a@m\n@b", 7)).toEqual({ from: 5, to: 7, q: "b" });
+    expect(mentionQuery("no at here", 5)).toBeNull();
+  });
   const book: Address[] = [
     { typed: "My Agent@mbp", label: "Orchestrator", role: "orchestrator", sessionId: "s1" },
     { typed: "Tester@ci-1", label: "Orchestrator", role: "orchestrator", sessionId: "s2" },
@@ -211,6 +270,87 @@ describe("a message's text parts", () => {
       { kind: "text", text: " <b>x</b>" },
     ]);
     expect(messageParts("@group and @everyone").filter((p) => p.kind === "mention").map((p) => p.text)).toEqual(["@group", "@everyone"]);
+  });
+});
+
+describe("a message's fenced and inline code (#1232)", () => {
+  const F = "```";
+  it("has no parts for an empty message", () => {
+    expect(messageParts("")).toEqual([]);
+  });
+  it("draws a fenced block as one code part, with its language word", () => {
+    expect(messageParts(`run:\n${F}sh\nnpm test\n${F}\ndone`)).toEqual([
+      { kind: "text", text: "run:\n" },
+      { kind: "code", text: "npm test", lang: "sh" },
+      { kind: "text", text: "\ndone" },
+    ]);
+  });
+  it("has no language key when the fence names none, and keeps a block's inner lines", () => {
+    expect(messageParts(`${F}\na\n  b\n${F}`)).toEqual([{ kind: "code", text: "a\n  b" }]);
+  });
+  it("finds two blocks", () => {
+    const parts = messageParts(`${F}a\n1\n${F} and ${F}\n2\n${F}`);
+    expect(parts.filter((p) => p.kind === "code").map((p) => p.text)).toEqual(["1", "2"]);
+  });
+  it("leaves a fence that is never closed, or has nothing in it, as plain text", () => {
+    expect(messageParts(`${F}sh\nnpm test`)).toEqual([{ kind: "text", text: `${F}sh\nnpm test` }]);
+    expect(messageParts(`${F}\n${F}`).every((p) => p.kind === "text")).toBe(true);
+  });
+  it("keeps backticks inside a block as text, and never reads a mention or HTML in it", () => {
+    expect(messageParts(`${F}\nuse \`x\` and \`\`y\`\` @group <b>z</b>\n${F}`)).toEqual([{ kind: "code", text: "use `x` and ``y`` @group <b>z</b>" }]);
+  });
+  it("draws a run between single backticks as inline code, and a mention outside it still as a mention", () => {
+    expect(messageParts("try `npm test` with @group")).toEqual([
+      { kind: "text", text: "try " },
+      { kind: "inline", text: "npm test" },
+      { kind: "text", text: " with " },
+      { kind: "mention", text: "@group" },
+    ]);
+    expect(messageParts("a lone ` stays")).toEqual([{ kind: "text", text: "a lone ` stays" }]);
+  });
+});
+
+describe("runs, days and the author of a message (#1232)", () => {
+  const T = new Date(2026, 10, 19, 12, 0, 0).getTime();
+  const min = 60_000;
+  const rows = (...r: [string | null, number][]) => r.map(([author, at]) => ({ author, at }));
+  it("starts a run at the first message and continues it for the same author within five minutes", () => {
+    expect(continuesRun(rows(["a", T], ["a", T + min], ["a", T + 2 * min]))).toEqual([false, true, true]);
+  });
+  it("breaks at exactly more than five minutes, not at five", () => {
+    expect(continuesRun(rows(["a", T], ["a", T + RUN_MS]))).toEqual([false, true]);
+    expect(continuesRun(rows(["a", T], ["a", T + RUN_MS + 1]))).toEqual([false, false]);
+  });
+  it("breaks at midnight even inside five minutes", () => {
+    const late = new Date(2026, 10, 19, 23, 58).getTime();
+    expect(continuesRun(rows(["a", late], ["a", late + 3 * min]))).toEqual([false, false]);
+  });
+  it("breaks at a record line, a divider or the New line (a row with no author)", () => {
+    expect(continuesRun(rows(["a", T], [null, T + min], ["a", T + 2 * min]))).toEqual([false, false, false]);
+  });
+  it("breaks when the author changes, and an alternation of two authors never continues", () => {
+    expect(continuesRun(rows(["a", T], ["b", T + min], ["a", T + 2 * min], ["b", T + 3 * min]))).toEqual([false, false, false, false]);
+  });
+  it("treats your own messages as one author and a time that runs backwards as a new run", () => {
+    expect(continuesRun(rows(["me", T], ["me", T + min]))).toEqual([false, true]);
+    expect(continuesRun(rows(["me", T], ["me", T - min]))).toEqual([false, false]);
+  });
+  it("keys a channel message by you, the person's name or the agent's session, and a direct message the same way", () => {
+    const base = { id: "1", text: "x", createdAt: 0, updatedAt: 0, replyTo: null, issue: null, project: null, milestone: null, mentions: [], authorRef: "s1", authorName: "Ed", authorKind: "person" as const, mine: false };
+    expect(authorKey({ channel: { ...base, mine: true }, direct: null })).toBe("me");
+    expect(authorKey({ channel: base, direct: null })).toBe("person:ed");
+    expect(authorKey({ channel: { ...base, authorKind: "orchestrator" }, direct: null })).toBe("agent:s1:Ed");
+    const d = (from: DirectMessage["from"]) => ({ channel: null, direct: { from } as DirectMessage });
+    expect(authorKey(d({ kind: "person", sessionId: null, name: "Ed", machine: "" }))).toBe("person:ed");
+    expect(authorKey(d({ kind: "agent", sessionId: "s2", name: "api", machine: "" }))).toBe("agent:s2:api");
+    expect(authorKey(d({ kind: "agent", sessionId: null, name: "api", machine: "" }))).toBe("agent::api");
+  });
+  it("names a day Today, Yesterday, or the date, with the year only when it is another", () => {
+    expect(sameDay(T, T + 5 * min)).toBe(true);
+    expect(dayLabel(T, T)).toBe("Today");
+    expect(dayLabel(T - 86_400_000, T)).toBe("Yesterday");
+    expect(dayLabel(new Date(2026, 10, 6, 9).getTime(), T)).toBe("Nov 6");
+    expect(dayLabel(new Date(2025, 10, 6, 9).getTime(), T)).toBe("Nov 6, 2025");
   });
 });
 
@@ -336,5 +476,97 @@ describe("a reason without its closing full stop", () => {
     const t0 = Date.now();
     expect(plain(". ".repeat(25_000) + "x")).toBe(". ".repeat(25_000) + "x");
     expect(Date.now() - t0).toBeLessThan(500);
+  });
+});
+
+// ---- The calls of public channels and of New direct message (#1035) ----------------------------------------------------------
+
+describe("the calls for public channels and the direct message picker (#1035)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = () => {
+    const f = vi.fn(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ ok: true, targets: [] }) }));
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
+  const last = (f: ReturnType<typeof stub>) => {
+    const [url, init] = f.mock.calls[f.mock.calls.length - 1] as unknown as [string, RequestInit];
+    return { url, method: init.method, body: init.body ? JSON.parse(init.body as string) : undefined, headers: init.headers as Record<string, string> };
+  };
+
+  it("opens a channel with its name, description and link, with the respond header", async () => {
+    const f = stub();
+    await chatApi.createChannel("staging-incident", "What broke.", { kind: "issue", ref: "#1035" });
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels", method: "POST", body: { name: "staging-incident", description: "What broke.", link: { kind: "issue", ref: "#1035" } }, headers: { "X-Podium-Respond": "1" } });
+  });
+
+  it("changes a description, removes a channel, and encodes a channel's name", async () => {
+    const f = stub();
+    await chatApi.describeChannel("a b", "new");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b", method: "PATCH", body: { description: "new" } });
+    await chatApi.removeChannel("a b");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b", method: "DELETE" });
+  });
+
+  it("asks what @ can mean in a channel by the channel's name", async () => {
+    const f = stub();
+    await chatApi.addresses("issue-1035");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/addresses?channel=issue-1035", method: "GET" });
+  });
+
+  it("reads a channel's messages by its encoded name, with the page size, cursor and owner", async () => {
+    const f = stub();
+    await chatApi.channelMessages("a b", { before: "m9", limit: 20, owner: "Maya" });
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b/messages?owner=Maya&before=m9&limit=20", method: "GET" });
+    await chatApi.channelMessages("general");
+    expect(last(f).url).toBe("/api/fleet/respond/chat/channels/general/messages?limit=50");
+  });
+
+  it("asks for the people it may message, narrowed by what is typed", async () => {
+    const f = stub();
+    await chatApi.directTargets();
+    expect(last(f).url).toBe("/api/fleet/respond/chat/direct-targets");
+    await chatApi.directTargets("doc s");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/direct-targets?q=doc%20s", method: "GET" });
+  });
+});
+
+// ---- Editing and deleting one's own messages (#1269) ------------------------------------------------------------------------
+
+describe("the calls that edit and delete a message of one's own (#1269)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = (status = 200, body: unknown = { ok: true, message: { id: "m 1" } }) => {
+    const f = vi.fn(async () => ({ ok: status < 400, status, text: async () => JSON.stringify(body) }));
+    vi.stubGlobal("fetch", f);
+    return f;
+  };
+  const last = (f: ReturnType<typeof stub>) => {
+    const [url, init] = f.mock.calls[f.mock.calls.length - 1] as unknown as [string, RequestInit];
+    return { url, method: init.method, body: init.body ? JSON.parse(init.body as string) : undefined, headers: init.headers as Record<string, string> };
+  };
+
+  it("edits and deletes a channel message by the channel and the message id, with the respond header", async () => {
+    const f = stub();
+    const r = await chatApi.editChannelMessage("a b", "m 1", "new words");
+    expect(r.message.id).toBe("m 1");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/a%20b/messages/m%201", method: "PATCH", body: { text: "new words" }, headers: { "X-Podium-Respond": "1" } });
+    await chatApi.deleteChannelMessage("group", "m 1");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/channels/group/messages/m%201", method: "DELETE", body: undefined, headers: { "X-Podium-Respond": "1" } });
+  });
+
+  it("edits and deletes a Direct Message by its two ends and its id", async () => {
+    const f = stub();
+    await chatApi.editDmMessage("person:ed", "s-tester", "m 1", "x");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/dm/person%3Aed/s-tester/messages/m%201", method: "PATCH", body: { text: "x" } });
+    await chatApi.deleteDmMessage("person:ed", "s-tester", "m 1");
+    expect(last(f)).toMatchObject({ url: "/api/fleet/respond/chat/dm/person%3Aed/s-tester/messages/m%201", method: "DELETE" });
+  });
+
+  it("throws a refusal with its status, its words and its reason, for the page to show", async () => {
+    stub(409, { ok: false, error: "Podium has already sent this message to Tester, so it can no longer be changed.", reason: "locked" });
+    const err = await chatApi.editChannelMessage("group", "m1", "x").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RespondError);
+    expect(err).toMatchObject({ status: 409, message: "Podium has already sent this message to Tester, so it can no longer be changed.", body: { reason: "locked" } });
+    stub(422, { ok: false, error: "To change who is mentioned, delete this message and send a new one." });
+    await expect(chatApi.editDmMessage("a", "b", "m1", "x")).rejects.toMatchObject({ status: 422, message: "To change who is mentioned, delete this message and send a new one." });
   });
 });

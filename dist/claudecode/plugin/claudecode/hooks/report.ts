@@ -1,14 +1,17 @@
 // SessionState -> Report (SPEC 6.2). Pure. Every free-text field passes through redaction and is cut
 // to its limit here, so nothing leaves the machine unredacted.
+import { MAIN_LOOP } from '../../core/protocol.ts';
+import { withinBackgroundBudget } from '../../core/background.ts';
 import { pct } from '../../core/contextFill.ts';
 import { feedOf as feed, MAX_ACTIVITY_PER_REPORT, MAX_FULL_TEXT_PER_REPORT, withinActivityBudget, withinDetailBudget, withinSize, withinTextBudget } from '../../core/feed.ts';
-import { cap, clip, excerpt, LIMITS, reportedFailure } from '../../core/failures.ts';
+import { cap, clip, excerpt, reportedFailure } from '../../core/failures.ts';
 import { lastSegment } from '../../core/git.ts';
 import { resumeWindowDays } from '../../core/resumeWindow.ts';
 import { family, windowOf } from './models.ts';
 import { reportStats } from '../../core/toolStats.ts';
 import { toPlan } from '../../core/plan.ts';
-import type { ActivityEntry, ActivityEvent, AgentReport, Ask, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
+import type { ActivityEvent, AgentReport, Ask, BackgroundItem, Failure, LoopReport, MachineInfo, ModelUsage, Report, RespondInfo } from '../../core/protocol.ts';
+import { bgItems } from './background.ts';
 import { mergeUsage, resolveOwners, type AgentState, type LoopStats, type SessionState } from './state.ts';
 
 /** v1 keeps the legacy name, which every server reads as the Claude Code reporter, so a reporter updated before its server is not refused (#967). The new name arrives with v2. */
@@ -44,6 +47,8 @@ export interface ReportMeta {
   activity?: boolean;
   /** The `activityOutput` option: a Bash call's output may go out with its entry, for a loop the reply lists in `watchOutput` (#431). */
   activityOutput?: boolean;
+  /** The `backgroundOutput` option: a background shell's whole command and output may go out, for a loop the reply lists in `watchBackground` (#897). */
+  backgroundOutput?: boolean;
   /** The `fileDiff` option: answer requests for one file's diff (#319). */
   fileDiff?: boolean;
   /** The `fileDiffPreload` option: the console may ask for every changed file's diff while its page is open (#631). */
@@ -104,7 +109,7 @@ function usageRows(rows: ModelUsage[]): ModelUsage[] {
   return rows.slice(0, 40).map((r) => ({ ...r, model: cap(r.model, 120) }));
 }
 
-export function agentReport(a: AgentState, fullText = false, activity = false, activityOutput = false): AgentReport {
+export function agentReport(a: AgentState, fullText = false, activity = false, activityOutput = false, background?: BackgroundItem[]): AgentReport {
   const window = a.window ?? (a.model ? windowOf(a.model) : null);
   return {
     id: cap(a.id, 200),
@@ -130,6 +135,7 @@ export function agentReport(a: AgentState, fullText = false, activity = false, a
     ...(fullText && a.promptText && !a.promptSent ? { promptText: a.promptText } : {}),
     ...(fullText && a.answerText && !a.answerSent ? { answerText: a.answerText } : {}),
     ...(activity && a.activity.length ? { activity: feed(a.activity, activityOutput) } : {}),
+    ...(background ? { backgroundItems: background } : {}),
     failure: cleanFailure(reportedFailure(a.status, a.failure)),
   };
 }
@@ -143,7 +149,10 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
   // Most recent agents win if a session ever has more than the server accepts.
   const agents = s.order.map((id) => s.agents[id]).filter((a): a is AgentState => !!a).slice(-MAX_AGENTS_PER_REPORT);
   const activity = meta.activity === true;
-  const report = withinDetailBudget(withinActivityBudget({
+  // A loop's background shells go only with the feed on and only for a loop the server says is watched; their command and output need the lease and the option as well (#897).
+  const background = (loop: string): BackgroundItem[] | undefined => (activity && s.watched.includes(loop) ? bgItems(s, loop, meta.backgroundOutput === true && s.watchedBackground.includes(loop)) : undefined);
+  const mainBackground = background(MAIN_LOOP);
+  const report = withinBackgroundBudget(withinDetailBudget(withinActivityBudget({
     v: 1,
     sentAt: meta.now,
     // A v1 report has no capabilities block, so Claude Code declares this one itself: it shows the Admin callout as a toast and a transcript line (#1051).
@@ -180,18 +189,20 @@ export function buildReport(s0: SessionState, events: readonly ActivityEvent[], 
       files: { ...s.files, files: s.files.files.map((f) => ({ ...f, path: clip(f.path, 300), from: f.from === null ? null : clip(f.from, 300) })) },
       activityFeed: activity,
       activityOutput: meta.activityOutput === true,
+      backgroundOutput: meta.backgroundOutput === true,
       fileDiff: meta.fileDiff === true,
       fileDiffPreload: meta.fileDiff === true && meta.fileDiffPreload !== false,
       sessionRecording: meta.sessionRecording === true,
       ...(activity && s.main.activity.length ? { activity: feed(s.main.activity, meta.activityOutput === true) } : {}),
+      ...(mainBackground ? { backgroundItems: mainBackground } : {}),
       ...(meta.respond ? { respond: meta.respond } : {}),
       ...(meta.asks ? { asks: meta.asks.slice(0, 8) } : {}),
       ...(meta.clearedFrom ? { clearedFrom: meta.clearedFrom } : {}),
       peers: meta.peers === true,
     },
-    agents: withinTextBudget(agents.map((a) => agentReport(a, meta.fullText === true, activity, meta.activityOutput === true))),
+    agents: withinTextBudget(agents.map((a) => agentReport(a, meta.fullText === true, activity, meta.activityOutput === true, background(a.id)))),
     events: events.slice(0, MAX_EVENTS_PER_REPORT).map((e) => ({ ...e, text: clip(e.text, 240) })),
-  }));
+  })));
   withinSize(report);
   return report;
 }

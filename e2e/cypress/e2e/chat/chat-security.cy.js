@@ -3,14 +3,14 @@
 // red banner, then the quiet record line), and what the server refuses (a conversation of someone else answers 404, a reporter with respond off, an own-agent message over the limit,
 // Traffic's routes giving an Admin nothing of Chat).
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
-import { seeded } from '../../../support/commands';
+import { personDmRow, personKey, seeded } from '../../../support/commands';
 
 const API = '/api/fleet/respond/chat';
 const H = { 'X-Podium-Respond': '1' };
 const ARM = 'e2e-s-arm64-check';
 const INVOICE = 'e2e-s-invoice';
 const TESTER = 'e2e-s-tester';
-const MINE = `d:dm:${ARM}|person:ed`;
+const MINE = () => personDmRow(ARM, 'Ed');
 
 const openArm = () => {
   cy.signIn('Ed');
@@ -47,6 +47,9 @@ describe('chat: slash commands in a message to your own agent', () => {
     cy.tid('chat-message').should('not.exist');
     cy.tid('chat-box').clear();
     cy.get('[role=alert]').should('not.exist');
+    // Send is muted while the box is empty (#1233), and on again once there is a message.
+    cy.tid('chat-send').should('be.disabled');
+    cy.tid('chat-box').type('hello');
     cy.tid('chat-send').should('not.be.disabled');
   });
 
@@ -283,7 +286,7 @@ describe('chat: what the server refuses', () => {
       expect(r.status).to.eq(200);
       expect(JSON.stringify(r.body)).not.to.contain('person:');
     });
-    const path = `peers/conversations/person:ed/${ARM}`;
+    const path = `peers/conversations/${personKey('Ed')}/${ARM}`;
     cy.signIn('Ed');
     cy.request({ url: `/api/fleet/respond/${path}`, log: false }).its('status', { log: false }).should('eq', 200);
     cy.signIn('Admin');
@@ -292,7 +295,7 @@ describe('chat: what the server refuses', () => {
     cy.request({ url: `/api/admin/${path}`, failOnStatusCode: false, log: false }).its('status').should('eq', 403);
     // Chat is where an Admin reads it, and that read is recorded and told.
     cy.signIn('Admin');
-    cy.request({ url: `${API}/dm/person:ed/${ARM}/messages?limit=50`, log: false }).its('status', { log: false }).should('eq', 200);
+    cy.request({ url: `${API}/dm/${personKey('Ed')}/${ARM}/messages?limit=50`, log: false }).its('status', { log: false }).should('eq', 200);
   });
 });
 
@@ -306,8 +309,8 @@ describe('chat: a row is one conversation', () => {
     cy.signIn('Ed');
     cy.request({ method: 'POST', url: `${API}/dm/me/${INVOICE}/messages`, headers: H, body: { text: 'Hello from Ed.' }, log: false }).its('status', { log: false }).should('eq', 202);
     cy.openConsole('#/chat');
-    const OWN = `d:dm:${INVOICE}|person:ed`;
-    const ALEX = `d:dm:${INVOICE}|person:alex`;
+    const OWN = personDmRow(INVOICE, 'Ed');
+    const ALEX = personDmRow(INVOICE, 'Alex');
     cy.chatRow(OWN).should('contain.text', 'You and one agent');
     cy.chatRow(ALEX).should('contain.text', 'Alex');
     cy.chatRow(ALEX).find('button.ch-more').click();

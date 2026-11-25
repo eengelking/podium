@@ -2,38 +2,57 @@
 // Three audiences, three stores, never shown in one list: Channels (General for everyone signed in, My group for a person and
 // their own agents), Direct Messages (read only by their owner and an Admin) and People and agents (to start a message with).
 // The page reads again whenever the console's content-free `chat` signal moves `rev`. Message text is only ever drawn as text.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import "./chat.css";
 import "./admin/admin.css";
-import { PageHeader } from "./admin/Page";
 import { Blank } from "./components/Blank";
-import { Modal } from "./components/Modal";
 import { ChatComposer } from "./components/ChatComposer";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { agentState } from "./components/ChatSidebar";
-import { ChatThread } from "./components/ChatThread";
+import { ChatThread, DeleteMessageDialog } from "./components/ChatThread";
+import { ChatConversation } from "./components/ChatConversation";
+import { ConcludedBanner } from "./components/ChatEnded";
+import type { ConcludedRead } from "./useConcluded";
+import { ChannelModal, DirectModal, type DirectDone } from "./components/ChatForms";
 import { GoneRecordLines, ListReadingBanner, ListRecordLines } from "./components/ChatAdmin";
-import type { MenuAct } from "./components/ChatMenu";
+import type { MenuAct, MenuAt } from "./components/ChatMenu";
 import { adminPauseOf, adminWho, crossNote, crossOff, dmKey, dmName, hasLink, liveReaders, ownDmWith, plain, type Address, type ChatAgent, type ChatApi, type ChatChannel, type DirectInfo } from "./chatData";
-import { useAddresses, useChatOverview, useThread, selKey, type Selection } from "./useChat";
+import { useAddresses, useChatOverview, useLanding, useThread, selKey, type Selection } from "./useChat";
 import { RespondError } from "./respondApi";
 import { failReason } from "./useMyPeers";
 import type { RespondMe, SessionView } from "./types";
 
-type Confirm = "remove-link" | "delete-dm" | "clear";
+type Confirm = "remove-link" | "delete-dm" | "clear" | "remove-channel";
 
 /** How often an Admin's open thread says it is still being read. */
 const KEEP_ALIVE_MS = 15_000;
 
 const GENERAL: Selection = { kind: "channel", id: "general" };
 
+/** A conversation of people and agents is open (#1278). It has its own thread view, so it is not one of the old `Selection`s. */
+type ConvoSel = { kind: "convo"; id: string };
+
 /** What an error of a send says: the server's own words for 429, 409 and 422, and what to do for the rest. */
-export function sendFailure(err: unknown): string {
+function sendFailure(err: unknown): string {
   if (err instanceof RespondError && (err.status === 429 || err.status === 409 || err.status === 422)) return err.message;
   return `Could not send: ${plain(failReason(err))}. Nothing was sent. Try again.`;
 }
 
-export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number; openWith?: string | null }) {
+interface ChatPageProps {
+  me: RespondMe | null;
+  peersOn: boolean;
+  sessions: Record<string, SessionView>;
+  rev: number;
+  api: ChatApi;
+  /** Moves with the date, not the 2 second tick: the page prints a time only as a time of day or a day's name (#1311). */
+  now: number;
+  /** What was concluded, read once by the console for the wall and this page (#1311). */
+  concluded: ConcludedRead;
+  openWith?: string | null;
+}
+
+// Memoized so a commit of the console that changes nothing this page draws (the top bar's count, the tick) leaves it alone (#1311).
+export const ChatPage = memo(function ChatPage(props: ChatPageProps) {
   const { me, peersOn } = props;
   let body: React.ReactNode;
   if (!peersOn) body = <Blank title="Orchestrator messaging is off">An Admin turns it on in Admin &gt; Settings &gt; Feature flags. Until then no orchestrator can message another, and Chat has nothing to show.</Blank>;
@@ -42,114 +61,40 @@ export function ChatPage(props: { me: RespondMe | null; peersOn: boolean; sessio
   else body = <ChatBody {...props} />;
   return (
     <main className="adminv" aria-label="Chat" id="podium-main">
-      <div className="apage">
-        <div className="apage-in">
-          <PageHeader title="Chat" lead="Talk with your orchestrators and subagents, read what they say to each other, and join in." titleAfter={peersOn && me?.signedIn ? <RulesInfo /> : undefined} />
+      <div className="apage ch-fill">
+        <div className="apage-in ch-page">
+          <h1 className="vh">Chat</h1>
           {body}
         </div>
       </div>
     </main>
   );
-}
+});
 
-/** The icon at the left of a rule: the same drawing the sidebar uses for the thing the rule is about. */
-function RuleIcon(props: { children: React.ReactNode }) {
-  return (
-    <svg className="ic" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {props.children}
-    </svg>
-  );
-}
-
-/** The (i) next to the page title and the modal it opens (#1099, mockup/podium-chat-rules-modal.html). The text is the panel's that stood under the thread. */
-function RulesInfo() {
-  const [open, setOpen] = useState(false);
-  const opener = useRef<HTMLButtonElement>(null);
-  const close = () => {
-    setOpen(false);
-    opener.current?.focus();
-  };
-  return (
-    <>
-      <button type="button" className="info" ref={opener} aria-haspopup="dialog" aria-expanded={open} aria-label="Chat privacy and controls" onClick={() => setOpen(true)}>
-        <svg viewBox="0 0 16 16" aria-hidden="true">
-          <circle cx="8" cy="8" r="6.5" />
-          <path d="M8 7.2v4M8 4.8v.2" />
-        </svg>
-        <span className="tip" aria-hidden="true">
-          Click to learn about chat privacy and controls
-        </span>
-      </button>
-      {open && (
-        <Modal titleId="rules-h" title="Chat privacy and controls" onClose={close}>
-          <div className="mb rl">
-            <h3>Who reads what</h3>
-            <ul>
-              <li>
-                <RuleIcon><path d="M6 2.5L5 13.5M11 2.5L10 13.5M2.8 6h10.4M2.3 10h10.4" /></RuleIcon>
-                <p><b>General</b> is read and written by everyone signed in to this server.</p>
-              </li>
-              <li>
-                <RuleIcon><circle cx="5.5" cy="5.5" r="2.2" /><circle cx="11" cy="6.5" r="1.8" /><path d="M1.8 13c.5-2.3 2-3.4 3.7-3.4s3.2 1.1 3.7 3.4M9.6 12.6c.3-1.5 1.2-2.4 2.4-2.4s2.1.9 2.4 2.4" /></RuleIcon>
-                <p><b>My group</b> is you and your own orchestrators, subagents and forks. No one else sees it.</p>
-              </li>
-              <li>
-                <RuleIcon><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" /></RuleIcon>
-                <p><b>Direct Messages</b> are read only by you and an Admin. A conversation between two agents shows you as the third person in it, and you can add to it. Delete conversation removes one from your list. One also goes away on its own once every agent session in it has ended or disconnected from Podium.</p>
-              </li>
-              <li>
-                <RuleIcon><circle cx="5.5" cy="5.5" r="2.2" /><path d="M1.8 13c.5-2.3 2-3.4 3.7-3.4" /><path d="M9 8.5h5M12 6l2.5 2.5L12 11" /></RuleIcon>
-                <p>A conversation with another person's agent is read by that person, the agent's owner and an Admin. The owner approves the first message in My reporters, and either person can pause or remove the link; only the owner opens it again.</p>
-              </li>
-            </ul>
-            <h3>How agents act</h3>
-            <ul>
-              <li>
-                <RuleIcon><circle cx="8" cy="8" r="2.4" /><path d="M10.4 8v1.2a1.8 1.8 0 0 0 3.6 0V8a6 6 0 1 0-2.3 4.7" /></RuleIcon>
-                <p>An agent only acts in a channel when it is <b>@-addressed</b>: <b>name@location</b> for one agent or person. <b>@group</b> and <b>@everyone</b> are off until an Admin turns them on. Each addressed agent posts a reply saying what it is doing and, when done, a report. Agents addressing each other stop at 10 round trips until its owner approves the next. What an agent may do is still set by its reporter's permissions.</p>
-              </li>
-            </ul>
-            <h3>Stopping a session</h3>
-            <ul>
-              <li>
-                <RuleIcon><circle cx="8" cy="8" r="6" /><path d="M6.5 5.5v5M9.5 5.5v5" /></RuleIcon>
-                <p>The menu on a channel is the stop button for a runaway session: <b>Pause</b> holds messages and keeps access, <b>Disconnect</b> takes your agents' access away, <b>Remove all messages</b> deletes the history. Anyone can stop their own agents in General. Only an Admin can pause General for everyone or remove its messages.</p>
-              </li>
-              <li>
-                <RuleIcon><path d="M6.5 9.5l3-3M5.2 7.2L3.8 8.6a2.4 2.4 0 0 0 3.4 3.4l1.4-1.4M10.8 8.8l1.4-1.4A2.4 2.4 0 0 0 8.8 4l-1.4 1.4" /></RuleIcon>
-                <p>Pause link stops delivery at once and keeps the rights. Remove link takes every right away, in both directions. Both are in the menu on each Direct Message. An Admin can pause and resume a link, to stop a runaway conversation, but not remove it. Only an Admin resumes a link an Admin paused.</p>
-              </li>
-            </ul>
-            <h3>Admins</h3>
-            <ul>
-              <li>
-                <RuleIcon><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z" /><circle cx="8" cy="8" r="2" /></RuleIcon>
-                <p>An <b>Admin</b> picks a person under <b>Read a person&apos;s conversations</b> to read their My group and Direct Messages. It is read only: an Admin cannot send in either, and can pause, disconnect or clear a group. While an Admin reads, the person sees a red notice at the top of the thread and an <b>Admin reading</b> tag on its row, and afterward a line stays in the thread saying when. Podium records it in the audit log, never the text.</p>
-              </li>
-            </ul>
-          </div>
-        </Modal>
-      )}
-    </>
-  );
-}
-
-function ChatBody(props: { me: RespondMe | null; sessions: Record<string, SessionView>; rev: number; api: ChatApi; now: number; openWith?: string | null }) {
+function ChatBody(props: ChatPageProps) {
   const { api, sessions, rev } = props;
   // An Admin reads a person's conversations by choosing the person: the overview and the open thread are then that person's.
   const [readAs, setReadAs] = useState<string | null>(null);
-  const overview = useChatOverview(api, true, rev, readAs);
+  // The overview and the open thread answer one signal and land together, so the page is drawn once for the two (#1311).
+  const landing = useLanding();
+  const overview = useChatOverview(api, true, rev, readAs, landing);
   const o = overview.data;
   // The data on hand belongs to the person last read; until the chosen person's own list lands, none of it is drawn (#1051).
   const stale = !!o && overview.owner !== readAs;
   const ro = !!o && o.me.admin && readAs !== null && overview.owner === readAs;
   // A reading is hidden when its time has passed and a read has landed since, never on the clock alone (#1051).
-  const serverNow = Math.min(props.now + overview.skew, overview.readAt || Number.MAX_SAFE_INTEGER);
+  // A reading's end is judged by the server's clock at the last read that landed (the browser's before the first, or when the server sends none).
+  const serverNow = overview.readAt || Date.now();
   // The records of a conversation that has since been deleted come once, and the server marks them seen; they stay while this page is open (#1051).
   const gone = overview.gone;
-  const [picked, setPicked] = useState<(Selection & { fresh?: boolean }) | null>(null);
+  const [picked, setPicked] = useState<((Selection & { fresh?: boolean }) | ConvoSel) | null>(null);
   const [pane, setPane] = useState<"side" | "thread">("side");
-  const [menu, setMenu] = useState<{ key: string } | null>(null);
+  // `at` is where a sender's menu (a `t:` key, on an avatar in the thread) hangs; a row's own menu hangs under the row.
+  const [menu, setMenu] = useState<{ key: string; at?: MenuAt } | null>(null);
+  // A Mention asks the message box to write an address at the caret; each request has its own number (#1235).
+  const [mention, setMention] = useState<{ n: number; text: string } | null>(null);
+  // The members panel is closed when a conversation opens and is not remembered (#1236).
+  const [members, setMembers] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   // /clear in a message to the person's own agent asks first (#1051); the question belongs to the open conversation.
   const [clearAsk, setClearAsk] = useState(false);
@@ -160,26 +105,50 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(0);
   const [busy, setBusy] = useState(false);
+  // The New channel form (`edit` is the channel whose description it changes) and the New direct message form (#1035).
+  const [form, setForm] = useState<{ kind: "channel"; edit: ChatChannel | null } | { kind: "dm"; person?: string; search?: string; addTo?: { id: string; members: string[] } } | null>(null);
+  const formFrom = useRef<HTMLElement | null>(null);
+  const formFallback = useRef<string | null>(null);
   // Counts the times a thread was opened; each one asks for the focus to move to its heading (see the effect below).
   const [focusAsk, setFocusAsk] = useState(0);
   const keepBtn = useRef<HTMLButtonElement>(null);
+  // Editing and deleting a message of one's own (#1269): the one being edited with the server's refusal, the one whose delete is asked about,
+  // and a request to put the focus back on a message when either ends (each has its own number).
+  const [editing, setEditing] = useState<{ id: string; error: string | null; busy: boolean } | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; error: string | null; busy: boolean } | null>(null);
+  const [focusMsg, setFocusMsg] = useState<{ id: string; n: number } | null>(null);
 
   // The selected row, or General. A conversation that left the list (deleted, or every agent ended) falls back to General.
-  let sel: Selection = picked ?? GENERAL;
-  if (o && picked?.kind === "dm" && !picked.fresh && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
-  const key = selKey(sel)!;
+  let sel: Selection = picked && picked.kind !== "convo" ? picked : GENERAL;
+  // A Direct Message that was concluded because an agent in it ended stays open with a banner that says so, until the person leaves it (#1283).
+  const { concluded } = props;
+  const endedHere = picked?.kind === "dm" && !picked.fresh ? (concluded.items.find((c) => c.thread === picked.key) ?? null) : null;
+  if (o && picked?.kind === "dm" && !picked.fresh && !endedHere && !o.directs.some((d) => dmKey(d) === picked.key)) sel = GENERAL;
+  // A channel an Admin removed leaves the list, and the page falls back to General.
+  if (o && picked?.kind === "channel" && !o.channels.some((c) => c.id === picked.id)) sel = GENERAL;
+  // A conversation of people and agents is open while the overview lists it; one left or deleted falls back to General (#1278).
+  const cv: ConvoSel | null = picked?.kind === "convo" && o?.conversations?.some((c) => c.id === picked.id) ? picked : null;
+  const key = cv ? `v:${cv.id}` : selKey(sel)!;
+  useEffect(() => {
+    setMembers(false);
+    setEditing(null);
+    setDeleting(null);
+  }, [key, readAs]);
   const channel: ChatChannel | null = o && sel.kind === "channel" ? (o.channels.find((c) => c.id === sel.id) ?? null) : null;
   // A message to an agent not yet talked to has the agent's id as its key; once the server lists the conversation it is that row.
-  const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
-  const rowKey = direct ? `d:${dmKey(direct)}` : key;
-  const thread = useThread(api, o && !stale ? sel : null, rev, ro ? readAs : null);
-  const addrs = useAddresses(api, sel.kind === "channel" ? sel.id : null);
+  const direct: DirectInfo | null = o && sel.kind === "dm" ? (o.directs.find((d) => dmKey(d) === sel.key) ?? (picked?.kind === "dm" && picked.fresh ? (ownDmWith(o.directs, sel.b) ?? null) : null)) : null;
+  const rowKey = cv ? key : direct ? `d:${dmKey(direct)}` : key;
+  // An Admin with no person of their own, who has not chosen anything, has no thread open: the area says what to do (#1238).
+  const idle = !!o && o.me.admin && !o.me.person && readAs === null && picked === null;
+  // A concluded Direct Message is deleted: nothing is read for it, and what was shown of it goes (#1340).
+  const thread = useThread(api, o && !stale && !idle && !cv && !endedHere ? sel : null, rev, ro ? readAs : null, landing);
+  const addrs = useAddresses(api, sel.kind === "channel" && !idle ? sel.id : null);
 
   const refresh = useCallback(async () => {
     await Promise.all([overview.reload(), thread.reload()]);
   }, [overview, thread]);
 
-  const select = (next: Selection & { fresh?: boolean }) => {
+  const select = (next: (Selection & { fresh?: boolean }) | ConvoSel) => {
     setPicked(next);
     setPane("thread");
     setMenu(null);
@@ -226,7 +195,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   // An Admin's open thread says every 15 seconds that it is still being read, so its people keep seeing it. It stops with the thread, and
   // while the tab is hidden. A ping that fails shows nothing: the next one tries again.
-  const reading = ro && thread.loaded && !thread.error && readAs !== null && !(sel.kind === "channel" && sel.id === "general");
+  const reading = ro && thread.loaded && !thread.error && readAs !== null && !(sel.kind === "channel" && sel.id !== "group");
   const selId = sel.kind === "channel" ? sel.id : `${sel.a}|${sel.b}`;
   useEffect(() => {
     if (!reading || !readAs) return;
@@ -246,13 +215,16 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
 
   const closeMenu = (restore: boolean) => {
     const k = menu?.key;
+    const from = menu?.at?.from;
     setMenu(null);
-    if (restore && k) setTimeout(() => [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === k)?.focus(), 0);
+    // A sender's menu gives the focus back to the message it opened from.
+    if (restore && from) setTimeout(() => from.focus(), 0);
+    else if (restore && k) setTimeout(() => [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === k)?.focus(), 0);
   };
   useEffect(() => {
     if (!menu) return;
     const away = (e: MouseEvent) => {
-      if (!(e.target as Element | null)?.closest?.(".ch-menu, .ch-more, .ch-chipwrap .m")) setMenu(null);
+      if (!(e.target as Element | null)?.closest?.(".ch-menu, .ch-more, .ch-mem .ch-av-btn")) setMenu(null);
     };
     document.addEventListener("mousedown", away);
     return () => document.removeEventListener("mousedown", away);
@@ -283,7 +255,6 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   }
 
   const own = (c: ChatChannel): boolean => ro && c.id === "group";
-  const owns = (d: DirectInfo) => o.me.person && d.owner.toLowerCase() === o.me.name.toLowerCase();
   const startAgent = (a: ChatAgent) => {
     const existing = ownDmWith(o.directs, a.sessionId);
     if (existing) return select({ kind: "dm", a: existing.a.sessionId, b: existing.b.sessionId, key: dmKey(existing) });
@@ -301,6 +272,19 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     if (!name) setTimeout(() => document.getElementById("read-as")?.focus(), 0);
   };
   const openDm = (d: DirectInfo) => select({ kind: "dm", a: d.a.sessionId, b: d.b.sessionId, key: dmKey(d) });
+  /** Leaves a conversation of people (#1345): from its header or from its row's menu. The page says so, or says why not, and goes back to the list. */
+  const leaveConvo = (id: string) =>
+    void act(
+      async () => {
+        await api.leaveConversation(id);
+        if (picked?.kind === "convo" && picked.id === id) {
+          setPicked(null);
+          setPane("side");
+        }
+      },
+      "You left the conversation.",
+      (w) => `Could not leave: ${w}. You are still in it. Try again.`,
+    );
 
   /** Runs one action of a menu and reads again. A refusal is said in words, with what to try. */
   const act = async (run: () => Promise<unknown>, ok: string, failed: (why: string) => string) => {
@@ -316,13 +300,129 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     setBusy(false);
   };
 
-  const pick = (rowKey: string, a: MenuAct) => {
+  /** Opens a form; the focus goes back to what opened it, or to the row's "..." when that is gone, on closing. */
+  const openForm = (next: NonNullable<typeof form>, fallback?: string, back?: HTMLElement | null) => {
+    const from = back ?? (document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null);
+    formFrom.current = from;
+    formFallback.current = fallback ?? null;
     setMenu(null);
-    const [kind, ...rest] = rowKey.split(":");
+    setForm(next);
+  };
+  /** `restore` is false once a thread was opened, which takes the focus to its heading itself. */
+  const closeForm = (restore = true) => {
+    setForm(null);
+    if (!restore) return;
+    const from = formFrom.current;
+    const fb = formFallback.current;
+    setTimeout(() => {
+      if (from?.isConnected) from.focus();
+      else if (fb) [...document.querySelectorAll<HTMLElement>("[data-more]")].find((b) => b.dataset.more === fb)?.focus();
+    }, 0);
+  };
+
+  /** Writes `@<typed> ` in the channel's message box: the address the channel's own list gives for this person or agent (no new route). */
+  const mentionIt = async (person: boolean, id: string) => {
+    if (sel.kind !== "channel") return;
+    try {
+      const { addresses } = await api.addresses(sel.id);
+      const hit = addresses.find((x) => !x.disabled && (person ? x.role === "person" && x.typed.toLowerCase().startsWith(`${id.toLowerCase()}@`) : x.sessionId === id));
+      if (!hit) return setActionErr(`Could not find an address for ${id} in this channel. Nothing was written.`);
+      setActionErr(null);
+      setMention((m) => ({ n: (m?.n ?? 0) + 1, text: `@${hit.typed}` }));
+    } catch (err) {
+      setActionErr(`Could not read who can be mentioned: ${plain(failReason(err))}. Nothing was written. Try again.`);
+    }
+  };
+
+  // ---- One's own messages (#1269) -----------------------------------------------------------------------------------------------
+  const refocus = (id: string) => setFocusMsg((f) => ({ id, n: (f?.n ?? 0) + 1 }));
+  /** A refusal in the server's own words (they say what to do), or what failed and that nothing changed. */
+  const changeFail = (err: unknown, what: string, stays: string): string => (err instanceof RespondError && err.status < 500 ? err.message : `Could not ${what}: ${plain(failReason(err))}. ${stays} Try again.`);
+  const startEdit = (id: string) => {
+    setMenu(null);
+    setDeleting(null);
+    setEditing({ id, error: null, busy: false });
+  };
+  const cancelEdit = (id: string) => {
+    setEditing(null);
+    refocus(id);
+  };
+  const saveEdit = async (id: string, text: string) => {
+    const m = thread.messages.find((x) => x.id === id);
+    if (!m) return setEditing(null);
+    const was = (m.channel ?? m.direct)!.text;
+    // Nothing changed: the box closes and nothing is sent.
+    if (text.trim() === was.trim()) return cancelEdit(id);
+    setEditing({ id, error: null, busy: true });
+    try {
+      const r = sel.kind === "channel" ? await api.editChannelMessage(sel.id, id, text.trim()) : await api.editDmMessage(sel.a, sel.b, id, text.trim());
+      thread.patch(r.message);
+      setEditing(null);
+      refocus(id);
+    } catch (err) {
+      setEditing({ id, error: changeFail(err, "save", "Your message is unchanged."), busy: false });
+    }
+  };
+  const askDelete = (id: string) => {
+    setMenu(null);
+    setEditing(null);
+    setDeleting({ id, error: null, busy: false });
+  };
+  const cancelDelete = () => {
+    const id = deleting?.id;
+    setDeleting(null);
+    if (id) refocus(id);
+  };
+  const doDelete = async () => {
+    if (!deleting) return;
+    const { id } = deleting;
+    setDeleting({ id, error: null, busy: true });
+    try {
+      const r = sel.kind === "channel" ? await api.deleteChannelMessage(sel.id, id) : await api.deleteDmMessage(sel.a, sel.b, id);
+      thread.patch(r.message);
+      setDeleting(null);
+      refocus(id);
+    } catch (err) {
+      setDeleting({ id, error: changeFail(err, "delete", "Your message is still there."), busy: false });
+    }
+  };
+  /** Who loses a deleted message: everyone in a channel, and in a Direct Message the person and the agents it went to. */
+  const lostBy = (m: (typeof thread.messages)[number]): string => {
+    if (m.channel) return `It will be deleted for everyone in ${channel?.kind === "public" && channel.id !== "general" ? `#${channel.name}` : (channel?.name ?? "this channel")}, and the agents there will not see it.`;
+    const names = [...new Set(m.direct!.to.map((x) => x.name))];
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "the other party");
+    return `It will be deleted for you and for ${list}, and ${names.length > 1 ? "each" : (names[0] ?? "they")} will not see it.`;
+  };
+  const deletingMsg = deleting ? (thread.messages.find((x) => x.id === deleting.id) ?? null) : null;
+
+  const pick = (menuKey: string, a: MenuAct) => {
+    // One of your own messages: Edit message or Delete message.
+    if (menuKey.startsWith("m:")) {
+      const id = menuKey.slice(2);
+      if (a === "delete-message") askDelete(id);
+      else startEdit(id);
+      return;
+    }
+    const [kind, ...rest] = (menuKey.startsWith("t:") ? menuKey.slice(2) : menuKey).split(":");
+    const from = menu?.at?.from;
+    setMenu(null);
     const id = rest.join(":");
+    if (a === "mention" && (kind === "p" || kind === "mp" || kind === "a" || kind === "h")) {
+      void mentionIt(kind === "p" || kind === "mp", id);
+      return;
+    }
+    if (kind === "p" || kind === "mp") {
+      // From a sender's avatar the focus returns to its message; from a row, to the row's "...".
+      if (a === "message") openForm({ kind: "dm", person: id }, `p:${id}`, from);
+      return;
+    }
     if (kind === "a" || kind === "h") {
       const agent = o.agents.find((x) => x.sessionId === id);
-      if (a === "message" && agent) startAgent(agent);
+      if (a !== "message") return;
+      const named = thread.messages.find((m) => (m.channel ? m.channel.authorRef === id : m.direct?.from.sessionId === id))?.channel?.authorName ?? thread.messages.find((m) => m.direct?.from.sessionId === id)?.direct?.from.name ?? id;
+      // An agent this person does not own (another's orchestrator that wrote in a channel) is found in New direct message by its name instead.
+      if (agent) startAgent(agent);
+      else openForm({ kind: "dm", search: named }, `h:${id}`, from);
       return;
     }
     if (kind === "c") {
@@ -332,8 +432,17 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         select({ kind: "channel", id: c.id });
         setConfirm("clear");
       } else if (a === "pause") void act(() => (own(c) ? api.pause(c.id, !(c.paused && !c.pausedForEveryone), false, readAs) : api.pause(c.id, !(c.paused && !c.pausedForEveryone))), c.paused && !c.pausedForEveryone ? "Resumed." : "Paused.", (w) => `Could not ${c.paused ? "resume" : "pause"} ${c.name}: ${w}. Nothing changed. Try again.`);
-      else if (a === "pause-all") void act(() => api.pause(c.id, !c.pausedForEveryone, true), c.pausedForEveryone ? "General resumed." : "General is paused for everyone.", (w) => `Could not change General: ${w}. Nothing changed. Try again.`);
+      else if (a === "pause-all") void act(() => api.pause(c.id, !c.pausedForEveryone, true), c.pausedForEveryone ? `${c.name} resumed.` : `${c.name} is paused for everyone.`, (w) => `Could not change ${c.name}: ${w}. Nothing changed. Try again.`);
+      else if (a === "edit") openForm({ kind: "channel", edit: c }, `c:${c.id}`);
+      else if (a === "remove-channel") {
+        select({ kind: "channel", id: c.id });
+        setConfirm("remove-channel");
+      }
       else if (a === "disconnect") void act(() => (own(c) ? api.disconnect(c.id, !c.disconnected, readAs) : api.disconnect(c.id, !c.disconnected)), c.disconnected ? "Your agents are reconnected." : "Your agents are disconnected.", (w) => `Could not ${c.disconnected ? "reconnect" : "disconnect"} your agents: ${w}. Nothing changed. Try again.`);
+      return;
+    }
+    if (kind === "v") {
+      if (a === "leave") leaveConvo(id);
       return;
     }
     const d = o.directs.find((x) => dmKey(x) === id);
@@ -428,7 +537,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
             void act(
               async () => {
                 await api.deleteDm(at.a.sessionId, at.b.sessionId);
-                setPicked(null);
+                setPicked(GENERAL);
               },
               "Conversation deleted.",
               (w) => `Could not delete the conversation: ${w}. Nothing changed. Try again.`,
@@ -439,10 +548,34 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
         </div>
       );
     }
+    if (confirm === "remove-channel" && channel) {
+      return (
+        <div className="confirm" role="alertdialog" aria-label="Remove channel" data-testid="chat-confirm">
+          Remove the channel {channel.name}? Its {channel.messages} messages are removed for everyone, and it cannot be recovered.{channel.openedBy ? ` ${channel.openedBy} is told that an Admin removed it.` : ""}
+          <button type="button" className="btn sm" ref={keepBtn} onClick={keep}>
+            Keep it
+          </button>
+          <button type="button" className="btn sm dng" disabled={busy} onClick={() => {
+            setConfirm(null);
+            const at = channel;
+            void act(
+              async () => {
+                await api.removeChannel(at.id);
+                setPicked(GENERAL);
+              },
+              "Channel removed.",
+              (w) => `Could not remove the channel: ${w}. Nothing changed. Try again.`,
+            );
+          }}>
+            Remove channel
+          </button>
+        </div>
+      );
+    }
     if (confirm === "clear" && channel) {
       return (
         <div className="confirm" role="alertdialog" aria-label="Remove all messages" data-testid="chat-confirm">
-          Remove all {channel.messages} messages in {channel.name}? {channel.id === "general" ? "Everyone loses the history, and it cannot be recovered." : "The history is deleted, and it cannot be recovered."}
+          Remove all {channel.messages} messages in {channel.name}? {channel.kind === "public" ? "Everyone loses the history, and it cannot be recovered." : "The history is deleted, and it cannot be recovered."}
           <button type="button" className="btn sm" ref={keepBtn} onClick={keep}>
             Keep them
           </button>
@@ -488,7 +621,12 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
     else if (dmPaused) stop("Paused", "Paused: messages are held. Resume from the menu to send.");
     else if (agentParties.length > 0 && ended.length >= agentParties.length) stop("Ended", `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended, so it will not receive this.`);
   }
-  const roThread = ro && !(sel.kind === "channel" && sel.id === "general");
+  const roThread = ro && !(sel.kind === "channel" && sel.id !== "group");
+  // An Admin reading a person's thread has the message box in view, off, so it is plain that nothing can be sent (mockup/podium-chat-redesign.html).
+  if (roThread) {
+    off = `You are reading as an Admin, so nothing can be sent here.${heldBy ? " The link is paused; you can resume it from its menu." : ""}`;
+    offWord = "An Admin cannot send here";
+  }
   const draft = drafts[key] ?? "";
   // `/clear` and `/compact` are commands only in a message to the person's own agent: one agent and the person, no other person.
   const ownAgent = sel.kind === "dm" && !ro && o.me.person && !cross && parties.length === 2 && agentParties.length === 1 ? agentParties[0]! : null;
@@ -521,11 +659,13 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   const waitNote = cross ? crossNote(cross) : null;
   const note =
     waitNote ??
-    (sel.kind === "dm" ? (ended.length ? `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended and will not receive this. ` : "") + "It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. " : "Secrets are replaced before a message leaves this machine. ") + "Enter sends; Shift+Enter adds a line.";
+    (sel.kind === "dm" ? (ended.length ? `${ended.join(" and ")} ${ended.length > 1 ? "have" : "has"} ended and will not receive this. ` : "") + "It reaches each agent when its current turn ends, and says Waiting until then. Secrets are replaced before it leaves this machine. " : "Secrets are replaced before a message leaves this machine. ").trimEnd();
   const stateOf = (a: Address) => {
     const agent = o.agents.find((x) => x.sessionId === a.sessionId);
     return a.sessionId ? agentState(sessions, a.sessionId, agent?.status ?? null, agent !== undefined) : null;
   };
+
+  const familyOf = (a: Address) => (a.sessionId ? sessions[a.sessionId]?.modelFamily : undefined);
 
   const alert = (
     <>
@@ -539,7 +679,7 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
   );
 
   return (
-    <section className="asec" aria-label="Chat">
+    <section className="asec ch-asec" aria-label="Chat">
       {overview.loadError && (
         <div className="errbox" role="alert">
           Could not read Chat again: {overview.loadError}. What is shown may be out of date. It reads again when something changes.
@@ -547,72 +687,171 @@ function ChatBody(props: { me: RespondMe | null; sessions: Record<string, Sessio
       )}
       {!ro && <ListReadingBanner readers={liveReaders(o.listReading, serverNow)} />}
       {!ro && <GoneRecordLines reads={gone} />}
-      <div className="ch-split" data-pane={pane} data-testid="chat-split">
+      {!ro && endedHere && <ConcludedBanner agent={endedHere.agent} cleared={endedHere.cleared === true} undelivered={endedHere.undelivered} onBack={() => { setPicked(null); setPane("side"); }} />}
+      <div className={`ch-split${members ? " mem-open" : ""}`} data-pane={pane} data-testid="chat-split">
         <ChatSidebar
           overview={o}
           sessions={sessions}
-          selected={rowKey}
+          selected={idle ? null : rowKey}
           menu={menu?.key ?? null}
           onMenu={(k) => setMenu(k ? { key: k } : null)}
           onClose={closeMenu}
           onPick={pick}
           onChannel={(id) => select({ kind: "channel", id })}
+          onNewChannel={() => openForm({ kind: "channel", edit: null })}
+          onNewDm={() => openForm({ kind: "dm" })}
+          onPerson={(name) => openForm({ kind: "dm", person: name }, `p:${name}`)}
           onDm={openDm}
+          onConvo={(id) => select({ kind: "convo", id })}
           onAgent={startAgent}
           readAs={ro ? readAs : null}
+          mention={sel.kind === "channel"}
           picked={readAs}
           onReadAs={chooseReader}
           serverNow={serverNow}
         />
-        <ChatThread
-          sel={sel}
-          overview={o}
-          channel={channel}
-          direct={direct}
-          thread={thread}
-          sessions={sessions}
-          now={props.now}
-          alert={alert}
-          scrollToken={`${key}|${sent}`}
-          menu={menu?.key ?? null}
-          onMenu={(k) => setMenu(k ? { key: k } : null)}
-          onClose={closeMenu}
-          onPick={pick}
-          onBack={() => setPane("side")}
-          readAs={ro ? readAs : null}
-          serverNow={serverNow}
-          composer={
-            roThread ? (
-              <div className="ch-composer">
-                <div className="note with-btn" id="ro-why" data-testid="chat-ro-note">
-                  <span>You are reading as an Admin, so there is no message box.{heldBy ? " The link is paused; you can resume it from its menu." : ""}</span>
+        {idle ? (
+          <section className="ch-thread" aria-label="Chat" data-testid="chat-idle">
+            <div className="ch-blank">
+              <p>Choose General or a channel to read it.</p>
+              <p>To read a person&apos;s conversations, choose a person under Read as an Admin.</p>
+            </div>
+          </section>
+        ) : cv ? (
+          <ChatConversation
+            key={cv.id}
+            api={api}
+            id={cv.id}
+            overview={o}
+            sessions={sessions}
+            rev={rev}
+            now={props.now}
+            serverNow={serverNow}
+            landing={landing}
+            readAs={ro ? readAs : null}
+            members={members}
+            onMembers={setMembers}
+            onBack={() => {
+              setMembers(false);
+              setPane("side");
+            }}
+            onGone={() => {
+              setPicked(null);
+              setPane("side");
+            }}
+            onAdd={() => {
+              const c = o.conversations?.find((x) => x.id === cv.id);
+              openForm({ kind: "dm", addTo: { id: cv.id, members: (c?.members ?? []).map((m) => m.name) } });
+            }}
+            onChanged={() => overview.reload()}
+            onSaid={setSaid}
+            onLeave={() => leaveConvo(cv.id)}
+            leaving={busy}
+            alert={alert}
+            draft={draft}
+            onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
+            onMessagePerson={(name, from) => openForm({ kind: "dm", person: name }, `p:${name}`, from)}
+            onMessageAgent={(sessionId, name, from) => {
+              const agent = o.agents.find((x) => x.sessionId === sessionId);
+              if (agent) startAgent(agent);
+              else openForm({ kind: "dm", search: name }, `h:${sessionId}`, from);
+            }}
+            onStopReading={() => chooseReader(null)}
+          />
+        ) : (
+          <ChatThread
+            sel={sel}
+            overview={o}
+            channel={channel}
+            direct={direct}
+            thread={thread}
+            sessions={sessions}
+            now={props.now}
+            alert={alert}
+            scrollToken={`${key}|${sent}`}
+            menu={menu?.key ?? null}
+            menuAt={menu?.at ?? null}
+            onMenu={(k, _by, at) => setMenu(k ? { key: k, ...(at ? { at } : {}) } : null)}
+            onClose={closeMenu}
+            onPick={pick}
+            members={members}
+            onMembers={setMembers}
+            onBack={() => {
+              setMembers(false);
+              setPane("side");
+            }}
+            concluded={endedHere !== null}
+            readAs={ro ? readAs : null}
+            serverNow={serverNow}
+            change={{ editing, deleting: deleting?.id ?? null, focus: focusMsg, onEdit: startEdit, onSave: (id, text) => void saveEdit(id, text), onCancel: cancelEdit, onDelete: askDelete }}
+            composer={
+              <ChatComposer
+                label={label}
+                draft={draft}
+                onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
+                off={endedHere ? "This direct message has ended." : thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
+                offWord={endedHere ? "Ended" : thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
+                note={note}
+                error={sendErr}
+                sending={sending}
+                onSend={() => void onSend()}
+                channel={sel.kind === "channel" ? sel.id : null}
+                addresses={addrs.list}
+                loadAddresses={addrs.load}
+                stateOf={stateOf}
+                familyOf={familyOf}
+                insert={mention}
+                commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
+                noteAction={roThread ? (
                   <button type="button" className="btn sm" data-testid="chat-stop-reading-thread" onClick={() => chooseReader(null)}>
                     Stop reading
                   </button>
-                </div>
-              </div>
-            ) : (
-            <ChatComposer
-              label={label}
-              draft={draft}
-              onDraft={(v) => setDrafts((cur) => ({ ...cur, [key]: v }))}
-              off={thread.error?.status === 404 && sel.kind === "dm" ? "That conversation is gone, so nothing can be sent." : off}
-              offWord={thread.error?.status === 404 && sel.kind === "dm" ? "Gone" : offWord}
-              note={note}
-              error={sendErr}
-              sending={sending}
-              onSend={() => void onSend()}
-              channel={sel.kind === "channel" ? sel.id : null}
-              addresses={addrs.list}
-              loadAddresses={addrs.load}
-              stateOf={stateOf}
-              commands={ownAgent ? { agent: ownAgent.name, declared: sessions[ownAgent.sessionId]?.capabilities?.commands ?? null, confirmClear: clearAsk, onConfirmClear: setClearAsk, onClear: () => void onSend("/clear") } : undefined}
-            />
-            )
-          }
-        />
+                ) : undefined}
+              />
+            }
+          />
+        )}
       </div>
       {!ro && <ListRecordLines reads={o.listReads ?? []} />}
+      {form?.kind === "channel" && (
+        <ChannelModal
+          api={api}
+          edit={form.edit}
+          onClose={() => closeForm()}
+          onDone={async (c, say) => {
+            // The list is read again first, so the channel is in it when it is selected.
+            await overview.reload();
+            if (!form.edit) select({ kind: "channel", id: c.id });
+            setSaid(say);
+            closeForm(!!form.edit);
+          }}
+        />
+      )}
+      {form?.kind === "dm" && (
+        <DirectModal
+          api={api}
+          sessions={sessions}
+          person={form.person}
+          onClose={() => closeForm()}
+          search={form.search}
+          addTo={form.addTo}
+          onDone={async (r: DirectDone) => {
+            await overview.reload();
+            if (r.kind === "added") {
+              await refresh();
+              setSaid(r.said);
+              closeForm();
+              return;
+            }
+            if (r.kind === "convo") select({ kind: "convo", id: r.id });
+            // The conversation is the one the overview lists now, found by this key (an own agent's by the agent), or the fresh one that opens it.
+            else select({ kind: "dm", a: "me", b: r.target.sessionId, key: r.target.own ? r.target.sessionId : r.target.thread, fresh: true });
+            setSaid(r.said);
+            closeForm(false);
+          }}
+        />
+      )}
+      {deleting && deletingMsg && <DeleteMessageDialog text={(deletingMsg.channel ?? deletingMsg.direct)!.text} who={lostBy(deletingMsg)} error={deleting.error} busy={deleting.busy} onCancel={cancelDelete} onDelete={() => void doDelete()} />}
       <div className="vh" role="status" aria-live="polite">
         {said}
       </div>

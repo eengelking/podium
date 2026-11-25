@@ -84,6 +84,18 @@ describe("podiumctl container engine", () => {
     expect(containerRunArgs(resolveConfig({}, {}, ["podman"]), [])).not.toContain("--add-host");
   });
 
+  it("checks health on /api/health, not on the whole fleet state (#767)", () => {
+    const args = containerRunArgs(resolveConfig({}, {}, ["podman"]), []);
+    const cmd = args[args.indexOf("--health-cmd") + 1];
+    expect(cmd).toContain("/api/health");
+    expect(cmd).not.toContain("/api/fleet/state");
+    // podiumctl's own healthy() (used by `health`, `status` and the start wait) calls the same light route.
+    const src = fs.readFileSync(path.join(__dirname, "..", "bin", "podiumctl"), "utf8");
+    const healthy = src.slice(src.indexOf("async function healthy("), src.indexOf("async function waitHealthy("));
+    expect(healthy).toContain("}/api/health");
+    expect(healthy).not.toContain("/api/fleet/state");
+  });
+
   it("keeps .dockerignore the same as .containerignore, so a docker build leaves out the same files", () => {
     const rules = (f: string) => fs.readFileSync(path.join(__dirname, "..", f), "utf8").split("\n").filter((l) => l.trim() && !l.startsWith("#"));
     expect(rules(".dockerignore")).toEqual(rules(".containerignore"));

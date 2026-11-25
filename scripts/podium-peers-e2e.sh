@@ -51,11 +51,12 @@ Options:
                   a JSON file merged into each OpenCode window's opencode.json, for a
                   local model's provider block (LM Studio and the like). The model and
                   the `ask` permissions of this script win over what the file says
-  --activity-output, --session-recording, --file-diff
+  --activity-output, --background-output, --session-recording, --file-diff
                   turn on that Admin flag in the seed and that reporter option in every
-                  window (Claude Code: activityOutput, sessionRecording, fileDiff in the
-                  settings file; OpenCode: PODIUM_ACTIVITY_OUTPUT, PODIUM_SESSION_RECORDING,
-                  PODIUM_FILE_DIFF in its env file)
+                  window (Claude Code: activityOutput, backgroundOutput, sessionRecording,
+                  fileDiff in the settings file; OpenCode: PODIUM_ACTIVITY_OUTPUT,
+                  PODIUM_BACKGROUND_OUTPUT, PODIUM_SESSION_RECORDING, PODIUM_FILE_DIFF in
+                  its env file)
   --tmux NAME     tmux session name, also the name of the private tmux socket (default podium-e2e)
   --name NAME     the person to seed (default Ed)
   --no-build      up: skip npm run build and serve server/dist and frontend/dist as they
@@ -102,7 +103,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MOD="$ROOT/dist-dev/claudecode"
 OC_DIST="$ROOT/dist-dev/opencode"
 MARKER=".podium-peers-e2e"
-TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access"
+TOOLS="mcp__podium-reporter__podium_peers mcp__podium-reporter__podium_send mcp__podium-reporter__podium_request_access mcp__podium-reporter__podium_chat_read"
 
 CMD=""
 TMP_BASE="${TMPDIR:-/tmp}"
@@ -114,6 +115,7 @@ HARNESS=claudecode
 OC_MODEL=""
 OC_CONFIG=""
 ACTIVITY_OUTPUT=0
+BACKGROUND_OUTPUT=0
 SESSION_RECORDING=0
 FILE_DIFF=0
 TMUX_NAME=podium-e2e
@@ -137,6 +139,7 @@ while [[ $# -gt 0 ]]; do
     --opencode-model) need_value "$@"; OC_MODEL="$2"; shift ;;
     --opencode-config) need_value "$@"; OC_CONFIG="$2"; shift ;;
     --activity-output) ACTIVITY_OUTPUT=1 ;;
+    --background-output) BACKGROUND_OUTPUT=1 ;;
     --session-recording) SESSION_RECORDING=1 ;;
     --file-diff) FILE_DIFF=1 ;;
     --tmux) need_value "$@"; TMUX_NAME="$2"; shift ;;
@@ -312,6 +315,7 @@ up() {
 
   local seed_flags="" opts_json="" oc_env=""
   (( ACTIVITY_OUTPUT )) && { seed_flags="$seed_flags --activity-output"; opts_json="$opts_json, \"activityOutput\": true"; oc_env="$oc_env PODIUM_ACTIVITY_OUTPUT=true"; }
+  (( BACKGROUND_OUTPUT )) && { seed_flags="$seed_flags --background-output"; opts_json="$opts_json, \"backgroundOutput\": true"; oc_env="$oc_env PODIUM_BACKGROUND_OUTPUT=true"; }
   (( SESSION_RECORDING )) && { seed_flags="$seed_flags --session-recording"; opts_json="$opts_json, \"sessionRecording\": true"; oc_env="$oc_env PODIUM_SESSION_RECORDING=true"; }
   (( FILE_DIFF )) && { seed_flags="$seed_flags --file-diff"; opts_json="$opts_json, \"fileDiff\": true"; oc_env="$oc_env PODIUM_FILE_DIFF=true"; }
   step "seed the person $PERSON with podium-peers-seed.mjs --talk$seed_flags, output (name and token) in $SEED_FILE (mode 0600)"

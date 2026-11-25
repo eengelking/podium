@@ -5,7 +5,7 @@
 // plugin's options. The token has no row there (the engine lists none for a `sensitive` option) and none here.
 import { checkValue, settingsFor, WRITABLE_OPTIONS, type Setting } from '../../core/settingsWindow.ts';
 
-export const PLUGIN = 'podium-reporter';
+const PLUGIN = 'podium-reporter';
 
 /** One `/config` row as this module reads it: `ConfigRow` from the engine, the fields used. */
 export interface EngineRow {

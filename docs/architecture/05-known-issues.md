@@ -22,8 +22,9 @@ fixed.
 4. **Plan owner matching is literal.** A step "Count .ts files under server" and an agent "Count .ts
    files in server" do not match (6.3's normalized contains rule); run 3 showed it. Steps then show no
    owner.
-5. **Elapsed times and the stale countdown pause in a background tab.** Browsers throttle timers in
-   hidden tabs; the numbers catch up when the tab is visible. The console also adds a `paused` class
+5. **Elapsed times and the stale countdown pause in a background tab.** The clock (`useNow`) and the
+   held state (`useHeldState`) stop their intervals while the tab is hidden and show the newest value
+   as soon as it is shown again (#751); the stream stays open. The console also adds a `paused` class
    while the tab is hidden (`usePageVisible`), which pauses every CSS animation, and the heartbeat
    (`useHeartbeat`, which drives the running-dot pulse and the blinks through `data-beat`) stops too.
 6. **Memory grows slowly under load.** The 5-minute soak (10 sessions x 20 extra agents, 3 SSE clients)
@@ -44,9 +45,11 @@ fixed.
     percent and stop reasons for such a model are unobserved. The mod sends `costUsd` and `costUsdEst` as
     `null` for it, and the dashboard shows the model's own name in an "other" chip, cost "n/a", and "not
     counting 1 unpriced session" under Est. cost today.
-9. **The production build also compiles the server's test files into `server/dist`** (as the existing
-   app already did). Harmless; not changed. Since #927 the compiled files are under `server/dist/server/src/`
-   (see the gotcha "A script or a path expects the server's compiled files directly in server/dist").
+9. **The production build no longer compiles the server's test files into `server/dist`** (#756). It used to, as the
+   existing app did. `server/tsconfig.build.json` emits only what `src/index.ts` reaches, and `npm run build` still
+   type-checks the tests. A few files only a test uses are still emitted, because `storage/index.ts` reaches them through
+   its lazy `testing` entries; a running server never loads them. Since #927 the compiled files are under
+   `server/dist/server/src/` (see the gotcha "A script or a path expects the server's compiled files directly in server/dist").
 10. **A change of effort shows after the next model request.** The mod reads the effort the session sends
     on each `turn.step`; the API has no event for the setting changing. A level picked with `/effort`
     appears in Podium after the session's next prompt, not when it is picked. A probe of `$.config.list()`

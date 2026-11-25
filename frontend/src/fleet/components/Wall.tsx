@@ -11,11 +11,12 @@ import type { ComponentProps, CSSProperties, JSX } from "react";
 import { useWallColumns } from "../useWallColumns";
 import { Sparkline } from "./Sparkline";
 import { placePinned, type Pin } from "../pins";
-import { NoticeStack, UPDATE_NOTICE_ID, type NoticeItem } from "./NoticeStack";
+import { CONCLUDED_NOTICE_ID, CONCLUDED_PREFIX, NoticeStack, UPDATE_NOTICE_ID, type NoticeItem } from "./NoticeStack";
+import { undeliveredWords, type Concluded } from "../chatData";
 
 const COST_TODAY_TITLE = "What the fleet has spent since midnight on the server, counting only the part of a session that came after midnight.";
 
-export function KpiStrip({ kpis, split }: { kpis: Kpis | null; split: Split }) {
+function KpiStrip({ kpis, split }: { kpis: Kpis | null; split: Split }) {
   const k = kpis;
   const lvl2 = k?.sessionsAtLevel2 ?? 0;
   return (
@@ -62,7 +63,7 @@ export function KpiStrip({ kpis, split }: { kpis: Kpis | null; split: Split }) {
   );
 }
 
-export function Toolbar(props: {
+function Toolbar(props: {
   filter: { status: StatusFilter; q: string };
   onFilter: (f: { status: StatusFilter; q: string }) => void;
   sort: SortKey;
@@ -161,6 +162,8 @@ export function Wall(props: {
   /** Whether a notice is switched on in Admin > Settings (on unless turned off), and what closing one does. */
   noticeOn?: (id: string) => boolean;
   onCloseNotice?: (item: NoticeItem) => void;
+  /** Direct Messages concluded because an agent in them ended (#1283), one notice each. Closing one dismisses only that one; the Admin switch turns the kind off. */
+  concluded?: Concluded[];
   /** A release newer than this server that nobody has closed the notice for, and the version running (#499). */
   update?: UpdateNotice | null;
   runningVersion?: string | null;
@@ -210,6 +213,20 @@ export function Wall(props: {
         </>
       ),
     });
+  }
+  if (props.noticeOn?.(CONCLUDED_NOTICE_ID) ?? true) {
+    for (const c of props.concluded ?? []) {
+      notices.push({
+        id: `${CONCLUDED_PREFIX}${c.id}`,
+        name: "Concluded direct messages",
+        body: (
+          <>
+            <b>{c.agent} {c.cleared ? "was cleared." : "ended."}</b>
+            <span>{c.cleared ? "It is still running under a new session. " : ""}Its direct message with {c.with.join(", ")} was concluded and deleted. A conversation with two or more people stays.{undeliveredWords(c.undelivered)}</span>
+          </>
+        ),
+      });
+    }
   }
   if (props.update) {
     notices.push({

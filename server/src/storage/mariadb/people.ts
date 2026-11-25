@@ -2,7 +2,9 @@
 // then writes is one transaction, which is what the SQLite lock gave it.
 import { newPersonToken, parsePersonToken, tokenMatches } from '../../fleet/tokens.js';
 import { stripFormat } from '../peerText.js';
-import { withoutPerson } from '../chatRows.js';
+import { personKeyOf } from '../../fleet/peerTypes.js';
+import { FLAG_PREFIX, isFlagOfPerson, withoutPerson } from '../chatRows.js';
+import { removePersonOf } from './conversations.js';
 import { PeopleError, checkTime, MAX_PAGE_SIZE, DEFAULT_PAGE_SIZE, ADMIN_OWNER, ADMINISTRATORS_GROUP, ADMIN_SECRET_ACTOR, type PersonRow, type PersonListRow, type GroupListRow, type LogRow, type Paged, type PageIn, nameKey } from '../rows.js';
 import type { PeopleStoreApi } from '../types.js';
 import { asciiLower, LIKE_ESCAPE, type MariaDbConn } from './conn.js';
@@ -62,7 +64,7 @@ const toPerson = (r: DbPerson): PersonRow => ({
 });
 
 
-export class MariaPeopleStore implements PeopleStoreApi {
+class MariaPeopleStore implements PeopleStoreApi {
   constructor(private readonly db: MariaDbConn) {}
 
   // ---- people ---------------------------------------------------------------------------------
@@ -145,33 +147,48 @@ export class MariaPeopleStore implements PeopleStoreApi {
       }
       for (const p of found) {
         await this.db.run('DELETE FROM people WHERE id = ?', [p.id]);
-        await this.forgetChat(p.name);
+        // Their sessions and reporters keep the name as text but are no one's now (#1284): a new person who takes the name owns none of them.
+        await this.db.run('UPDATE sessions SET owner_id = NULL WHERE owner_id = ?', [p.id]);
+        await this.db.run('UPDATE reporters SET owner_id = NULL WHERE owner_id = ?', [p.id]);
+        // Their daily rows keep the id, which no one holds now, and lose the group they were counted in, so their spend is in the fleet's figures and in no group's.
+        for (const table of ['usage_daily', 'person_sessions_daily', 'person_places_daily']) await this.db.run(`UPDATE ${table} SET group_name = '' WHERE owner_id = ?`, [p.id]);
+        await this.forgetChat(p.name, p.id);
       }
       return found;
     });
   }
 
-  /** Everything Chat and the peer stores keep under a deleted person's name (#1051); the same set as the SQLite adapter's `forgetChat`. */
-  private async forgetChat(name: string): Promise<void> {
-    const key = nameKey(name);
-    const pk = `person:${key}`;
-    for (const table of ['peer_messages', 'peer_rights', 'peer_requests']) {
-      const owners = (await this.db.all<{ owner: string }>(`SELECT DISTINCT owner FROM ${table} ORDER BY owner`)).map((r) => r.owner).filter((o) => nameKey(o) === key);
-      for (const o of owners) await this.db.run(`DELETE FROM ${table} WHERE owner = ?`, [o]);
-    }
+  /** Everything Chat and the peer stores keep for a deleted person (#1051); the same set as the SQLite adapter's `forgetChat`. The peer rows go by the person's id, never the name (#1284). */
+  private async forgetChat(name: string, personId: number): Promise<void> {
+    // The conversations of people and agents (#1278): they leave each one, and one left with no person goes with its messages.
+    await removePersonOf(this.db, personId);
+    const pk = personKeyOf(personId);
+    for (const table of ['peer_messages', 'peer_rights', 'peer_requests', 'peer_owner_settings']) await this.db.run(`DELETE FROM ${table} WHERE owner_id = ?`, [personId]);
     await this.db.run('DELETE FROM peer_messages WHERE from_session = ? OR to_session = ?', [pk, pk]);
     await this.db.run('DELETE FROM peer_rights WHERE from_key = ?', [pk]);
     await this.db.run('DELETE FROM peer_requests WHERE from_key = ?', [pk]);
-    await this.db.run('DELETE FROM peer_owner_settings WHERE owner_lower = ?', [key]);
-    await this.db.run('DELETE FROM group_messages WHERE owner = ?', [key]);
-    await this.db.run('DELETE FROM chat_read_state WHERE person = ?', [key]);
+    // What Chat keeps for the person is found by their id (#1284), never by their name: a new person of the same name has a different id and starts with none of it.
+    await this.db.run('DELETE FROM group_messages WHERE owner_id = ?', [personId]);
+    // The channels they opened stay, public like General, but no longer name them as the opener, so a new person of the same name cannot edit them (#1035).
+    await this.db.run('UPDATE public_channels SET created_by_id = NULL WHERE created_by_id = ?', [personId]);
+    await this.db.run('DELETE FROM chat_read_state WHERE person_id = ?', [personId]);
+    // Their own flags (a paused or disconnected group or channel) go too, so a new person of the same name does not start paused.
+    // order-insensitive: each flag is deleted on its own key.
+    for (const s of await this.db.all<{ key: string }>("SELECT key FROM settings WHERE substr(key, 1, 10) = 'chat.flag.' ORDER BY key")) {
+      if (isFlagOfPerson(s.key.slice(FLAG_PREFIX.length), personId)) await this.db.run('DELETE FROM settings WHERE key = ?', [s.key]);
+    }
     // The Admin records owed only to this person can never be seen, so they go; one owed to others too stays for them (#1051). One that names nobody is not theirs.
-    const reads = await this.db.all<{ thread: string; admin_key: string; started_at: number; people: string; seen: string }>('SELECT thread, admin_key, started_at, people, seen FROM chat_admin_reads ORDER BY thread, started_at, admin_key');
-    for (const r of reads) {
-      const out = withoutPerson(r, key);
+    // The records still owed to this person are found by the person (#1061); one they have already seen is not owed and stays by retention.
+    const owed = await this.db.all<{ thread: string; admin_key: string; started_at: number; people: string }>(
+      'SELECT r.thread, r.admin_key, r.started_at, r.people FROM chat_admin_owed o JOIN chat_admin_reads r ON r.thread = o.thread AND r.admin_key = o.admin_key AND r.started_at = o.started_at WHERE o.person_id = ? ORDER BY r.thread, r.started_at, r.admin_key',
+      [personId],
+    );
+    await this.db.run('DELETE FROM chat_admin_owed WHERE person_id = ?', [personId]);
+    for (const r of owed) {
+      const out = withoutPerson(r, personId);
       if (out === 'none') continue;
       if (out === 'drop') await this.db.run('DELETE FROM chat_admin_reads WHERE thread = ? AND admin_key = ? AND started_at = ?', [r.thread, r.admin_key, r.started_at]);
-      else await this.db.run('UPDATE chat_admin_reads SET people = ?, seen = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [out.people, out.seen, r.thread, r.admin_key, r.started_at]);
+      else await this.db.run('UPDATE chat_admin_reads SET people = ? WHERE thread = ? AND admin_key = ? AND started_at = ?', [out.people, r.thread, r.admin_key, r.started_at]);
     }
   }
 

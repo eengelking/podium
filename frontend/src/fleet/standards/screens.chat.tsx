@@ -11,15 +11,16 @@ import { SessionReadsProvider } from "../sessionReads";
 import { ReplayReadsProvider } from "../replayReads";
 import { stateFrom } from "../testState";
 import { RespondProvider } from "../useRespond";
-import type { Address, AdminRead, AdminReading, ChannelMessage, ChatApi, ChatOverview, DirectInfo, DirectMessage, DirectPageRead, Party } from "../chatData";
+import { ConcludedBanner } from "../components/ChatEnded";
+import type { Address, AdminRead, AdminReading, ChannelMessage, ChatApi, ChatOverview, ConversationInfo, ConversationMessage, DirectInfo, DirectMessage, DirectPageRead, DirectTarget, Party } from "../chatData";
 import type { ReportReply, ReportsClient } from "../admin/reportsApi";
 import type { PeersApi, RespondApi } from "../respondApi";
 import type { RespondMe } from "../types";
 import type { Screen } from "./screens";
 
 const T0 = Date.UTC(2026, 9, 12, 14, 30);
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", admin: true };
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", id: null, admin: true };
 const flush = () => act(async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); });
 let clock: MockInstance<() => number> | undefined;
 const stopClock = () => clock?.mockRestore();
@@ -34,8 +35,8 @@ const direct = (a: Party, b: Party, over: Partial<DirectInfo> = {}): DirectInfo 
   thread: `dm:${a.sessionId}|${b.sessionId}`, a, b, owner: "Ed", messages: 6, lastAt: T0, state: "active", paused: false, canSend: { aToB: true, bToA: true }, roundTrips: { used: 3, cap: 10 }, ended: [], unread: 0, mentions: 0, hiddenAt: null, ...over,
 });
 const channelOf = (id: "general" | "group", over: Partial<ChatOverview["channels"][number]> = {}): ChatOverview["channels"][number] => ({
-  id, name: id === "general" ? "General" : "My group", thread: id === "general" ? "public" : "group:ed", unread: 0, mentions: 0, messages: 3, paused: false, pausedForEveryone: false, disconnected: false,
-  can: id === "general" ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: false } : { pause: true, pauseEveryone: false, disconnect: true, removeAll: true }, ...over,
+  id, kind: id === "group" ? "group" : "public", description: "", link: null, openedBy: null, name: id === "general" ? "General" : "My group", thread: id === "general" ? "public" : "group:ed", unread: 0, mentions: 0, messages: 3, paused: false, pausedForEveryone: false, disconnected: false,
+  can: id === "general" ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: false, removeChannel: false } : { pause: true, pauseEveryone: false, disconnect: true, removeAll: true, editDescription: false, removeChannel: false }, ...over,
 });
 const cmsg = (id: string, text: string, over: Partial<ChannelMessage> = {}): ChannelMessage => ({ id, authorKind: "person", authorName: "Ed", authorRef: "Ed", text, createdAt: T0 - 600_000, updatedAt: T0 - 600_000, replyTo: null, issue: null, project: null, milestone: null, mine: true, mentions: [], ...over });
 const dmsg = (id: string, from: Party, to: Party, text: string, over: Partial<DirectMessage> = {}): DirectMessage => ({
@@ -51,8 +52,31 @@ const BOOK: Address[] = [
 const live = (admin: string, since = T0 - 60_000): AdminReading => ({ admin, since, until: T0 + 30_000 });
 const MAYA_DM = direct(agent("m-1", "maya-api", "maya-mbp"), agent("m-2", "maya-ui", "maya-mbp"), { owner: "Maya", thread: "dm:m-1|m-2", unread: 5 });
 
-interface World { overview: ChatOverview; owners?: Record<string, Partial<ChatOverview>> }
-function world(over: { directs?: DirectInfo[]; channels?: ChatOverview["channels"]; admin?: boolean } = {}): World {
+// A conversation of people and agents (#1278): Ed, Maya, and Ed's own claude-dashboard.
+const CONVO: ConversationInfo = {
+  id: "cv1", thread: "cv:cv1", hasAgent: true, unread: 0, mentions: 0, messages: 4, lastAt: T0, adminReading: [],
+  members: [
+    { kind: "person", name: "Ed", you: true, addedBy: null, address: null, sessionId: null },
+    { kind: "person", name: "Maya", you: false, addedBy: null, address: "Maya@console", sessionId: null },
+    { kind: "agent", name: "claude-dashboard", you: false, addedBy: "Ed", address: "claude-dashboard@ed-mbp", sessionId: "s-dash" },
+  ],
+};
+const vmsg = (id: string, name: string, kind: "person" | "agent", you: boolean, text: string, over: Partial<ConversationMessage> = {}): ConversationMessage => ({
+  id, author: { kind, name, you }, text, createdAt: T0 - 600_000, editedAt: null, deletedAt: null, replyTo: null, canChange: false, changeWhy: null, deliveries: [], ...over,
+});
+const CONVO_MESSAGES: ConversationMessage[] = [
+  vmsg("v1", "Maya", "person", false, "claude-dashboard, can you check the staging deploy?", { deliveries: [{ kind: "agent", name: "claude-dashboard", named: true, state: "delivered" }] }),
+  vmsg("v2", "claude-dashboard", "agent", false, "The deploy is green. Two warnings in the log."),
+  vmsg("v3", "Ed", "person", true, "Thanks. Please post the warnings here.", { canChange: true, editedAt: T0 - 300_000 }),
+  vmsg("v4", "Maya", "person", false, "", { deletedAt: T0 - 120_000 }),
+];
+const TARGETS: DirectTarget[] = [
+  { sessionId: "s-dash", name: "claude-dashboard", machine: "ed-mbp", address: "claude-dashboard@ed-mbp", owner: "Ed", own: true, status: "running", waitReason: null, canMessage: true, why: null, needsApproval: false, link: null, thread: "dm:person:ed|s-dash" },
+  { sessionId: "s-other", name: "maya-api", machine: "maya-mbp", address: "maya-api@maya-mbp", owner: "Maya", own: false, status: "running", waitReason: null, canMessage: false, why: null, needsApproval: true, link: "none", thread: "dm:person:ed|s-other" },
+];
+
+interface World { overview: ChatOverview; owners?: Record<string, Partial<ChatOverview>>; empty?: boolean }
+function world(over: { directs?: DirectInfo[]; channels?: ChatOverview["channels"]; admin?: boolean; convo?: boolean; empty?: boolean } = {}): World {
   const overview: ChatOverview = {
     enabled: true, serverTime: T0, me: { name: "Ed", admin: false, person: true },
     settings: { maxChars: 20000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false },
@@ -65,13 +89,14 @@ function world(over: { directs?: DirectInfo[]; channels?: ChatOverview["channels
     ],
     people: [{ name: "Ed", you: true }, { name: "Maya", you: false }],
   };
-  if (!over.admin) return { overview };
+  if (over.convo) overview.conversations = [structuredClone(CONVO)];
+  if (!over.admin) return { overview, ...(over.empty ? { empty: true } : {}) };
   overview.me = { name: "Root", admin: true, person: false };
-  overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } })];
+  overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } })];
   overview.directs = [];
   overview.agents = [];
   overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
-  return { overview, owners: { Maya: { channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })], directs: [MAYA_DM] } } };
+  return { overview, owners: { Maya: { channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })], directs: [MAYA_DM] } } };
 }
 
 const DMS: Record<string, DmPage> = {
@@ -85,10 +110,15 @@ interface DmPage { messages: DirectMessage[]; older?: string | null; total: numb
 function chatApi(w: World): ChatApi {
   const all = () => [...w.overview.directs, ...Object.values(w.owners ?? {}).flatMap((o) => o.directs ?? [])];
   return {
+    concluded: async () => ({ ok: true as const, concluded: [] }),
+    dismissConcluded: async () => ({ ok: true as const }),
     overview: async (owner?: string | null) => structuredClone(owner && w.owners?.[owner] ? { ...w.overview, ...w.owners[owner] } : w.overview),
     markRead: async () => ({ ok: true as const, unread: 0, mentions: 0 }),
     addresses: async () => ({ ok: true as const, addresses: structuredClone(BOOK) }),
-    channelMessages: async (channel: string) => ({ ok: true as const, channel: channel as "general", messages: [cmsg("g1", "Heads up: staging restarts at 17:00.", { mine: false, authorName: "Maya", authorRef: "Maya" }), cmsg("g2", "Thanks.")], older: null, total: 2 }),
+    chatPeople: async () => ({ ok: true as const, people: [{ name: "Maya", conversation: null }] }),
+    directTargets: async () => ({ ok: true as const, targets: structuredClone(TARGETS) }),
+    conversationMessages: async () => ({ ok: true as const, conversation: structuredClone(CONVO), messages: structuredClone(CONVO_MESSAGES), older: null, total: 4, adminReads: [] }),
+    channelMessages: async (channel: string) => w.empty ? { ok: true as const, channel: channel as "general", messages: [], older: null, total: 0 } : ({ ok: true as const, channel: channel as "general", messages: [cmsg("g1", "Heads up: staging restarts at 17:00.", { mine: false, authorName: "Maya", authorRef: "Maya" }), cmsg("g2", "Thanks.")], older: null, total: 2 }),
     readingChannel: async () => ({ ok: true as const }),
     readingDm: async () => ({ ok: true as const }),
     dmMessages: async (a: string, b: string): Promise<DirectPageRead> => {
@@ -111,8 +141,8 @@ function chat(w: World, me: RespondMe, after?: (b: HTMLElement) => Promise<void>
       window.location.hash = "#/chat";
       vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0 }) })));
       const sessions = [
-        makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-        makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
+        makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+        makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
       ];
       return <FleetView chat respondApi={respondApi(me)} peersApi={peersApi()} chatApi={chatApi(w)} state={stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": true } })} />;
     },
@@ -138,7 +168,7 @@ const typeAt = async () => {
 // ---- the notices an Admin's read of a session leaves for its owner -------------------------------------------------
 const rd = (admin: string, startedAt: number): AdminRead => ({ admin, startedAt, lastSeenAt: startedAt + 60_000, kind: "read" });
 function notesFor(readers: AdminReading[], records: AdminRead[], render: (s: ReturnType<typeof makeSession>) => React.ReactElement): Screen {
-  const s = makeSession({ id: "s1", name: "history-paging", owner: "Ed", agents: [makeAgent({ id: "p", description: "Port the endpoints" })] });
+  const s = makeSession({ id: "s1", name: "history-paging", owner: "Ed", ownerId: 1, agents: [makeAgent({ id: "p", description: "Port the endpoints" })] });
   return {
     make: () => {
       clock = vi.spyOn(Date, "now").mockReturnValue(T0);
@@ -193,17 +223,31 @@ export const CHAT_SCREENS: Record<string, Screen> = {
     click(b.querySelector('[data-testid="chat-row-d:dm:m-1|m-2"] .ch-row'));
     await flush();
   }),
+  "chat-convo": chat(world({ convo: true }), ED, async (b) => { click(b.querySelector('[data-testid="chat-row-v:cv1"] .ch-row')); await flush(); }),
+  "chat-members": chat(world({ convo: true }), ED, async (b) => { click(b.querySelector('[data-testid="chat-row-v:cv1"] .ch-row')); await flush(); click(screen.getByTestId("chat-members-toggle")); await flush(); }),
+  "chat-empty": chat(world({ empty: true }), ED, async (b) => { click(b.querySelector('[data-testid="chat-row-c:group"] .ch-row')); await flush(); }),
+  "chat-new-channel": chat(world(), ED, async () => { click(screen.getByRole("button", { name: "New channel" })); await flush(); }),
+  "chat-new-dm": chat(world(), ED, async () => { click(screen.getAllByRole("button", { name: "New direct message" })[0]!); await flush(); }),
+  "chat-rules": chat(world(), ED, async (b) => { click(b.querySelector(".banner button.info")); await flush(); }),
+  "chat-concluded": {
+    make: () => (
+      <div className="podium">
+        <ConcludedBanner agent="claude-dashboard" undelivered={1} onBack={noop} />
+        <ConcludedBanner agent="infra-notes" cleared onBack={noop} />
+      </div>
+    ),
+  },
   "chat-orchestrator-button": {
     make: () => {
       window.location.hash = "#/?open=s-dash";
       vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => ({ entries: [], since: T0, live: true, enabled: true, serverTime: T0 }) })));
-      const state = stateFrom({ sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed" })], features: { "activity-feed": true, "peer-messaging": true } });
+      const state = stateFrom({ sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1 })], features: { "activity-feed": true, "peer-messaging": true } });
       return <FleetView respondApi={respondApi(ED)} peersApi={peersApi()} chatApi={chatApi(world())} state={state} />;
     },
     act: flush,
   },
   "read-notes": notesFor([live("Root")], [rd("Alex", T0 - 3_600_000)], (s) => focus({ ...s, status: "waiting", waitReason: "input" } as never)),
-  "read-notes-above": notesFor([], [rd("Alex", T0 - 3_600_000)], (s) => <div className="podium"><SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner }} placement="above" /></div>),
+  "read-notes-above": notesFor([], [rd("Alex", T0 - 3_600_000)], (s) => <div className="podium"><SessionReadNotes kind="ask" session={{ id: s.id, name: s.name, owner: s.owner, ownerId: s.ownerId }} placement="above" /></div>),
   "rec-notes": notesFor([live("Root")], [rd("Alex", T0 - 3_600_000)], (s) => <RespondProviderFocus s={{ ...s, recording: makeRecording() } as never} />),
   "my-usage": {
     make: () => {

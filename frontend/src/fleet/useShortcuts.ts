@@ -6,7 +6,7 @@ import { readJson, writeJson } from "./storage";
 export const SHORTCUTS_KEY = "podium.shortcuts";
 
 /** True only for a stored `true`: no value, or anything else, leaves the keys off. */
-export function readShortcuts(): boolean {
+function readShortcuts(): boolean {
   return readJson<unknown>(SHORTCUTS_KEY, false) === true;
 }
 

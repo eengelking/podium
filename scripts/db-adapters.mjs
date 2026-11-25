@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The databases the repo's tooling starts in a container, one entry per storage kind (#823): scripts/test-db.sh starts each kind's
+// The databases the repo's tooling starts in a container, one entry per storage kind (#823): `npm run test:db` (scripts/db-servers.sh) starts each kind's
 // test server for the server suite, and scripts/e2e-up.sh starts one beside the server for E2E_DB=<kind>. The kinds themselves are
 // registered in server/src/storage/index.ts; scripts/db-adapters.test.ts fails when this table and the registry disagree (a kind or a
 // test server variable missing here, a kind missing from the e2e.yml database list, or a CI job missing for the version named here).
@@ -62,7 +62,7 @@ const HELP = `Usage: node scripts/db-adapters.mjs kinds [--server | --e2e]
 The databases the tooling starts in a container, one entry per storage kind (the table is at the top of this file).
 kinds     prints the kinds, space separated: every kind, those with a test server (--server), or those E2E_DB accepts (--e2e).
 kind-of   prints the kind a PODIUM_DB value names (sqlite for a path), exit 1 for a URL of no known kind.
-shell     prints bash assignments for one kind, for scripts/test-db.sh and scripts/e2e-up.sh to eval: DB_LABEL, DB_IMAGE, DB_PORT,
+shell     prints bash assignments for one kind, for scripts/db-servers.sh and scripts/e2e-up.sh to eval: DB_LABEL, DB_IMAGE, DB_PORT,
           DB_TEST_VAR, DB_URL, and the arrays DB_ENV (NAME=value lines for an env file), DB_ARGS, DB_READY and DB_RESET. --set fills a
           template's {name}; {password} comes from the DB_PASSWORD environment variable, so it is never on a command line. test picks
           the kind's test image; e2e picks its e2e image, or the one its image variable names (E2E_PG_IMAGE, E2E_MARIADB_IMAGE).

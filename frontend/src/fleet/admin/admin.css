@@ -40,6 +40,7 @@
 .adminv .apage { padding: 24px 32px 0; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .adminv .apage-in { display: grid; gap: 24px; align-content: start; flex: 1; padding-bottom: 32px; }
 .adminv .afoot-narrow { display: none; }
+.adminv .page-tools { display: flex; justify-content: flex-end; gap: 8px; margin: 0 0 12px; }
 .adminv .page-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .adminv .asec { display: grid; gap: 12px; min-width: 0; }
 .adminv .asec-h { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
@@ -93,6 +94,8 @@
 .adminv .ptab td { padding: 10px 16px; border-bottom: 1px solid var(--grid); vertical-align: middle; }
 .adminv .ptab tr:last-child td { border-bottom: 0; }
 .adminv .ptab th.n, .adminv .ptab td.n { text-align: right; }
+/* A column of switches is centered under its heading (#1251, mockup/podium-admin-respond-allow.html). */
+.adminv .ptab th.c, .adminv .ptab td.c { text-align: center; }
 .adminv .ptab tr.revoked td { color: var(--muted); }
 .adminv .who { font-weight: 600; white-space: nowrap; }
 .adminv .who.isadmin { color: var(--admin-text); }

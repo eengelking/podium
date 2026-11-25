@@ -1,14 +1,14 @@
 // The menus of Chat (#1034, mockup/podium-chat.html): a Direct Message's (the controls Traffic had, on the row), a channel's stop
 // buttons, and an agent's. They open on right-click and on the "..." button, move with the arrow keys, close on Escape (the
 // caller puts the focus back) and offer only what the viewer may do, as the overview's `can` flags say.
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { adminPauseOf, adminWho, hasLink, dmName, whoWord, type ChatChannel, type Cross, type DirectInfo } from "../chatData";
-import { ChMsg, ChPause, ChPlay, ChTrash } from "./ChatIcons";
+import { ChAt, ChMsg, ChNo, ChPause, ChPlay, ChTrash } from "./ChatIcons";
 import { StateIcon, type StateKind } from "./Chips";
 
-export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "open";
+export type MenuAct = "pause-link" | "allow-link" | "remove-link" | "delete-dm" | "pause" | "disconnect" | "pause-all" | "clear" | "message" | "mention" | "open" | "edit" | "remove-channel" | "edit-message" | "delete-message" | "leave";
 
-export interface MenuItem {
+interface MenuItem {
   act: MenuAct;
   label: string;
   icon: ReactNode;
@@ -17,6 +17,10 @@ export interface MenuItem {
   disabled?: string;
   /** An item that goes to a page is a link. */
   href?: string;
+  /** The key that does the same, drawn at the end of the item in the mono type (#1269). It is not read: the item's name is its words. */
+  hint?: string;
+  /** An item that cannot be used now and says why once, for all of them, in the menu's `why` (#1269): it stays, is `aria-disabled` and can take the focus. */
+  off?: boolean;
 }
 
 export interface MenuSpec {
@@ -24,6 +28,8 @@ export interface MenuSpec {
   items: MenuItem[];
   /** Words in place of items the viewer may not use. */
   why?: string;
+  /** A class for the menu beside `ch-menu`. */
+  cls?: string;
 }
 
 /**
@@ -74,32 +80,148 @@ export function dmMenu(d: DirectInfo, owns: boolean, readOnly = false): MenuSpec
   return { label, items };
 }
 
-/** A channel's stop buttons. Pause holds and keeps access, Disconnect takes the agents' access away, Remove all deletes the history. */
+/** A channel's stop buttons. Pause holds and keeps access, Disconnect takes the agents' access away, Remove all deletes the history. A public channel adds Edit description and Remove channel (#1035). */
 export function channelMenu(c: ChatChannel, reading?: { owner: string }): MenuSpec {
   const general = c.id === "general";
-  const mine = general ? "my agents in General" : reading ? `every agent in ${reading.owner}'s group` : "every agent in the group";
+  const pub = c.kind === "public";
+  const mine = pub ? `my agents in ${c.name}` : reading ? `every agent in ${reading.owner}'s group` : "every agent in the group";
   const heldByMe = c.paused && !c.pausedForEveryone;
   // An Admin's pause on a group is the Admin's to lift: its person sees the item and the reason, and nothing happens.
-  const held = !general && !reading && heldByMe && c.pausedByAdmin ? `Paused by ${adminWho(c.pausedByAdmin)}. Only an Admin can resume it.` : null;
+  const held = !pub && !reading && heldByMe && c.pausedByAdmin ? `Paused by ${adminWho(c.pausedByAdmin)}. Only an Admin can resume it.` : null;
   const items: MenuItem[] = [];
   if (c.can.pause) items.push({ act: "pause", label: `${heldByMe ? "Resume" : "Pause"} ${mine}`, icon: heldByMe ? <ChPlay /> : <ChPause />, ...(held ? { disabled: held } : {}) });
   if (c.can.disconnect) items.push({ act: "disconnect", label: `${c.disconnected ? "Reconnect" : "Disconnect"} ${mine}`, icon: <ChPause /> });
-  if (general && c.can.pauseEveryone) items.push({ act: "pause-all", label: c.pausedForEveryone ? "Resume General for everyone" : "Pause General for everyone", icon: <ChPause /> });
+  if (pub && c.can.pauseEveryone) items.push({ act: "pause-all", label: `${c.pausedForEveryone ? "Resume" : "Pause"} ${c.name} for everyone`, icon: <ChPause /> });
+  if (c.can.editDescription) items.push({ act: "edit", label: "Edit description…", icon: <ChMsg /> });
+  if (c.can.removeChannel) items.push({ act: "remove-channel", label: "Remove channel…", icon: <ChTrash />, danger: true });
   if (c.can.removeAll) items.push({ act: "clear", label: "Remove all messages…", icon: <ChTrash />, danger: true });
-  return { label: `Actions for ${c.name}`, items, ...(general && !c.can.removeAll ? { why: "Only an Admin can pause General for everyone or remove its messages." } : {}) };
+  const why = general && !c.can.removeAll ? "Only an Admin can pause General for everyone or remove its messages." : pub && !general && !c.can.removeAll ? `Only an Admin can pause ${c.name} for everyone or remove its messages or the channel.` : null;
+  return { label: `Actions for ${c.name}`, items, ...(why ? { why } : {}) };
 }
 
-/** An agent's menu, in People and agents and on a thread's participants: start a message, or open its orchestration page. */
-export function agentMenu(name: string, sessionId: string, state: StateKind, withMessage: boolean): MenuSpec {
+/** What a sender's menu may offer: Mention only where a channel is open, and nothing that sends while an Admin reads (#1235). */
+export interface SenderOpts {
+  /** The open conversation is a channel, so an @ means something there. */
+  mention?: boolean;
+  /** An Admin is reading as a person: Message and Mention send, so neither is offered. */
+  reading?: boolean;
+}
+
+/** An agent's menu, in People and agents and on a sender's avatar: start a message, mention it where a channel is open, or open its orchestration page. */
+export function agentMenu(name: string, sessionId: string, state: StateKind, withMessage: boolean, opts: SenderOpts = {}): MenuSpec {
   const items: MenuItem[] = [];
-  if (withMessage) items.push({ act: "message", label: `Message ${name}`, icon: <ChMsg /> });
+  if (withMessage && !opts.reading) items.push({ act: "message", label: `Message ${name}`, icon: <ChMsg /> });
+  if (opts.mention && !opts.reading) items.push({ act: "mention", label: `Mention ${name}`, icon: <ChAt /> });
   items.push({ act: "open", label: "Open orchestration page", icon: <StateIcon kind={state} />, href: `#/?open=${encodeURIComponent(sessionId)}` });
   return { label: `Actions for ${name}`, items };
 }
 
-export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void; onClose: (restoreFocus: boolean) => void }) {
+/**
+ * A person's menu, in People and agents, the members panel and on a sender's avatar. Message is always offered, never hidden; when no
+ * orchestrator can take it the New direct message form opens and says why (#1229, decision 12). Mention is offered where a channel is open.
+ * An Admin reading sends nothing, so a person's menu is then a note that says why.
+ */
+export function personMenu(name: string, opts: SenderOpts = {}): MenuSpec {
+  const label = `Actions for ${name}`;
+  if (opts.reading) return { label, items: [], why: "An Admin reading cannot send, so there is no Message or Mention." };
+  const items: MenuItem[] = [{ act: "message", label: `Message ${name}`, icon: <ChMsg /> }];
+  if (opts.mention) items.push({ act: "mention", label: `Mention ${name}`, icon: <ChAt /> });
+  return { label, items };
+}
+
+/** A conversation of people and agents (#1345): the one thing its row offers is to leave it, as its header does. */
+export function conversationMenu(name: string): MenuSpec {
+  return { label: `Actions for ${name}`, items: [{ act: "leave", label: "Leave conversation", icon: <ChNo />, danger: true }] };
+}
+
+/** A pencil, for Edit message: the sprite's `i-edit`. */
+const ChEdit = () => (
+  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <path d="M2.5 13.5h3l7-7a2 2 0 0 0-3-3l-7 7v3Z" />
+  </svg>
+);
+
+/**
+ * The menu on one of your own messages (#1269): Edit message and Delete message. A message that cannot change (Podium has already sent
+ * it to an agent) keeps both, disabled and focusable, with the reason under them, so the person learns why.
+ */
+export function messageMenu(m: { canChange?: boolean; changeWhy?: string | null }): MenuSpec {
+  const off = m.canChange !== true;
+  return {
+    label: "Your message",
+    cls: "ed-menu",
+    items: [
+      { act: "edit-message", label: "Edit message", icon: <ChEdit />, hint: "E", off },
+      { act: "delete-message", label: "Delete message", icon: <ChTrash />, hint: "Del", danger: true, off },
+    ],
+    ...(off && m.changeWhy ? { why: m.changeWhy } : {}),
+  };
+}
+
+/** How long after a menu opens a scroll leaves it open: the one that brought its message into view. */
+const SCROLL_GRACE_MS = 400;
+
+/** Where a menu opens when it is not a row's own: the pointer, or the bottom-left of what was focused. `from` gets the focus back on Escape. */
+export interface MenuAt {
+  x: number;
+  y: number;
+  /** The top of the thing the menu hangs under, so a menu near the bottom flips above it rather than over it. */
+  top?: number;
+  from?: HTMLElement | null;
+}
+
+export function ChatMenu(props: {
+  spec: MenuSpec;
+  onPick: (act: MenuAct) => void;
+  onClose: (restoreFocus: boolean) => void;
+  at?: MenuAt;
+  /** Called when an item that is `off` is chosen: the menu stays open (#1269). */
+  onBlocked?: (act: MenuAct) => void;
+  /** A menu placed at the pointer closes when the page scrolls or the window is resized, since it would no longer be where it opened. */
+  closeOnScroll?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const items = () => [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+  // A row's menu opens under the row and flips up when it would run past the bottom of the sidebar's scroll area.
+  const [up, setUp] = useState(false);
+  // A menu with a place of its own (a sender's avatar) is fixed there and kept inside the window: it flips above when it would run past
+  // the bottom and moves left when it would run past the right edge.
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const at = props.at;
+    const el = ref.current;
+    if (!at || !el) return;
+    const r = el.getBoundingClientRect();
+    const left = Math.max(8, Math.min(at.x, window.innerWidth - r.width - 8));
+    const flip = at.y + r.height > window.innerHeight - 8;
+    setPos({ left, top: Math.max(8, flip ? (at.top ?? at.y) - r.height : at.y) });
+  }, [props.at]);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    const side = el?.closest(".ch-side");
+    const item = el?.closest(".ch-item");
+    if (!el || !side || !item) return;
+    const below = el.getBoundingClientRect().bottom > side.getBoundingClientRect().bottom;
+    const room = item.getBoundingClientRect().top - side.getBoundingClientRect().top >= el.getBoundingClientRect().height;
+    setUp(below && room);
+  }, []);
+  const close = useRef(props.onClose);
+  close.current = props.onClose;
+  const scrolls = props.closeOnScroll === true;
+  useEffect(() => {
+    if (!scrolls) return;
+    const opened = Date.now();
+    const onScroll = () => {
+      if (Date.now() - opened > SCROLL_GRACE_MS) close.current(false);
+    };
+    const onResize = () => close.current(false);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [scrolls]);
   const noteOnly = props.spec.items.length === 0;
   useEffect(() => {
     // A menu with no items is a note: it takes the focus itself so the keyboard can reach and close it.
@@ -128,17 +250,18 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
       all[all.length - 1]!.focus();
     }
   };
+  const place = props.at ? { left: pos?.left ?? props.at.x, top: pos?.top ?? props.at.y } : undefined;
   if (noteOnly) {
     return (
       // A reason with nothing to choose is not a menu: a plain note that takes the focus and closes on Escape.
-      <div className="ch-menu ch-note" role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
+      <div className={`ch-menu ch-note${up ? " up" : ""}${props.at ? " at" : ""}`} style={place} role="note" aria-label={props.spec.label} ref={ref} tabIndex={-1} onKeyDown={key} data-testid="chat-menu-note">
         {props.spec.why}
       </div>
     );
   }
   return (
     // The keys belong to the menu's own items, which take the focus.
-    <div className="ch-menu" role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
+    <div className={`ch-menu${props.spec.cls ? ` ${props.spec.cls}` : ""}${up ? " up" : ""}${props.at ? " at" : ""}`} style={place} role="menu" tabIndex={-1} aria-label={props.spec.label} ref={ref} onKeyDown={key} data-testid="chat-menu">
       {props.spec.items.map((it) =>
         it.href ? (
           <a key={it.act} role="menuitem" href={it.href} data-act={it.act} onClick={() => props.onClose(false)}>
@@ -146,12 +269,17 @@ export function ChatMenu(props: { spec: MenuSpec; onPick: (act: MenuAct) => void
             {it.label}
           </a>
         ) : (
-          <button key={it.act} type="button" role="menuitem" data-act={it.act} className={it.danger ? "dng" : undefined} aria-disabled={it.disabled ? true : undefined} onClick={() => !it.disabled && props.onPick(it.act)}>
+          <button key={it.act} type="button" role="menuitem" data-act={it.act} className={it.danger ? "dng" : undefined} aria-disabled={it.disabled || it.off ? true : undefined} onClick={() => (it.off ? props.onBlocked?.(it.act) : !it.disabled && props.onPick(it.act))}>
             {it.icon}
             <span>
               {it.label}
               {it.disabled && <span className="sub">{it.disabled}</span>}
             </span>
+            {it.hint && (
+              <span className="ed-kbd" aria-hidden="true">
+                {it.hint}
+              </span>
+            )}
           </button>
         ),
       )}

@@ -49,7 +49,7 @@ const ALEX = { name: 'Alexei Brandt', project: 'brandt-secret-repo', model: 'mod
 async function seed(w: World): Promise<void> {
   const { fdb } = { fdb: w.fleet.db };
   const mk = async (id: string, owner: string, who: typeof ED, days: number, cost: number, calls: Record<string, number>) => {
-    await fdb.upsertSession(session({ id, owner, repo_name: who.project, model: who.model, started_at: at(days, 9), last_seen_at: at(days, 11), ended_at: at(days, 11), cost_usd: cost, usage_json: null }));
+    await fdb.upsertSession(session({ id, owner, owner_id: who === ED ? w.ed.person.id : w.alex.person.id, repo_name: who.project, model: who.model, started_at: at(days, 9), last_seen_at: at(days, 11), ended_at: at(days, 11), cost_usd: cost, usage_json: null }));
     await fdb.upsertAgent(agent(id, `${id}-a`, { tool_counts_json: JSON.stringify(calls), failure_json: failure('permission', who.tool) }));
   };
   await mk(ED.session, ED.name, ED, 3, 2, { [ED.tool]: 7 });
@@ -172,6 +172,25 @@ describe('My usage: only your own', () => {
     expect((await boss.get(`${USAGE}/spend?breakdown=none&from=2026-09-01&to=2026-10-20&by=month`)).body.total).toMatchObject({ sessions: 0 });
   });
 
+  it('gives a new person of a deleted person\'s name none of the earlier person\'s figures, stored or live, while the fleet\'s are unchanged (#1284)', async () => {
+    const w = await setup();
+    await seed(w);
+    const before = (await w.fleet.db.rollupRows('usage_daily', '0000-01-01', '9999-12-31')).reduce((n, r) => n + Number(r.cost_usd), 0);
+    expect(before).toBeGreaterThan(0);
+    await w.people.deleteMany([w.ed.person.id]);
+    const again = await w.people.createPerson(ED.name);
+    expect(again.person.id).not.toBe(w.ed.person.id);
+    const a = await signIn(w, ED.name, again.token);
+    for (const { path } of EVERY) {
+      const body = text((await a.get(`${USAGE}/${path}`)).body);
+      for (const word of [ED.project, ED.model, ED.tool, ED.session, 'sess-quill-2']) expect(body, `${path} holds ${word}`).not.toContain(word);
+    }
+    expect((await a.get(`${USAGE}/spend?breakdown=none&from=2026-09-01&to=2026-10-20&by=month`)).body.total).toMatchObject({ sessions: 0 });
+    // the stored rows are all still there, under an id nobody holds, so the fleet's totals do not move
+    const after = (await w.fleet.db.rollupRows('usage_daily', '0000-01-01', '9999-12-31')).reduce((n, r) => n + Number(r.cost_usd), 0);
+    expect(after).toBe(before);
+  });
+
   it('gives the admin secret the Admin\'s own sessions, not the fleet\'s', async () => {
     const w = await setup();
     await seed(w);
@@ -257,13 +276,13 @@ describe('My usage: a request cannot widen or change whose figures these are', (
 
 describe('My usage: the query layer', () => {
   it('needs a person: a missing or blank one is an error, not a whole-fleet query', async () => {
-    expect(() => personScope('')).toThrow('a person scope needs the person');
-    expect(() => personScope('   ')).toThrow('a person scope needs the person');
+    expect(() => personScope({ name: '', id: 1 })).toThrow('a person scope needs the person');
+    expect(() => personScope({ name: '   ', id: 1 })).toThrow('a person scope needs the person');
     const w = await setup();
     await seed(w);
     const deps = { db: w.fleet.db, tx: w.storage.tx, now: w.fleet.now, pricing: () => w.fleet.prices.pricing(), retention: w.fleet.cfg.retention };
-    await expect(runMyReport(deps, '  ', 'spend', {})).rejects.toThrow('a person scope needs the person');
-    const mine = await runMyReport(deps, ED.name, 'spend', { person: ALEX.name, breakdown: 'project', from: '2026-09-01', to: '2026-10-20' });
+    await expect(runMyReport(deps, { name: '  ', id: 1 }, 'spend', {})).rejects.toThrow('a person scope needs the person');
+    const mine = await runMyReport(deps, { name: ED.name, id: w.ed.person.id }, 'spend', { person: ALEX.name, breakdown: 'project', from: '2026-09-01', to: '2026-10-20' });
     expect(JSON.stringify(mine)).not.toContain(ALEX.project);
   });
 });
@@ -274,10 +293,10 @@ describe('My usage: how far back stored sessions reach', () => {
     await seed(w);
     const deps = { db: w.fleet.db, tx: w.storage.tx, now: w.fleet.now, pricing: () => w.fleet.prices.pricing(), retention: { ...w.fleet.cfg.retention, sessionsMs: 7 * DAY_MS } };
     const q = { from: addDays(TODAY, -20), to: TODAY, breakdown: 'outcome' };
-    const short = await runMyReport(deps, ED.name, 'sessions', q);
+    const short = await runMyReport(deps, { name: ED.name, id: w.ed.person.id }, 'sessions', q);
     expect(short.oldestDay).toBe(addDays(TODAY, -8));
     expect(short.partial).toBe(true);
-    const normal = await runMyReport({ ...deps, retention: w.fleet.cfg.retention }, ED.name, 'sessions', q);
+    const normal = await runMyReport({ ...deps, retention: w.fleet.cfg.retention }, { name: ED.name, id: w.ed.person.id }, 'sessions', q);
     expect(normal.oldestDay).toBe(addDays(TODAY, -31));
     expect(normal.partial).toBe(false);
   });
@@ -287,7 +306,7 @@ describe('My usage: harnesses', () => {
   it('filters tool calls by harness and keeps a harness column', async () => {
     const w = await setup();
     await seed(w);
-    await w.fleet.db.upsertSession(session({ id: 'sess-quill-oc', owner: ED.name, harness: 'opencode', repo_name: ED.project, model: ED.model, started_at: at(1, 9), last_seen_at: at(1, 10), ended_at: at(1, 10) }));
+    await w.fleet.db.upsertSession(session({ id: 'sess-quill-oc', owner: ED.name, owner_id: w.ed.person.id, harness: 'opencode', repo_name: ED.project, model: ED.model, started_at: at(1, 9), last_seen_at: at(1, 10), ended_at: at(1, 10) }));
     await w.fleet.db.upsertAgent(agent('sess-quill-oc', 'oc-a', { tool_counts_json: JSON.stringify({ read: 5 }) }));
     const a = await signIn(w, 'Edwina Quill', w.ed.token);
     const all = (await a.get(`${USAGE}/tools?from=2026-09-01&to=2026-10-20`)).body;

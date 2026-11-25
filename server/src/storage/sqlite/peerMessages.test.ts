@@ -3,14 +3,14 @@ import { describe, it, expect } from 'vitest';
 import { openDb } from './db.js';
 import { PeerMessages } from './peerMessages.js';
 import { MAX_NOTICES } from '../peerText.js';
-import { linkKey, type LiveOrchestrator, type MessageTrail, type PeerRequestRow, type PeerRightsView, type ReporterRef, type SendOutcome, type Refusal } from '../../fleet/peerTypes.js';
+import { linkKey, type LiveInput, type MessageTrail, type PeerRequestRow, type PeerRightsView, type ReporterRef, type SendOutcome, type Refusal } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerLevel } from '../../fleet/protocol.js';
 
 const T0 = 1_800_000_000_000;
 const ID = /^dlv_[0-9a-f]{24}$/;
 
 function reporter(key: string, machine: string, extra: Partial<ReporterRef> = {}): ReporterRef {
-  return { key, machine, owner: 'Ed', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...extra };
+  return { key, machine, owner: 'Ed', ownerId: 1, adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...extra };
 }
 
 const REPORTERS: ReporterRef[] = [
@@ -22,11 +22,11 @@ const REPORTERS: ReporterRef[] = [
   reporter('r-hid', 'hidden-box'),
   reporter('r-idle', 'idle-box'),
   reporter('r-adm', 'admin-box', { adminSecret: true }),
-  reporter('r-ann', 'ann-box', { owner: 'Ann' }),
+  reporter('r-ann', 'ann-box', { owner: 'Ann', ownerId: 2 }),
 ];
 
-function orch(sessionId: string, reporterKey: string, name: string, machine: string, extra: Partial<LiveOrchestrator> = {}): LiveOrchestrator {
-  return { sessionId, reporterKey, owner: 'Ed', name, machine, os: null, project: '~/dev/podium', status: 'running', waitReason: null, peers: true, ...extra };
+function orch(sessionId: string, reporterKey: string, name: string, machine: string, extra: Partial<LiveInput> = {}): LiveInput {
+  return { sessionId, reporterKey, owner: 'Ed', ownerId: 1, name, machine, os: null, project: '~/dev/podium', status: 'running', waitReason: null, peers: true, ...extra };
 }
 
 const MBP = orch('s-mbp', 'r-mbp', 'claude-dashboard', 'ed-mbp');
@@ -43,8 +43,10 @@ function setup() {
   const closed: [string, string][] = [];
   const rights: PeerRightsView = {
     effective: (f, t) => ({ level: levels.get(`${f}>${t}`) ?? 'none', paused: paused.has(linkKey(f, t)) }),
+    effectiveMany: (links) => links.map(([f, t]) => rights.effective(f, t)),
     personLink: () => null,
     limits: () => limits,
+    limitsMany: (ids) => ids.map(() => limits),
     openMessageRequest: (input) => {
       opened.push(input);
       return { id: `req_${opened.length}` } as PeerRequestRow;
@@ -56,7 +58,8 @@ function setup() {
   const reps = new Map(REPORTERS.map((r) => [r.key, r]));
   const lookup = {
     get: (k: string) => reps.get(k) ?? null,
-    ofOwner: (o: string) => REPORTERS.filter((r) => r.owner?.toLowerCase() === o.toLowerCase()),
+    getMany: (keys: readonly string[]) => keys.flatMap((k) => reps.get(k) ?? []),
+    ofOwner: (o: number | null) => REPORTERS.filter((r) => o !== null && r.ownerId === o),
   };
   const trails: MessageTrail[] = [];
   const db = openDb(':memory:');
@@ -77,7 +80,7 @@ function setup() {
     trails,
     tick: (ms = 1) => (now += ms),
     count: () => (db.prepare('SELECT COUNT(*) AS n FROM peer_messages').get() as { n: number }).n,
-    stateOf: (id: string) => db.prepare('SELECT state, why, approved, handed FROM peer_messages WHERE id = ?').get(id) as { state: string; why: string | null; approved: number; handed: number },
+    stateOf: (id: string) => db.prepare('SELECT state, why, approved FROM peer_messages WHERE id = ?').get(id) as { state: string; why: string | null; approved: number },
   };
 }
 
@@ -90,13 +93,15 @@ describe('PeerMessages: defaults', () => {
   it('runs on the wall clock with no trail', () => {
     const rights: PeerRightsView = {
       effective: () => ({ level: 'send', paused: false }),
+      effectiveMany: (links) => links.map(() => ({ level: 'send' as const, paused: false })),
       personLink: () => null,
       limits: () => ({ roundTrips: 10, perMinute: 6, maxChars: 100 }),
+      limitsMany: (ids) => ids.map(() => ({ roundTrips: 10, perMinute: 6, maxChars: 100 })),
       openMessageRequest: () => ({ id: 'req' }) as PeerRequestRow,
       closeMessageRequest: () => {},
     };
     const reps = new Map(REPORTERS.map((r) => [r.key, r]));
-    const s = new PeerMessages(openDb(':memory:'), rights, { get: (k) => reps.get(k) ?? null, ofOwner: () => [] });
+    const s = new PeerMessages(openDb(':memory:'), rights, { get: (k) => reps.get(k) ?? null, getMany: (keys) => keys.flatMap((k) => reps.get(k) ?? []), ofOwner: () => [] });
     s.note(MBP);
     s.note(CI);
     const before = Date.now();
@@ -109,7 +114,7 @@ describe('PeerMessages: defaults', () => {
 describe('PeerMessages: the live directory', () => {
   it('notes an orchestrator, and forgets it when it reports done', () => {
     const { s } = setup();
-    expect(s.live('s-ci')).toEqual(CI);
+    expect(s.live('s-ci')).toEqual({ ...CI, agentId: 2 });
     expect(s.live('s-none')).toBeNull();
     s.note({ ...CI, status: 'done' });
     expect(s.live('s-ci')).toBeNull();
@@ -122,15 +127,15 @@ describe('PeerMessages: sending', () => {
     const r = ok(s.send('s-mbp', 'Tester@ci-runner-01', 'Please run the systemd unit tests'));
     expect(r.id).toMatch(ID);
     expect(r).toMatchObject({ state: 'sent', paused: false, approvalWhy: null, requestId: null, to: { name: 'Tester', machine: 'ci-runner-01' }, roundTrips: { used: 0, cap: 10 } });
-    expect(stateOf(r.id)).toEqual({ state: 'ready', why: null, approved: 0, handed: 0 });
+    expect(stateOf(r.id)).toEqual({ state: 'ready', why: null, approved: 0 });
     expect(trails).toHaveLength(1);
     expect(trails[0]).toMatchObject({ kind: 'sent', state: 'sent', approvalWhy: null, message: { id: r.id, owner: 'Ed', link: linkKey('r-mbp', 'r-ci'), fromName: 'claude-dashboard', toName: 'Tester', sentAt: T0 } });
   });
 
-  it('says turn when the receiver is working or at a permission prompt', () => {
+  it('says sent while the receiver is working (#1252) and turn only at a permission prompt', () => {
     const { s, set } = setup();
     set('r-ci', 'r-pi', 'send');
-    expect(ok(s.send('s-ci', 'arm64-check@build-pi', 'hi')).state).toBe('turn');
+    expect(ok(s.send('s-ci', 'arm64-check@build-pi', 'hi')).state).toBe('sent');
     s.note({ ...CI, waitReason: 'permission' });
     expect(ok(s.send('s-mbp', 'Tester@ci-runner-01', 'hi')).state).toBe('turn');
   });
@@ -157,54 +162,85 @@ describe('PeerMessages: sending', () => {
 
   it("never finds another owner's orchestrator, whatever the rights say, and stores nothing", () => {
     const { s, set, count } = setup();
-    s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann' }));
+    s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann', ownerId: 2 }));
     set('r-mbp', 'r-ann', 'send');
     expect(s.send('s-mbp', 'Helper@ann-box', 'hi')).toMatchObject({ ok: false, status: 404 });
     expect(count()).toBe(0);
   });
 
-  it('refuses two orchestrators of one name with a 409, and the sender itself with a 422', () => {
+  it('gives two live agents of one name different names: the later one is "Tester 2" and each is reached by its own (#1284)', () => {
     const { s, count } = setup();
     s.note(orch('s-ci2', 'r-ci', 'tester', 'ci-runner-01'));
-    const two = s.send('s-mbp', 'Tester@ci-runner-01', 'hi') as Refusal;
-    expect(two.status).toBe(409);
-    expect(two.error).toContain('There are 2 orchestrators called Tester@ci-runner-01');
-    expect(two.error).toContain('Tester@ci-runner-01#s-ci');
+    expect(s.live('s-ci')?.name).toBe('Tester');
+    expect(s.live('s-ci2')?.name).toBe('tester 2');
+    expect(ok(s.send('s-mbp', 'Tester@ci-runner-01', 'one')).to).toEqual({ name: 'Tester', machine: 'ci-runner-01' });
+    expect(ok(s.send('s-mbp', 'tester 2@ci-runner-01', 'two')).to).toEqual({ name: 'tester 2', machine: 'ci-runner-01' });
     expect(s.send('s-mbp', 'claude-dashboard@ed-mbp', 'hi')).toMatchObject({ ok: false, status: 422 });
-    expect(count()).toBe(0);
+    expect(count()).toBe(2);
   });
 
-  it('tells same-named orchestrators apart by id: lists each id, flags the duplicates, and sends to exactly the one named (#500)', () => {
+  it('keeps a name it holds while it is free, and gives the first holder back its own when the other one ends (#1284)', () => {
+    const { s } = setup();
+    s.note(orch('s-ci2', 'r-ci', 'Tester', 'ci-runner-01'));
+    s.note(orch('s-ci2', 'r-ci', 'Tester', 'ci-runner-01', { status: 'waiting', waitReason: 'input' }));
+    expect(s.live('s-ci2')?.name).toBe('Tester 2');
+    s.note({ ...CI, status: 'done' });
+    s.note(orch('s-ci2', 'r-ci', 'Tester', 'ci-runner-01'));
+    expect(s.live('s-ci2')?.name).toBe('Tester');
+  });
+
+  it('keeps the rule per owner: an agent of another owner may hold the same name (#1284)', () => {
+    const { s } = setup();
+    s.note(orch('s-ann', 'r-ann', 'Tester', 'ann-box', { owner: 'Ann', ownerId: 2 }));
+    expect(s.live('s-ann')?.name).toBe('Tester');
+  });
+
+  it('lists each agent by an id the server gave it, and sends to the id on its own or after the name (#1284)', () => {
     const { s, count } = setup();
     s.note(orch('abcd1234-0000', 'r-ci', 'Tester', 'ci-runner-01'));
     s.note(orch('ef567890-0000', 'r-ci', 'Tester', 'ci-runner-01'));
-    const twins = s.list('s-mbp').peers.filter((p) => p.name === 'Tester');
-    expect(twins.map((p) => [p.id, p.duplicate])).toEqual([
-      ['abcd1234', true],
-      ['ef567890', true],
-      ['s-ci', true],
+    const twins = (s.list('s-mbp')).peers.filter((p) => p.name.startsWith('Tester'));
+    expect(twins.map((p) => [p.address, p.id])).toEqual([
+      ['Tester 2@ci-runner-01', '4'],
+      ['Tester 3@ci-runner-01', '5'],
+      ['Tester@ci-runner-01', '2'],
     ]);
-    const sent = ok(s.send('s-mbp', 'Tester@ci-runner-01#ef567890', 'hi'));
+    const sent = ok(s.send('s-mbp', '#5', 'hi'));
     expect(s.deliveriesFor('abcd1234-0000', true)).toEqual([]);
     expect(s.deliveriesFor('s-ci', true)).toEqual([]);
-    expect(s.deliveriesFor('ef567890-0000', true).map((d) => d.id)).toEqual([sent.id]);
-    expect(count()).toBe(1);
+    expect((s.deliveriesFor('ef567890-0000', true)).map((d) => d.id)).toEqual([sent.id]);
+    const named = ok(s.send('s-mbp', 'Tester 2@ci-runner-01#4', 'hi'));
+    expect((s.deliveriesFor('abcd1234-0000', true)).map((d) => d.id)).toEqual([named.id]);
+    expect(count()).toBe(2);
   });
 
-  it('refuses a bare duplicated address with the ids to use, and an id that matches nobody, or two, with the same 404/409 (#500)', () => {
+  it('refuses an id that matches nobody, one under another name, a malformed one (404), and the sender itself (422) (#1284)', () => {
     const { s, count } = setup();
-    s.note(orch('abcd1234-0000', 'r-ci', 'Tester', 'ci-runner-01'));
-    s.note(orch('abcd9999-0000', 'r-ci', 'Tester', 'ci-runner-01'));
-    const bare = s.send('s-mbp', 'Tester@ci-runner-01', 'hi') as Refusal;
-    expect(bare.status).toBe(409);
-    expect(bare.error).toContain('Tester@ci-runner-01#abcd1234');
-    expect(bare.error).toContain('Tester@ci-runner-01#abcd9999');
-    expect(bare.error).toContain('Tester@ci-runner-01#s-ci');
-    expect(s.send('s-mbp', 'Tester@ci-runner-01#ffff', 'hi')).toMatchObject({ ok: false, status: 404 });
-    expect(s.send('s-mbp', 'Tester@ci-runner-01#abcd', 'hi')).toMatchObject({ ok: false, status: 409 });
-    expect(s.send('s-mbp', 'Tester@ci-runner-01#', 'hi')).toMatchObject({ ok: false, status: 409 });
-    expect(s.send('s-mbp', 'claude-dashboard@ed-mbp#s-mbp', 'hi')).toMatchObject({ ok: false, status: 422 });
+    expect(s.send('s-mbp', '#99', 'hi')).toMatchObject({ ok: false, status: 404 });
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#1', 'hi')).toMatchObject({ ok: false, status: 404 });
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#', 'hi')).toMatchObject({ ok: false, status: 404 });
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#xyz', 'hi')).toMatchObject({ ok: false, status: 404 });
+    expect(s.send('s-mbp', '#1', 'hi')).toMatchObject({ ok: false, status: 422 });
+    expect(s.send('s-mbp', 'claude-dashboard@ed-mbp#1', 'hi')).toMatchObject({ ok: false, status: 422 });
     expect(count()).toBe(0);
+  });
+
+  it('tells the sender an agent whose session ended is no longer available, by name and id, and a newcomer of its name has a new id and none of its mail (#1284)', () => {
+    const { s, count } = setup();
+    const first = ok(s.send('s-mbp', 'Tester@ci-runner-01', 'for the first one'));
+    s.note({ ...CI, status: 'done' });
+    const gone = s.send('s-mbp', '#2', 'hello?') as Refusal;
+    expect(gone.status).toBe(409);
+    expect(gone.error).toContain('Tester (id 2) is no longer available');
+    expect(s.send('s-mbp', 'Tester@ci-runner-01#2', 'hello?')).toMatchObject({ ok: false, status: 409 });
+    expect(count()).toBe(1);
+    // A /clear makes a new session; it takes the name and gets a new id, and what was aimed at the first one never reaches it.
+    s.note(orch('s-ci-new', 'r-ci', 'Tester', 'ci-runner-01'));
+    expect(s.live('s-ci-new')).toMatchObject({ name: 'Tester', agentId: 4 });
+    expect(s.deliveriesFor('s-ci-new', true)).toEqual([]);
+    expect(s.send('s-mbp', '#2', 'again')).toMatchObject({ ok: false, status: 409 });
+    expect(ok(s.send('s-mbp', '#4', 'for the new one')).to.name).toBe('Tester');
+    expect(first.id).toMatch(ID);
   });
 
   it('still finds a machine whose own name holds a # (#500)', () => {
@@ -213,11 +249,11 @@ describe('PeerMessages: sending', () => {
     expect(ok(s.send('s-mbp', 'Odd@lab#2', 'hi')).to).toEqual({ name: 'Odd', machine: 'lab#2' });
   });
 
-  it('carries the sender\'s id in a delivery, so the receiver can answer the right session (#500)', () => {
+  it('carries the sender\'s id in a delivery, and the name it holds, so the receiver can answer the right agent (#500, #1284)', () => {
     const { s } = setup();
     s.note(orch('abcd1234-0000', 'r-mbp', 'claude-dashboard', 'ed-mbp'));
     ok(s.send('abcd1234-0000', 'Tester@ci-runner-01', 'hi'));
-    expect(s.deliveriesFor('s-ci', true)[0]?.from).toEqual({ name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: 'abcd1234' });
+    expect(s.deliveriesFor('s-ci', true)[0]?.from).toEqual({ name: 'claude-dashboard 2', machine: 'ed-mbp', owner: 'Ed', id: '4' });
   });
 
   it('refuses a sender that is not live, has messaging off, is too old, or is on the admin secret', () => {
@@ -258,7 +294,7 @@ describe('PeerMessages: sending', () => {
     const { s, opened, stateOf } = setup();
     const r = ok(s.send('s-mbp', 'arm64-check@build-pi', 'Also run npm run test:mod there'));
     expect(r).toMatchObject({ state: 'approval', approvalWhy: 'link', requestId: 'req_1' });
-    expect(opened).toEqual([{ owner: 'Ed', fromKey: 'r-mbp', toKey: 'r-pi', by: 'claude-dashboard', fromSession: 's-mbp', messageId: r.id }]);
+    expect(opened).toEqual([{ owner: 'Ed', ownerId: 1, fromKey: 'r-mbp', toKey: 'r-pi', by: 'claude-dashboard', fromSession: 's-mbp', messageId: r.id }]);
     expect(stateOf(r.id).state).toBe('approval');
   });
 
@@ -299,7 +335,7 @@ describe('PeerMessages: sending', () => {
     expect(trails.at(-1)).toMatchObject({ kind: 'sent', state: 'approval', approvalWhy: 'round-trips' });
     expect(s.approve(held.id, { name: 'Ed', admin: false })).toBe(true);
     const next = back('s-ci', 'claude-dashboard@ed-mbp');
-    expect(next).toMatchObject({ state: 'turn', approvalWhy: null, roundTrips: { used: 1, cap: 2 } });
+    expect(next).toMatchObject({ state: 'sent', approvalWhy: null, roundTrips: { used: 1, cap: 2 } });
   });
 });
 
@@ -315,9 +351,9 @@ describe('PeerMessages: delivery and results', () => {
     expect(stateOf(a.id).state).toBe('ready');
     const d = s.deliveriesFor('s-ci', true);
     expect(d.map((x) => x.kind)).toEqual(['message', 'notice', 'message']);
-    expect(d[0]).toEqual({ id: a.id, kind: 'message', at: T0, from: { name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: 's-mbp' }, text: 'first' });
-    expect(stateOf(a.id)).toMatchObject({ state: 'handed', handed: 1 });
-    expect(stateOf(b.id)).toMatchObject({ state: 'handed', handed: 1 });
+    expect(d[0]).toEqual({ id: a.id, kind: 'message', at: T0, from: { name: 'claude-dashboard', machine: 'ed-mbp', owner: 'Ed', id: '1' }, text: 'first' });
+    expect(stateOf(a.id)).toMatchObject({ state: 'handed' });
+    expect(stateOf(b.id)).toMatchObject({ state: 'handed' });
     // No result yet: handed again.
     expect(s.deliveriesFor('s-ci', true).filter((x) => x.kind === 'message').map((x) => x.id)).toEqual([a.id, b.id]);
   });
@@ -443,7 +479,7 @@ describe('PeerMessages: drops', () => {
     expect(stateOf(fromCi.id).state).toBe('ready');
     expect(closed).toEqual([[toCi.id, 'dropped']]);
     expect(trails.at(-1)).toMatchObject({ kind: 'dropped', why: 'receiver-ended' });
-    expect(s.deliveriesFor('s-mbp', false).map((d) => d.text)).toEqual(['Your message to Tester on ci-runner-01 was not delivered: Tester ended first. It stays in Podium > Traffic.']);
+    expect(s.deliveriesFor('s-mbp', false).map((d) => d.text)).toEqual(['Your message to Tester on ci-runner-01 was not delivered: Tester (id 2) is no longer available, because it ended first. It stays in Podium > Traffic.']);
     expect(s.live('s-ci')).toBeNull();
   });
 
@@ -497,15 +533,15 @@ describe('PeerMessages: podium_peers', () => {
     set('r-mbp', 'r-adm', 'send');
     s.note(orch('s-hid', 'r-hid', 'Hidden', 'hidden-box'));
     s.note(orch('s-adm', 'r-adm', 'Adm', 'admin-box'));
-    s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann' }));
+    s.note(orch('s-ann', 'r-ann', 'Helper', 'ann-box', { owner: 'Ann', ownerId: 2 }));
     s.note(orch('s-mbp2', 'r-mbp', 'second', 'ed-mbp'));
     set('r-mbp', 'r-mbp', 'see');
     pause('r-mbp', 'r-pi');
     const { peers, leftOut } = s.list('s-mbp');
     expect(peers).toEqual([
-      { address: 'arm64-check@build-pi', id: 's-pi', duplicate: false, name: 'arm64-check', machine: 'build-pi', os: null, project: '~/dev/podium', status: 'running', level: 'ask', paused: true },
-      { address: 'second@ed-mbp', id: 's-mbp2', duplicate: false, name: 'second', machine: 'ed-mbp', os: null, project: '~/dev/podium', status: 'running', level: 'see', paused: false },
-      { address: 'Tester@ci-runner-01', id: 's-ci', duplicate: false, name: 'Tester', machine: 'ci-runner-01', os: 'Ubuntu 24.04', project: '~/dev/podium', status: 'waiting', level: 'send', paused: false },
+      { address: 'arm64-check@build-pi', id: '3', name: 'arm64-check', machine: 'build-pi', os: null, project: '~/dev/podium', status: 'running', level: 'ask', paused: true },
+      { address: 'second@ed-mbp', id: '7', name: 'second', machine: 'ed-mbp', os: null, project: '~/dev/podium', status: 'running', level: 'see', paused: false },
+      { address: 'Tester@ci-runner-01', id: '2', name: 'Tester', machine: 'ci-runner-01', os: 'Ubuntu 24.04', project: '~/dev/podium', status: 'waiting', level: 'send', paused: false },
     ]);
     expect(leftOut).toEqual([
       { machine: 'win-lab', why: 'messaging off on the machine' },
@@ -538,6 +574,7 @@ describe('PeerMessages: conversations', () => {
       a: { sessionId: 's-mbp', name: 'claude-dashboard', machine: 'ed-mbp', reporterKey: 'r-mbp' },
       b: { sessionId: 's-pi', name: 'arm64-check', machine: 'build-pi', reporterKey: 'r-pi' },
       owner: 'Ed',
+      ownerId: 1,
       messages: 1,
       lastAt: T0 + 20,
       state: 'waiting',
@@ -553,8 +590,8 @@ describe('PeerMessages: conversations', () => {
     // A paused link with a message waiting for approval reads `waiting`, and still says it is paused (#417).
     pause('r-mbp', 'r-pi');
     expect(s.conversations({}).find((c) => c.b.sessionId === 's-pi')).toMatchObject({ state: 'waiting', paused: true });
-    expect(s.conversations({ owner: 'ed' })).toHaveLength(2);
-    expect(s.conversations({ owner: 'Ann' })).toEqual([]);
+    expect(s.conversations({ ownerId: 1 })).toHaveLength(2);
+    expect(s.conversations({ ownerId: 2 })).toEqual([]);
     expect(s.conversations({ since: T0 + 15 }).map((c) => c.b.sessionId)).toEqual(['s-pi']);
     s.note({ ...CI, status: 'done' });
     s.note({ ...MBP, status: 'done' });

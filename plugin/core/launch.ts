@@ -4,7 +4,7 @@
 // off the wall (`isUnused`, #42), so the announce is in the chat and has no card. Pure: no clock, no network, no harness.
 import { lastSegment } from './git.ts';
 
-export const LAUNCH_PREFIX = 'launch-';
+const LAUNCH_PREFIX = 'launch-';
 
 /** The most characters of the random part: the whole id stays within 32, as short as a session id the wall shows. */
 const RANDOM_MAX = 24;

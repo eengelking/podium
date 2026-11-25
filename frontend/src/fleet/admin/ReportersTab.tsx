@@ -68,7 +68,7 @@ function useRefresh(reload: () => void, enabled = true) {
 }
 
 /** What this row's state means for this row: the general definition plus the times behind it. */
-export function stateDetail(r: Pick<ReporterRow, "state" | "lastSeenAt">, serverTime: number, serverStartedAt: number): string {
+function stateDetail(r: Pick<ReporterRow, "state" | "lastSeenAt">, serverTime: number, serverStartedAt: number): string {
   const s = stateOf(r.state);
   const heard = `Last heard ${ago(serverTime, r.lastSeenAt)} (${time(r.lastSeenAt)}).`;
   if (r.state === "restart") {
@@ -78,7 +78,7 @@ export function stateDetail(r: Pick<ReporterRow, "state" | "lastSeenAt">, server
 }
 
 /** Why a reporter has the name it has, when it sends none. */
-export function nameDetail(r: Pick<ReporterRow, "name" | "named" | "key">): string | undefined {
+function nameDetail(r: Pick<ReporterRow, "name" | "named" | "key">): string | undefined {
   if (r.named || r.key.startsWith("hooks:")) return undefined;
   const addr = r.key.startsWith("addr:") ? r.key.slice(5) : null;
   return `No name is set on this reporter, so it is shown by its newest project, or its address. Set the userName option in podium-reporter to name it.${addr ? ` Until then it is matched by session, or by source address ${addr}.` : ""}`;

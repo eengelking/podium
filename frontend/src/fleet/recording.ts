@@ -5,7 +5,6 @@ import { fleetHash, replayHash } from "../route";
 import { isMine } from "./respond";
 import type { AgentView, RecordingGrant, RecordingLoopInfo, RecordingView, RespondMe, SessionView } from "./types";
 
-export { MAIN_LOOP };
 export { fmtBytes as sizeWords } from "./admin/activityFormat";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -24,7 +23,7 @@ export function fmtWhen(t: number, now: number, today = true): string {
 }
 
 /** Whether the viewer may choose what to record, stop it, open it or delete it: the session's owner or an Admin, signed in. */
-export function mayRecord(s: Pick<SessionView, "owner">, me: RespondMe | null): boolean {
+export function mayRecord(s: Pick<SessionView, "ownerId">, me: RespondMe | null): boolean {
   return isMine(s, me);
 }
 
@@ -130,7 +129,7 @@ export type PickerState = "ok" | "started" | "noown" | "adminoff" | "other" | "s
 export function pickerState(opts: {
   flagOn: boolean;
   me: RespondMe | null;
-  s: Pick<SessionView, "owner" | "status" | "recording">;
+  s: Pick<SessionView, "owner" | "ownerId" | "status" | "recording">;
   grant: RecordingGrant | null;
   /** What the server said before Start about the owner's `sessionRecording` option; null when it has not said (yet). */
   ownerAllows?: boolean | null;

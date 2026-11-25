@@ -33,9 +33,15 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
     await td.drop();
   });
 
+  /** The `people.id` each owner name here stands for (#1284): a person's reporters are found by it. The Admin has none. */
+  const IDS: Record<string, number> = { dana: 7, eve: 8, émile: 9 };
+  const id = (name: string): number => IDS[name.trim().toLowerCase()]!;
+const idOf = (owner: string | null | undefined): number | null => IDS[(owner ?? 'Dana').toLowerCase()] ?? null;
+
+
   /** Adds one reporter; the machine name is its key. */
   const add = (key: string, over: Partial<ReporterRef> = {}) => {
-    reps.set(key, { key, machine: key, owner: 'Dana', adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...over });
+    reps.set(key, { key, machine: key, owner: 'Dana', ownerId: idOf(over.owner), adminSecret: false, os: null, peers: true, version: '1.2.0', reporterName: 'podium-reporter', ...over });
   };
 
   beforeEach(async () => {
@@ -56,7 +62,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
   });
 
   const access = (over: Partial<Parameters<MariaPeerRights['requestAccess']>[0]> = {}) =>
-    rights.requestAccess({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', right: 'see', reason: 'to compare notes', by: 'builder', fromSession: 's1', ...over });
+    rights.requestAccess({ ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', right: 'see', reason: 'to compare notes', by: 'builder', fromSession: 's1', ...over });
 
   const counts = async () => ({
     rights: (await db.get<{ n: number }>('SELECT COUNT(*) AS n FROM peer_rights'))!.n,
@@ -64,12 +70,12 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
   });
 
   describe('peer rights: the same owner only', () => {
-    const writes: [string, (a: string, b: string, owner?: string | null) => Promise<unknown>][] = [
-      ['setRight', (a, b, owner) => rights.setRight(owner ?? 'Dana', a, b, 'send', DANA)],
+    const writes: [string, (a: string, b: string, owner?: number | null) => Promise<unknown>][] = [
+      ['setRight', (a, b, owner) => rights.setRight(owner ?? id('Dana'), a, b, 'send', DANA)],
       ['pauseLink', (a, b, owner) => rights.pauseLink(owner === undefined ? null : owner, a, b, true, ADMIN)],
       ['removeLink', (a, b, owner) => rights.removeLink(owner === undefined ? null : owner, a, b, ADMIN)],
       ['propose', (a, b) => rights.propose(a, b, 'send', ADMIN)],
-      ['requestAccess', (a, b, owner) => access({ fromKey: a, toKey: b, owner: owner ?? 'Dana' })],
+      ['requestAccess', (a, b, owner) => access({ fromKey: a, toKey: b, ownerId: owner ?? id('Dana') })],
     ];
 
     for (const [name, write] of writes) {
@@ -87,28 +93,28 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
     it('says why when an Admin joins two people, and "not your reporter" to a person', async () => {
       expect(await rights.pauseLink(null, 'mac', 'eve', true, ADMIN)).toEqual({ ok: false, status: 403, error: 'a link can only join two reporters with the same owner' });
-      expect(await rights.setRight('Dana', 'mac', 'eve', 'send', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
-      expect(await rights.setRight('Eve', 'mac', 'linux', 'send', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
-      expect(await rights.removeLink('Eve', 'mac', 'linux', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
-      expect(await access({ owner: 'Eve' })).toEqual({ ok: false, status: 403, error: 'not your reporter' });
+      expect(await rights.setRight(id('Dana'), 'mac', 'eve', 'send', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
+      expect(await rights.setRight(id('Eve'), 'mac', 'linux', 'send', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
+      expect(await rights.removeLink(id('Eve'), 'mac', 'linux', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
+      expect(await access({ ownerId: id('Eve') })).toEqual({ ok: false, status: 403, error: 'not your reporter' });
       expect(await counts()).toEqual({ rights: 0, requests: 0 });
     });
 
     it('works with the default clock and no trail', async () => {
       const plain = new MariaPeerRights(db, lookup);
-      expect(await plain.setRight('Dana', 'mac', 'linux', 'see', DANA)).toMatchObject({ ok: true, right: { level: 'see' } });
+      expect(await plain.setRight(id('Dana'), 'mac', 'linux', 'see', DANA)).toMatchObject({ ok: true, right: { level: 'see' } });
     });
 
     it('compares owners without regard to case or spacing', async () => {
       add('laptop', { owner: 'dana' });
-      expect(await rights.setRight(' DANA ', 'mac', 'laptop', 'send', DANA)).toMatchObject({ ok: true, right: { owner: 'Dana', level: 'send' } });
+      expect(await rights.setRight(id(' DANA '), 'mac', 'laptop', 'send', DANA)).toMatchObject({ ok: true, right: { owner: 'Dana', level: 'send' } });
     });
 
     it('takes the same reporter twice: two orchestrators on one machine', async () => {
-      expect(await rights.setRight('Dana', 'mac', 'mac', 'ask', DANA)).toMatchObject({ ok: true, right: { from: 'mac', to: 'mac', level: 'ask' } });
+      expect(await rights.setRight(id('Dana'), 'mac', 'mac', 'ask', DANA)).toMatchObject({ ok: true, right: { from: 'mac', to: 'mac', level: 'ask' } });
       expect(await rights.effective('mac', 'mac')).toEqual({ level: 'ask', paused: false });
-      expect(await rights.pauseLink('Dana', 'mac', 'mac', true, DANA)).toEqual({ ok: true });
-      expect(await rights.rightsOf('Dana')).toHaveLength(1);
+      expect(await rights.pauseLink(id('Dana'), 'mac', 'mac', true, DANA)).toEqual({ ok: true });
+      expect(await rights.rightsOf(id('Dana'))).toHaveLength(1);
       expect(await rights.effective('mac', 'mac')).toEqual({ level: 'ask', paused: true });
     });
   });
@@ -116,16 +122,16 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
   describe('peer rights: effective and setRight', () => {
     it('is none with no row, the stored level otherwise, and send under Trust', async () => {
       expect(await rights.effective('mac', 'linux')).toEqual({ level: 'none', paused: false });
-      await rights.setRight('Dana', 'mac', 'linux', 'see', DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'see', DANA);
       expect(await rights.effective('mac', 'linux')).toEqual({ level: 'see', paused: false });
       expect(await rights.effective('linux', 'mac')).toEqual({ level: 'none', paused: false });
-      await rights.setDefaults('Dana', { trust: true }, SERVER, DANA);
+      await rights.setDefaults(id('Dana'), { trust: true }, SERVER, DANA);
       expect(await rights.effective('linux', 'mac')).toEqual({ level: 'send', paused: false });
       expect(await rights.effective('mac', 'pi')).toEqual({ level: 'send', paused: false });
     });
 
     it('is none between two people, the admin secret or an unknown reporter, Trust or not', async () => {
-      await rights.setDefaults('Dana', { trust: true }, SERVER, DANA);
+      await rights.setDefaults(id('Dana'), { trust: true }, SERVER, DANA);
       expect(await rights.effective('mac', 'eve')).toEqual({ level: 'none', paused: false });
       expect(await rights.effective('mac', 'secret')).toEqual({ level: 'none', paused: false });
       expect(await rights.effective('mac', 'gone')).toEqual({ level: 'none', paused: false });
@@ -133,39 +139,39 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
     it('stores the row under the owner as the server recorded it and trails it', async () => {
       t = START + 5;
-      const r = await rights.setRight('dana', 'mac', 'linux', 'send', DANA);
+      const r = await rights.setRight(id('dana'), 'mac', 'linux', 'send', DANA);
       expect(r).toEqual({ ok: true, right: { from: 'mac', to: 'linux', owner: 'Dana', level: 'send', paused: false, setAt: START + 5 } });
       expect(trails).toEqual([{ kind: 'set', right: { from: 'mac', to: 'linux', owner: 'Dana', level: 'send', paused: false, setAt: START + 5 }, actor: DANA }]);
-      expect(await rights.rightsOf('DANA')).toHaveLength(1);
-      expect(await rights.rightsOf('Eve')).toEqual([]);
+      expect(await rights.rightsOf(id('DANA'))).toHaveLength(1);
+      expect(await rights.rightsOf(id('Eve'))).toEqual([]);
     });
 
     it('deletes the row on none, unless the link is paused', async () => {
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
-      expect(await rights.setRight('Dana', 'mac', 'linux', 'none', DANA)).toEqual({ ok: true, right: null });
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
+      expect(await rights.setRight(id('Dana'), 'mac', 'linux', 'none', DANA)).toEqual({ ok: true, right: null });
       expect(trails.at(-1)).toEqual({ kind: 'set', right: { from: 'mac', to: 'linux', owner: 'Dana', level: 'none' }, actor: DANA });
-      expect(await rights.rightsOf('Dana')).toEqual([]);
+      expect(await rights.rightsOf(id('Dana'))).toEqual([]);
 
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
-      await rights.pauseLink('Dana', 'mac', 'linux', true, DANA);
-      expect(await rights.setRight('Dana', 'mac', 'linux', 'none', DANA)).toMatchObject({ ok: true, right: { level: 'none', paused: true } });
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
+      await rights.pauseLink(id('Dana'), 'mac', 'linux', true, DANA);
+      expect(await rights.setRight(id('Dana'), 'mac', 'linux', 'none', DANA)).toMatchObject({ ok: true, right: { level: 'none', paused: true } });
       expect(await rights.effective('mac', 'linux')).toEqual({ level: 'none', paused: true });
       // A new level keeps the pause.
-      expect(await rights.setRight('Dana', 'mac', 'linux', 'ask', DANA)).toMatchObject({ ok: true, right: { level: 'ask', paused: true } });
+      expect(await rights.setRight(id('Dana'), 'mac', 'linux', 'ask', DANA)).toMatchObject({ ok: true, right: { level: 'ask', paused: true } });
     });
 
     it('refuses a level it does not know', async () => {
-      expect(await rights.setRight('Dana', 'mac', 'linux', 'all' as PeerLevel, DANA)).toEqual({ ok: false, status: 400, error: 'level must be none, see, ask or send' });
+      expect(await rights.setRight(id('Dana'), 'mac', 'linux', 'all' as PeerLevel, DANA)).toEqual({ ok: false, status: 400, error: 'level must be none, see, ask or send' });
       expect((await counts()).rights).toBe(0);
     });
   });
 
   describe('peer rights: pause, remove, pause all', () => {
     it('pauses both directions, creating none rows so the pause holds, and trails once', async () => {
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
       trails = [];
       expect(await rights.pauseLink(null, 'linux', 'mac', true, ADMIN)).toEqual({ ok: true });
-      expect((await rights.rightsOf('Dana')).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([
+      expect((await rights.rightsOf(id('Dana'))).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([
         ['linux', 'mac', 'none', true],
         ['mac', 'linux', 'send', true],
       ]);
@@ -173,31 +179,31 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
     });
 
     it('resumes: keeps the rights, drops the rows that only held the pause', async () => {
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
-      await rights.pauseLink('Dana', 'mac', 'linux', true, DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
+      await rights.pauseLink(id('Dana'), 'mac', 'linux', true, DANA);
       trails = [];
-      expect(await rights.pauseLink('Dana', 'mac', 'linux', false, DANA)).toEqual({ ok: true });
-      expect((await rights.rightsOf('Dana')).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([['mac', 'linux', 'send', false]]);
+      expect(await rights.pauseLink(id('Dana'), 'mac', 'linux', false, DANA)).toEqual({ ok: true });
+      expect((await rights.rightsOf(id('Dana'))).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([['mac', 'linux', 'send', false]]);
       expect(trails).toEqual([{ kind: 'resumed', owner: 'Dana', a: 'mac', b: 'linux', actor: DANA }]);
       // Resuming a link with no rows stores nothing.
-      await rights.pauseLink('Dana', 'mac', 'pi', false, DANA);
-      expect(await rights.rightsOf('Dana')).toHaveLength(1);
+      await rights.pauseLink(id('Dana'), 'mac', 'pi', false, DANA);
+      expect(await rights.rightsOf(id('Dana'))).toHaveLength(1);
     });
 
     it('removes both directions and trails it', async () => {
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
-      await rights.setRight('Dana', 'linux', 'mac', 'see', DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
+      await rights.setRight(id('Dana'), 'linux', 'mac', 'see', DANA);
       trails = [];
-      expect(await rights.removeLink('Dana', 'mac', 'linux', DANA)).toEqual({ ok: true });
-      expect(await rights.rightsOf('Dana')).toEqual([]);
+      expect(await rights.removeLink(id('Dana'), 'mac', 'linux', DANA)).toEqual({ ok: true });
+      expect(await rights.rightsOf(id('Dana'))).toEqual([]);
       expect(trails).toEqual([{ kind: 'removed', owner: 'Dana', a: 'mac', b: 'linux', actor: DANA }]);
     });
 
     it('under Trust, leaves a removed link paused at none, so the removal holds', async () => {
-      await rights.setDefaults('Dana', { trust: true }, SERVER, DANA);
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
+      await rights.setDefaults(id('Dana'), { trust: true }, SERVER, DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
       expect(await rights.removeLink(null, 'mac', 'linux', ADMIN)).toEqual({ ok: true });
-      expect((await rights.rightsOf('Dana')).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([
+      expect((await rights.rightsOf(id('Dana'))).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([
         ['linux', 'mac', 'none', true],
         ['mac', 'linux', 'none', true],
       ]);
@@ -206,10 +212,10 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
     it("pauses every link of one reporter with each of its owner's reporters, itself included, and resumes them", async () => {
       add('dana-secret', { adminSecret: true });
-      await rights.setRight('Dana', 'pi', 'mac', 'send', DANA);
+      await rights.setRight(id('Dana'), 'pi', 'mac', 'send', DANA);
       trails = [];
       expect(await rights.pauseReporter('mac', true, ADMIN)).toEqual({ ok: true, links: 3 });
-      const rows = await rights.rightsOf('Dana');
+      const rows = await rights.rightsOf(id('Dana'));
       expect(rows.map((r) => `${r.from}>${r.to}`).sort()).toEqual(['linux>mac', 'mac>linux', 'mac>mac', 'mac>pi', 'pi>mac']);
       expect(rows.every((r) => r.paused)).toBe(true);
       expect(rows.find((r) => r.from === 'pi')?.level).toBe('send');
@@ -217,7 +223,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       expect((await rights.effective('eve', 'eve')).paused).toBe(false);
 
       expect(await rights.pauseReporter('mac', false, ADMIN)).toEqual({ ok: true, links: 3 });
-      expect((await rights.rightsOf('Dana')).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([['pi', 'mac', 'send', false]]);
+      expect((await rights.rightsOf(id('Dana'))).map((r) => [r.from, r.to, r.level, r.paused])).toEqual([['pi', 'mac', 'send', false]]);
     });
 
     it('refuses Pause all for an unknown or admin-secret reporter', async () => {
@@ -238,15 +244,15 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
   describe('peer rights: defaults and limits', () => {
     it('starts from the defaults, and saves a patch per owner without regard to case', async () => {
-      expect(await rights.defaults('Dana')).toEqual(OWNER_DEFAULTS);
-      const r = await rights.setDefaults('dana', { trust: true, onRequest: 'allow', newSend: 'send', limits: { roundTrips: 4, perMinute: 2 } }, SERVER, DANA);
+      expect(await rights.defaults(id('Dana'))).toEqual(OWNER_DEFAULTS);
+      const r = await rights.setDefaults(id('dana'), { trust: true, onRequest: 'allow', newSend: 'send', limits: { roundTrips: 4, perMinute: 2 } }, SERVER, DANA);
       const want = { trust: true, onRequest: 'allow', newSend: 'send', limits: { roundTrips: 4, perMinute: 2 } };
       expect(r).toEqual({ ok: true, defaults: want });
-      expect(await rights.defaults('DANA')).toEqual(want);
-      expect(await rights.defaults('Eve')).toEqual(OWNER_DEFAULTS);
-      expect(trails).toEqual([{ kind: 'defaults', owner: 'dana', actor: DANA }]);
+      expect(await rights.defaults(id('DANA'))).toEqual(want);
+      expect(await rights.defaults(id('Eve'))).toEqual(OWNER_DEFAULTS);
+      expect(trails).toEqual([{ kind: 'defaults', owner: 'Dana', actor: DANA }]);
       // A later patch changes only what it names; null takes the Admin's limit back.
-      expect(await rights.setDefaults('Dana', { limits: { roundTrips: null, maxChars: 500 } }, SERVER, DANA)).toEqual({
+      expect(await rights.setDefaults(id('Dana'), { limits: { roundTrips: null, maxChars: 500 } }, SERVER, DANA)).toEqual({
         ok: true,
         defaults: { ...want, limits: { perMinute: 2, maxChars: 500 } },
       });
@@ -265,28 +271,28 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
         [{ limits: { perMinute: 1.5 } }, 'Messages per minute must be a whole number from 1 to 6'],
         [{ trust: true, colour: 'red' }, 'unknown setting: colour'],
       ];
-      for (const [patch, error] of bad) expect(await rights.setDefaults('Dana', patch, SERVER, DANA)).toEqual({ ok: false, status: 400, error });
-      expect(await rights.defaults('Dana')).toEqual(OWNER_DEFAULTS);
+      for (const [patch, error] of bad) expect(await rights.setDefaults(id('Dana'), patch, SERVER, DANA)).toEqual({ ok: false, status: 400, error });
+      expect(await rights.defaults(id('Dana'))).toEqual(OWNER_DEFAULTS);
       expect(trails).toEqual([]);
     });
 
     it('reads past a damaged row: bad JSON, bad values and unknown words fall back', async () => {
-      await db.run("INSERT INTO peer_owner_settings (owner_lower, trust, on_request, new_send, limits_json) VALUES ('dana', 1, 'sometimes', 'later', '{oops')");
-      expect(await rights.defaults('Dana')).toEqual({ ...OWNER_DEFAULTS, trust: true });
+      await db.run("INSERT INTO peer_owner_settings (owner_id, trust, on_request, new_send, limits_json) VALUES (7, 1, 'sometimes', 'later', '{oops')");
+      expect(await rights.defaults(id('Dana'))).toEqual({ ...OWNER_DEFAULTS, trust: true });
       await db.run(`UPDATE peer_owner_settings SET limits_json = '{"roundTrips":0,"perMinute":3}'`);
-      expect((await rights.defaults('Dana')).limits).toEqual({ perMinute: 3 });
+      expect((await rights.defaults(id('Dana'))).limits).toEqual({ perMinute: 3 });
       await db.run(`UPDATE peer_owner_settings SET limits_json = '[1]'`);
-      expect((await rights.defaults('Dana')).limits).toEqual({});
+      expect((await rights.defaults(id('Dana'))).limits).toEqual({});
       await db.run('UPDATE peer_owner_settings SET limits_json = NULL');
-      expect((await rights.defaults('Dana')).limits).toEqual({});
+      expect((await rights.defaults(id('Dana'))).limits).toEqual({});
     });
 
     it("applies the stricter of the Admin's and the owner's limits", async () => {
-      expect(await rights.limits('Dana', SERVER)).toEqual(SERVER);
-      await rights.setDefaults('Dana', { limits: { roundTrips: 3, maxChars: 100 } }, SERVER, DANA);
-      expect(await rights.limits('Dana', SERVER)).toEqual({ roundTrips: 3, perMinute: 6, maxChars: 100 });
+      expect(await rights.limits(id('Dana'), SERVER)).toEqual(SERVER);
+      await rights.setDefaults(id('Dana'), { limits: { roundTrips: 3, maxChars: 100 } }, SERVER, DANA);
+      expect(await rights.limits(id('Dana'), SERVER)).toEqual({ roundTrips: 3, perMinute: 6, maxChars: 100 });
       // The Admin lowered theirs below the owner's later: the Admin's wins.
-      expect(await rights.limits('Dana', { roundTrips: 2, perMinute: 1, maxChars: 50 })).toEqual({ roundTrips: 2, perMinute: 1, maxChars: 50 });
+      expect(await rights.limits(id('Dana'), { roundTrips: 2, perMinute: 1, maxChars: 50 })).toEqual({ roundTrips: 2, perMinute: 1, maxChars: 50 });
     });
   });
 
@@ -299,8 +305,8 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       expect((await rights.effective('mac', 'linux')).level).toBe('none');
       expect(trails).toEqual([{ kind: 'proposed', request: r.request, actor: ADMIN }]);
       // Trust and Allow do not accept it for the owner.
-      await rights.setDefaults('Dana', { onRequest: 'allow' }, SERVER, DANA);
-      expect(await rights.rightsOf('Dana')).toEqual([]);
+      await rights.setDefaults(id('Dana'), { onRequest: 'allow' }, SERVER, DANA);
+      expect(await rights.rightsOf(id('Dana'))).toEqual([]);
     });
 
     it('updates an open proposal for the same direction rather than adding one', async () => {
@@ -310,9 +316,9 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       expect(again).toMatchObject({ ok: true, request: { level: 'ask', createdAt: START + 100 } });
       if (!first.ok || !again.ok) throw new Error('refused');
       expect(again.request.id).toBe(first.request.id);
-      expect(await rights.openRequests('Dana')).toEqual([again.request]);
+      expect(await rights.openRequests(id('Dana'))).toEqual([again.request]);
       await rights.propose('linux', 'mac', 'see', ADMIN);
-      expect(await rights.openRequests('Dana')).toHaveLength(2);
+      expect(await rights.openRequests(id('Dana'))).toHaveLength(2);
     });
 
     it('refuses to propose none or an unknown level', async () => {
@@ -322,16 +328,16 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
     it('refuses a proposal at or below the stored right, and keeps the open one', async () => {
       const LOWER = { ok: false, status: 409, error: 'a proposal must raise the right; it is already ask' };
-      await rights.setRight('Dana', 'mac', 'linux', 'ask', DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'ask', DANA);
       const open = await rights.propose('mac', 'linux', 'send', ADMIN);
       if (!open.ok) throw new Error('refused');
       trails = [];
       expect(await rights.propose('mac', 'linux', 'ask', ADMIN)).toEqual(LOWER);
       expect(await rights.propose('mac', 'linux', 'see', ADMIN)).toEqual(LOWER);
-      expect(await rights.openRequests('Dana')).toEqual([open.request]);
+      expect(await rights.openRequests(id('Dana'))).toEqual([open.request]);
       expect(trails).toEqual([]);
       // Paused or not, the stored level is what counts; the other direction has none, so any level raises it.
-      await rights.pauseLink('Dana', 'mac', 'linux', true, DANA);
+      await rights.pauseLink(id('Dana'), 'mac', 'linux', true, DANA);
       expect(await rights.propose('mac', 'linux', 'ask', ADMIN)).toEqual(LOWER);
       expect(await rights.propose('linux', 'mac', 'see', ADMIN)).toMatchObject({ ok: true });
     });
@@ -349,19 +355,19 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       await access({ fromSession: 's2' });
       await access({ reason: '' });
       await access({ reason: '' });
-      expect(await rights.openRequests('Dana')).toHaveLength(4);
-      expect((await rights.openRequests('Dana')).filter((x) => x.reason === null)).toHaveLength(1);
-      expect(await rights.rightsOf('Dana')).toEqual([]);
+      expect(await rights.openRequests(id('Dana'))).toHaveLength(4);
+      expect((await rights.openRequests(id('Dana'))).filter((x) => x.reason === null)).toHaveLength(1);
+      expect(await rights.rightsOf(id('Dana'))).toEqual([]);
     });
 
     it('asks for a right to send as the owner\'s newSend', async () => {
       expect(await access({ right: 'send' })).toMatchObject({ state: 'asked', request: { level: 'ask' } });
-      await rights.setDefaults('Dana', { newSend: 'send' }, SERVER, DANA);
+      await rights.setDefaults(id('Dana'), { newSend: 'send' }, SERVER, DANA);
       expect(await access({ right: 'send', fromSession: 's9' })).toMatchObject({ state: 'asked', request: { level: 'send' } });
     });
 
     it('applies at once under Allow, trailing the owner, and never lowers a higher right', async () => {
-      await rights.setDefaults('Dana', { onRequest: 'allow', newSend: 'send' }, SERVER, DANA);
+      await rights.setDefaults(id('Dana'), { onRequest: 'allow', newSend: 'send' }, SERVER, DANA);
       trails = [];
       const r = await access({ right: 'send' });
       expect(r).toMatchObject({ ok: true, state: 'allowed', applied: { from: 'mac', to: 'linux', level: 'send', owner: 'Dana' } });
@@ -372,7 +378,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
     });
 
     it('declines at once under Decline and stores nothing', async () => {
-      await rights.setDefaults('Dana', { onRequest: 'decline' }, SERVER, DANA);
+      await rights.setDefaults(id('Dana'), { onRequest: 'decline' }, SERVER, DANA);
       trails = [];
       expect(await access()).toEqual({ ok: true, state: 'declined' });
       expect(await counts()).toEqual({ rights: 0, requests: 0 });
@@ -392,7 +398,7 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
   describe('peer rights: message requests and the list', () => {
     const msg = (messageId: string, over: { fromKey?: string; toKey?: string } = {}) =>
-      rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'builder', fromSession: 's1', messageId, ...over });
+      rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'builder', fromSession: 's1', messageId, ...over });
 
     it('opens a message request and closes it once', async () => {
       const r = await msg('pmsg_1');
@@ -414,10 +420,10 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       t = START + 2;
       const c = await msg('m3', { fromKey: 'linux', toKey: 'mac' });
       await rights.closeMessageRequest('m3', 'declined');
-      expect((await rights.openRequests('dana')).map((r) => r.id)).toEqual([a.id, b.id]);
-      expect((await rights.openRequests('Dana', 'linux')).map((r) => r.id)).toEqual([a.id]);
-      expect((await rights.openRequests('Dana', 'pi')).map((r) => r.id)).toEqual([b.id]);
-      expect(await rights.openRequests('Eve')).toEqual([]);
+      expect((await rights.openRequests(id('dana'))).map((r) => r.id)).toEqual([a.id, b.id]);
+      expect((await rights.openRequests(id('Dana'), 'linux')).map((r) => r.id)).toEqual([a.id]);
+      expect((await rights.openRequests(id('Dana'), 'pi')).map((r) => r.id)).toEqual([b.id]);
+      expect(await rights.openRequests(id('Eve'))).toEqual([]);
       expect(c.id).not.toBe(a.id);
     });
 
@@ -425,12 +431,12 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       add('m1', { owner: 'Émile' });
       add('m2', { owner: 'Émile' });
       const emile: Actor = { name: 'Émile', admin: false };
-      expect(await rights.setRight('Émile', 'm1', 'm2', 'send', emile)).toMatchObject({ ok: true });
-      const r = await rights.openMessageRequest({ owner: 'Émile', fromKey: 'm1', toKey: 'm2', by: 'b', fromSession: 's1', messageId: 'mx' });
-      expect((await rights.rightsOf('Émile')).map((x) => `${x.from}>${x.to}`)).toEqual(['m1>m2']);
-      expect((await rights.rightsOf('émile')).map((x) => `${x.from}>${x.to}`)).toEqual(['m1>m2']);
-      expect((await rights.openRequests('Émile')).map((x) => x.id)).toEqual([r.id]);
-      expect((await rights.openRequests('émile', 'm2')).map((x) => x.id)).toEqual([r.id]);
+      expect(await rights.setRight(id('Émile'), 'm1', 'm2', 'send', emile)).toMatchObject({ ok: true });
+      const r = await rights.openMessageRequest({ owner: 'Émile', ownerId: id('Émile'), fromKey: 'm1', toKey: 'm2', by: 'b', fromSession: 's1', messageId: 'mx' });
+      expect((await rights.rightsOf(id('Émile'))).map((x) => `${x.from}>${x.to}`)).toEqual(['m1>m2']);
+      expect((await rights.rightsOf(id('émile'))).map((x) => `${x.from}>${x.to}`)).toEqual(['m1>m2']);
+      expect((await rights.openRequests(id('Émile'))).map((x) => x.id)).toEqual([r.id]);
+      expect((await rights.openRequests(id('émile'), 'm2')).map((x) => x.id)).toEqual([r.id]);
     });
   });
 
@@ -443,90 +449,90 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
 
     it('refuses an unknown request, another owner\'s, a closed one, and an answer that does not fit', async () => {
       const p = await proposal();
-      const m = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm1' });
+      const m = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm1' });
       const a = await access();
       if (!a.ok || a.state !== 'asked') throw new Error('not asked');
-      expect(await rights.answer('prq_nope', 'Dana', 'allow', DANA)).toEqual({ ok: false, status: 404, error: 'no such request' });
-      expect(await rights.answer(p.id, 'Eve', 'allow', DANA)).toEqual({ ok: false, status: 403, error: 'not your request' });
-      expect(await rights.answer(p.id, 'Dana', 'deliver', DANA)).toEqual({ ok: false, status: 422, error: 'a proposal is allowed or declined' });
-      expect(await rights.answer(a.request.id, 'Dana', 'deliver', DANA)).toEqual({ ok: false, status: 422, error: 'a request for access is allowed or declined' });
-      expect(await rights.answer(m.id, 'Dana', 'allow', DANA)).toEqual({ ok: false, status: 422, error: 'a message is delivered or declined' });
-      expect(await rights.answer(p.id, 'Dana', 'maybe' as 'allow', DANA)).toEqual({ ok: false, status: 422, error: 'the answer must be allow, decline or deliver' });
-      await rights.answer(p.id, 'Dana', 'decline', DANA);
-      expect(await rights.answer(p.id, 'Dana', 'allow', DANA)).toEqual({ ok: false, status: 410, error: 'already declined' });
+      expect(await rights.answer('prq_nope', id('Dana'), 'allow', DANA)).toEqual({ ok: false, status: 404, error: 'no such request' });
+      expect(await rights.answer(p.id, id('Eve'), 'allow', DANA)).toEqual({ ok: false, status: 403, error: 'not your request' });
+      expect(await rights.answer(p.id, id('Dana'), 'deliver', DANA)).toEqual({ ok: false, status: 422, error: 'a proposal is allowed or declined' });
+      expect(await rights.answer(a.request.id, id('Dana'), 'deliver', DANA)).toEqual({ ok: false, status: 422, error: 'a request for access is allowed or declined' });
+      expect(await rights.answer(m.id, id('Dana'), 'allow', DANA)).toEqual({ ok: false, status: 422, error: 'a message is delivered or declined' });
+      expect(await rights.answer(p.id, id('Dana'), 'maybe' as 'allow', DANA)).toEqual({ ok: false, status: 422, error: 'the answer must be allow, decline or deliver' });
+      await rights.answer(p.id, id('Dana'), 'decline', DANA);
+      expect(await rights.answer(p.id, id('Dana'), 'allow', DANA)).toEqual({ ok: false, status: 410, error: 'already declined' });
     });
 
     it('applies an allowed proposal as proposed, keeping a pause, closes it and trails it', async () => {
-      await rights.setRight('Dana', 'mac', 'linux', 'see', DANA);
-      await rights.pauseLink('Dana', 'mac', 'linux', true, DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'see', DANA);
+      await rights.pauseLink(id('Dana'), 'mac', 'linux', true, DANA);
       const p = await proposal('ask');
       trails = [];
       t = START + 50;
-      const r = await rights.answer(p.id, 'dana', 'allow', DANA);
+      const r = await rights.answer(p.id, id('Dana'), 'allow', DANA);
       expect(r).toMatchObject({ ok: true, request: { outcome: 'allowed', closedAt: START + 50 }, applied: { level: 'ask', paused: true } });
       expect(await rights.effective('mac', 'linux')).toEqual({ level: 'ask', paused: true });
       expect(trails).toEqual([{ kind: 'accepted', request: expect.objectContaining({ id: p.id, outcome: 'allowed' }), actor: DANA }]);
-      expect(await rights.openRequests('Dana')).toEqual([]);
+      expect(await rights.openRequests(id('Dana'))).toEqual([]);
     });
 
     it('never lowers a right that rose after the proposal was made', async () => {
       const p = await proposal('ask');
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
-      expect(await rights.answer(p.id, 'Dana', 'allow', DANA)).toMatchObject({ ok: true, request: { outcome: 'allowed' }, applied: { level: 'send' } });
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
+      expect(await rights.answer(p.id, id('Dana'), 'allow', DANA)).toMatchObject({ ok: true, request: { outcome: 'allowed' }, applied: { level: 'send' } });
       expect((await rights.effective('mac', 'linux')).level).toBe('send');
     });
 
     it('applies an allowed access request without lowering a higher right', async () => {
       const a = await access({ right: 'see' });
       if (!a.ok || a.state !== 'asked') throw new Error('not asked');
-      await rights.setRight('Dana', 'mac', 'linux', 'ask', DANA);
-      expect(await rights.answer(a.request.id, 'Dana', 'allow', DANA)).toMatchObject({ ok: true, applied: { level: 'ask' } });
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'ask', DANA);
+      expect(await rights.answer(a.request.id, id('Dana'), 'allow', DANA)).toMatchObject({ ok: true, applied: { level: 'ask' } });
       const b = await access({ right: 'send', fromSession: 's2' });
       if (!b.ok || b.state !== 'asked') throw new Error('not asked');
-      await rights.setDefaults('Dana', { newSend: 'send' }, SERVER, DANA);
-      expect(await rights.answer(b.request.id, 'Dana', 'allow', DANA)).toMatchObject({ ok: true, applied: { level: 'ask' } });
+      await rights.setDefaults(id('Dana'), { newSend: 'send' }, SERVER, DANA);
+      expect(await rights.answer(b.request.id, id('Dana'), 'allow', DANA)).toMatchObject({ ok: true, applied: { level: 'ask' } });
       const c = await access({ fromKey: 'pi' });
       if (!c.ok || c.state !== 'asked') throw new Error('not asked');
-      expect(await rights.answer(c.request.id, 'Dana', 'allow', DANA)).toMatchObject({ ok: true, applied: { from: 'pi', level: 'see' } });
+      expect(await rights.answer(c.request.id, id('Dana'), 'allow', DANA)).toMatchObject({ ok: true, applied: { from: 'pi', level: 'see' } });
     });
 
     it('declines a proposal or an access request, storing no right', async () => {
       const p = await proposal();
       trails = [];
-      expect(await rights.answer(p.id, 'Dana', 'decline', DANA)).toMatchObject({ ok: true, request: { outcome: 'declined' }, applied: null });
+      expect(await rights.answer(p.id, id('Dana'), 'decline', DANA)).toMatchObject({ ok: true, request: { outcome: 'declined' }, applied: null });
       expect(trails).toEqual([{ kind: 'declined', request: expect.objectContaining({ id: p.id }), actor: DANA }]);
-      expect(await rights.rightsOf('Dana')).toEqual([]);
+      expect(await rights.rightsOf(id('Dana'))).toEqual([]);
     });
 
     it('re-checks the owner when a proposal is allowed', async () => {
       const p = await proposal();
-      reps.set('linux', { ...reps.get('linux')!, owner: 'Eve' });
-      expect(await rights.answer(p.id, 'Dana', 'allow', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
+      reps.set('linux', { ...reps.get('linux')!, owner: 'Eve', ownerId: 8 });
+      expect(await rights.answer(p.id, id('Dana'), 'allow', DANA)).toEqual({ ok: false, status: 403, error: 'not your reporter' });
       expect((await rights.getRequest(p.id))?.closedAt).toBeNull();
-      expect(await rights.rightsOf('Dana')).toEqual([]);
+      expect(await rights.rightsOf(id('Dana'))).toEqual([]);
     });
 
     it('closes a message request as delivered or declined and hands the message back, with no trail', async () => {
-      const m1 = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm1' });
-      const m2 = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm2' });
-      expect(await rights.answer(m1.id, 'Dana', 'deliver', DANA)).toMatchObject({ ok: true, request: { outcome: 'delivered' }, message: { id: 'm1', deliver: true } });
-      expect(await rights.answer(m2.id, 'Dana', 'decline', DANA)).toMatchObject({ ok: true, request: { outcome: 'declined' }, message: { id: 'm2', deliver: false } });
-      expect(await rights.answer(m1.id, 'Dana', 'deliver', DANA)).toEqual({ ok: false, status: 410, error: 'already delivered' });
+      const m1 = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm1' });
+      const m2 = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm2' });
+      expect(await rights.answer(m1.id, id('Dana'), 'deliver', DANA)).toMatchObject({ ok: true, request: { outcome: 'delivered' }, message: { id: 'm1', deliver: true } });
+      expect(await rights.answer(m2.id, id('Dana'), 'decline', DANA)).toMatchObject({ ok: true, request: { outcome: 'declined' }, message: { id: 'm2', deliver: false } });
+      expect(await rights.answer(m1.id, id('Dana'), 'deliver', DANA)).toEqual({ ok: false, status: 410, error: 'already delivered' });
       expect(trails).toEqual([]);
     });
   });
 
   describe('peer rights: retention', () => {
     it('deletes closed requests before the cutoff, and requests and rights about a reporter that is gone', async () => {
-      const old = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm1' });
+      const old = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm1' });
       await rights.closeMessageRequest('m1', 'delivered');
       t = START + 1000;
-      const recent = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm2' });
+      const recent = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm2' });
       await rights.closeMessageRequest('m2', 'delivered');
-      const open = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm3' });
+      const open = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'm3' });
       const aboutPi = await rights.propose('linux', 'pi', 'see', ADMIN);
-      await rights.setRight('Dana', 'mac', 'pi', 'send', DANA);
-      await rights.setRight('Dana', 'mac', 'linux', 'send', DANA);
+      await rights.setRight(id('Dana'), 'mac', 'pi', 'send', DANA);
+      await rights.setRight(id('Dana'), 'mac', 'linux', 'send', DANA);
       if (!aboutPi.ok) throw new Error('refused');
       reps.delete('pi');
 
@@ -535,22 +541,22 @@ describe.skipIf(!TEST_MARIADB)('mariadb peer rights', () => {
       expect(await rights.getRequest(aboutPi.request.id)).toBeNull();
       expect(await rights.getRequest(recent.id)).not.toBeNull();
       expect(await rights.getRequest(open.id)).not.toBeNull();
-      expect((await rights.rightsOf('Dana')).map((r) => `${r.from}>${r.to}`)).toEqual(['mac>linux']);
+      expect((await rights.rightsOf(id('Dana'))).map((r) => `${r.from}>${r.to}`)).toEqual(['mac>linux']);
       expect(await rights.retain(START + 500)).toBe(0);
     });
 
     it("closes a message request whose message is no longer stored, and leaves one whose message is", async () => {
       await db.run(
-        `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, approved, handed)
-         VALUES ('kept', 'Dana', 'linux|mac', 'mac', 'linux', 's1', 's2', 'a', 'mac', 'b', 'linux', 'hi', 1, 'approval', 1, 0, 0)`,
+        `INSERT INTO peer_messages (id, owner, link, from_key, to_key, from_session, to_session, from_name, from_machine, to_name, to_machine, text, sent_at, state, state_at, approved)
+         VALUES ('kept', 'Dana', 'linux|mac', 'mac', 'linux', 's1', 's2', 'a', 'mac', 'b', 'linux', 'hi', 1, 'approval', 1, 0)`,
       );
-      const kept = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'kept' });
-      const gone = await rights.openMessageRequest({ owner: 'Dana', fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'gone' });
+      const kept = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'kept' });
+      const gone = await rights.openMessageRequest({ owner: 'Dana', ownerId: id('Dana'), fromKey: 'mac', toKey: 'linux', by: 'b', fromSession: 's1', messageId: 'gone' });
       t = START + 7;
       await rights.retain(START);
       expect(await rights.getRequest(kept.id)).toMatchObject({ closedAt: null, outcome: null });
       expect(await rights.getRequest(gone.id)).toMatchObject({ closedAt: START + 7, outcome: 'dropped' });
-      expect((await rights.openRequests('Dana')).map((r) => r.id)).toEqual([kept.id]);
+      expect((await rights.openRequests(id('Dana'))).map((r) => r.id)).toEqual([kept.id]);
     });
   });
 });

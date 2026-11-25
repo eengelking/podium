@@ -3,18 +3,26 @@
 // what it is told.
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import axe from "axe-core";
-import { render, screen, fireEvent, cleanup, act, within } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, act, within, waitFor } from "@testing-library/react";
 import { FleetView } from "./FleetApp";
+import { PAGE_INFO } from "./pageInfo";
 import { makeSession } from "./fixtures";
 import { stateFrom } from "./testState";
 import { fleetReducer, LEAVE_MS } from "./store";
 import { RespondError, type PeersApi, type RespondApi } from "./respondApi";
-import type { Address, AdminRead, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
+import { messageParts } from "./chatData";
+import type { Address, AdminRead, ChannelLink, Concluded,ConversationInfo, ConversationMemberInput, ConversationMessage, DirectTarget, ChatApi, Cross, ChatOverview, ChannelMessage, DirectInfo, DirectMessage, DirectPageRead, GoneRead, Party } from "./chatData";
 import type { RespondMe } from "./types";
 
-const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", admin: false };
-const OUT: RespondMe = { enabled: true, signedIn: false, name: null, admin: false };
-const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", admin: true };
+// A pass-through, so a test can count how many messages the thread parsed (#1311).
+vi.mock("./chatData", async (orig) => {
+  const m = await orig<typeof import("./chatData")>();
+  return { ...m, messageParts: vi.fn(m.messageParts) };
+});
+
+const ED: RespondMe = { enabled: true, signedIn: true, name: "Ed", id: 1, admin: false };
+const OUT: RespondMe = { enabled: true, signedIn: false, name: null, id: null, admin: false };
+const ROOT: RespondMe = { enabled: true, signedIn: true, name: "Admin", id: null, admin: true };
 const T0 = new Date(2026, 9, 12, 14, 30).getTime();
 
 const agent = (sessionId: string, name: string, machine = "ed-mbp", over: Partial<Party> = {}): Party => ({ sessionId, name, machine, reporterKey: `k-${machine}`, kind: "agent", live: true, status: "running", ...over });
@@ -41,17 +49,21 @@ const direct = (a: Party, b: Party, over: Partial<DirectInfo> = {}): DirectInfo 
   ...over,
 });
 
-const channelOf = (id: "general" | "group", over: Partial<ChatOverview["channels"][number]> = {}): ChatOverview["channels"][number] => ({
+const channelOf = (id: string, over: Partial<ChatOverview["channels"][number]> = {}): ChatOverview["channels"][number] => ({
   id,
-  name: id === "general" ? "General" : "My group",
-  thread: id === "general" ? "public" : "group:ed",
+  kind: id === "group" ? "group" : "public",
+  name: id === "general" ? "General" : id === "group" ? "My group" : id,
+  description: "",
+  link: null,
+  openedBy: null,
+  thread: id === "general" ? "public" : id === "group" ? "group:ed" : `public:${id}`,
   unread: 0,
   mentions: 0,
   messages: 3,
   paused: false,
   pausedForEveryone: false,
   disconnected: false,
-  can: id === "general" ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: false } : { pause: true, pauseEveryone: false, disconnect: true, removeAll: true },
+  can: id === "general" ? { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: false, removeChannel: false } : { pause: true, pauseEveryone: false, disconnect: true, removeAll: true, editDescription: false, removeChannel: false },
   ...over,
 });
 
@@ -75,7 +87,7 @@ const cmsg = (id: string, text: string, over: Partial<ChannelMessage> = {}): Cha
 const dmsg = (id: string, from: Party, to: Party, text: string, over: Partial<DirectMessage> = {}): DirectMessage => ({
   id,
   author: from.kind === "person" ? "person" : "agent",
-  from: { kind: from.kind, sessionId: from.sessionId, name: from.name, machine: from.machine },
+  from: { kind: from.kind, sessionId: from.sessionId, personId: from.kind === "person" ? (from.name === "Ed" ? 1 : 2) : null, name: from.name, machine: from.machine },
   to: [{ sessionId: to.sessionId, name: to.name, machine: to.machine, state: "delivered", why: null }],
   text,
   sentAt: T0 - 500_000,
@@ -98,6 +110,8 @@ const BOOK: Address[] = [
 
 interface Fake {
   overview: ChatOverview;
+  /** What was concluded because an agent in a Direct Message ended (#1283); none by default. */
+  concluded?: Concluded[];
   channels: Record<string, { messages: ChannelMessage[]; older?: string | null }>;
   dms: Record<string, { messages: DirectMessage[]; older?: string | null; total?: number }>;
   postError?: RespondError | Error;
@@ -105,6 +119,10 @@ interface Fake {
   owners?: Record<string, Partial<ChatOverview>>;
   /** What the thread reads answer as an Admin's record, by the thread's key. */
   reads?: Record<string, AdminRead[]>;
+  /** Who the New direct message picker offers. */
+  targets?: DirectTarget[];
+  /** The messages of each conversation of people and agents (#1278). */
+  convoMessages: Record<string, ConversationMessage[]>;
 }
 
 function world(over: Partial<Fake> = {}): Fake {
@@ -112,10 +130,11 @@ function world(over: Partial<Fake> = {}): Fake {
   const d2 = direct(ME, NOTES, { messages: 2, thread: "dm:person:ed|s-notes" });
   const d3 = direct(DASH, NOTES, { state: "paused", paused: true, messages: 1 });
   return {
+    convoMessages: {},
     overview: {
       enabled: true,
       serverTime: T0,
-      me: { name: "Ed", admin: false, person: true },
+      me: { id: 1, name: "Ed", admin: false, person: true },
       settings: { maxChars: 20000, perMinute: 6, retainDays: 30, graceHours: 24, everyone: false },
       channels: [channelOf("general"), channelOf("group", { mentions: 1, messages: 2 })],
       directs: [d1, d2, d3],
@@ -178,6 +197,11 @@ function fakeChat(w: Fake = world()) {
     };
   };
   const api = {
+    concluded: vi.fn(async () => ({ ok: true as const, concluded: structuredClone(w.concluded ?? []) })),
+    dismissConcluded: vi.fn(async (id: string) => {
+      w.concluded = (w.concluded ?? []).filter((c) => c.id !== id);
+      return { ok: true as const };
+    }),
     overview: vi.fn(async (owner?: string | null) => structuredClone(owner && w.owners?.[owner] ? { ...w.overview, ...w.owners[owner] } : w.overview)),
     markRead: vi.fn(async () => ({ ok: true as const, unread: 0, mentions: 0 })),
     addresses: vi.fn(async () => ({ ok: true as const, addresses: structuredClone(BOOK) })),
@@ -216,7 +240,7 @@ function fakeChat(w: Fake = world()) {
     }),
     sendDm: vi.fn(async (_a: string, b: string, text: string) => {
       const m = dmsg(`sent-${text}`, ME, agent(b, "x"), text, { state: "queued" });
-      return { ok: true as const, message: m, skipped: [], errors: [] };
+      return { ok: true as const, message: m, skipped: [] as { name: string; why: string }[], errors: [] as { name: string; error: string }[] };
     }),
     deleteDm: vi.fn(async (a: string, b: string) => {
       w.overview.directs = w.overview.directs.filter((d) => !(d.a.sessionId === a && d.b.sessionId === b));
@@ -231,10 +255,70 @@ function fakeChat(w: Fake = world()) {
       w.overview.directs = w.overview.directs.map((d) => (d.a.sessionId === a && d.b.sessionId === b && d.cross ? { ...d, cross: { ...d.cross, link } } : d));
       return { ok: true as const, link };
     }),
+    createChannel: vi.fn(async (name: string, description: string, link: ChannelLink | null) => {
+      const c = channelOf(name, { description, link, openedBy: "Ed", messages: 0, can: { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: true, removeChannel: false } });
+      w.overview.channels.splice(w.overview.channels.length - 1, 0, c);
+      w.channels[name] = { messages: [] };
+      return { ok: true as const, channel: c };
+    }),
+    describeChannel: vi.fn(async (channel: string, description: string) => {
+      w.overview.channels = w.overview.channels.map((c) => (c.id === channel ? { ...c, description } : c));
+      return { ok: true as const, channel: w.overview.channels.find((c) => c.id === channel)! };
+    }),
+    removeChannel: vi.fn(async (channel: string) => {
+      w.overview.channels = w.overview.channels.filter((c) => c.id !== channel);
+      return { ok: true as const, removed: 0 };
+    }),
+    directTargets: vi.fn(async (q = "") => ({ ok: true as const, targets: structuredClone(w.targets ?? []).filter((t) => `${t.name} ${t.owner}`.toLowerCase().includes(q.toLowerCase())) })),
     removeLink: vi.fn(async (a: string, b: string) => {
       w.overview.directs = w.overview.directs.map((d) => (d.a.reporterKey === a && d.b.reporterKey === b ? { ...d, canSend: { aToB: false, bToA: false } } : d));
       return { ok: true as const };
     }),
+    // Editing and deleting a person's own message (#1269) is tested in chatEditDelete.test.tsx.
+    editChannelMessage: vi.fn(async (_channel: string, id: string, text: string) => ({ ok: true as const, message: cmsg(id, text) })),
+    deleteChannelMessage: vi.fn(async (_channel: string, id: string) => ({ ok: true as const, message: cmsg(id, "", { deletedAt: T0 }) })),
+    editDmMessage: vi.fn(async (_a: string, _b: string, id: string, text: string) => ({ ok: true as const, message: dmsg(id, ME, TESTER, text) })),
+    deleteDmMessage: vi.fn(async (_a: string, _b: string, id: string) => ({ ok: true as const, message: dmsg(id, ME, TESTER, "", { deletedAt: T0 }) })),
+    // Conversations of people and agents (#1278) are tested in chatConversations.test.tsx.
+    chatPeople: vi.fn(async (q = "") => ({ ok: true as const, people: w.overview.people.filter((x) => !x.you && x.name.toLowerCase().includes(q.toLowerCase())).map((x) => ({ name: x.name, conversation: null as string | null })) })),
+    openConversation: vi.fn(async (members: ConversationMemberInput[], text?: string) => {
+      const info: ConversationInfo = {
+        id: `cnv_${(w.overview.conversations ?? []).length + 1}`,
+        thread: "",
+        members: [{ kind: "person", name: "Ed", you: true, addedBy: null, address: "Ed@console", sessionId: null }, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : m.sessionId, you: false, addedBy: "Ed", address: m.kind === "person" ? `${m.name}@console` : `${m.sessionId}@ed-mbp`, sessionId: m.kind === "agent" ? m.sessionId : null }))],
+        hasAgent: members.some((m) => m.kind === "agent"),
+        unread: 0,
+        mentions: 0,
+        messages: text ? 1 : 0,
+        lastAt: T0,
+        adminReading: [],
+      };
+      info.thread = `convo:${info.id}`;
+      w.overview.conversations = [info, ...(w.overview.conversations ?? [])];
+      w.convoMessages[info.id] = text ? [{ id: "k1", author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] }] : [];
+      return { ok: true as const, created: true, conversation: info, skipped: [] as string[] };
+    }),
+    conversationMessages: vi.fn(async (id: string) => ({ ok: true as const, conversation: (w.overview.conversations ?? []).find((c) => c.id === id)!, messages: structuredClone(w.convoMessages[id] ?? []), older: null, total: (w.convoMessages[id] ?? []).length, adminReads: [] })),
+    sendConversation: vi.fn(async (id: string, text: string) => {
+      const m: ConversationMessage = { id: `k${(w.convoMessages[id] ?? []).length + 1}`, author: { kind: "person", name: "Ed", you: true }, text, createdAt: T0, editedAt: null, deletedAt: null, replyTo: null, canChange: true, changeWhy: null, deliveries: [] };
+      w.convoMessages[id] = [...(w.convoMessages[id] ?? []), m];
+      return { ok: true as const, message: m, skipped: [] as string[] };
+    }),
+    // Refused until a test says otherwise.
+    editConversationMessage: vi.fn(async (_id: string, _messageId: string, _text: string): Promise<{ ok: true; message: ConversationMessage }> => {
+      throw new Error("not used by this suite");
+    }),
+    deleteConversationMessage: vi.fn(async (_id: string, _messageId: string): Promise<{ ok: true; message: ConversationMessage }> => {
+      throw new Error("not used by this suite");
+    }),
+    addConversationMembers: vi.fn(async (id: string, members: ConversationMemberInput[]) => {
+      const c = (w.overview.conversations ?? []).find((x) => x.id === id)!;
+      c.members = [...c.members, ...members.map((m) => ({ kind: m.kind, name: m.kind === "person" ? m.name : (w.targets ?? []).find((t) => t.sessionId === m.sessionId)?.name ?? m.sessionId, you: false, addedBy: "Ed", address: m.kind === "person" ? `${m.name}@console` : null, sessionId: m.kind === "agent" ? m.sessionId : null }))];
+      c.hasAgent = c.members.some((m) => m.kind === "agent");
+      return { ok: true as const, conversation: c };
+    }),
+    leaveConversation: vi.fn(async () => ({ ok: true as const, deleted: false })),
+    readingConversation: vi.fn(async () => ({ ok: true as const })),
   } satisfies ChatApi;
   return { api, w };
 }
@@ -249,15 +333,15 @@ const flush = () =>
     for (let i = 0; i < 20; i++) await Promise.resolve();
   });
 
-function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean; sessions?: ReturnType<typeof makeSession>[] } = {}) {
+function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersFlag?: boolean; sessions?: ReturnType<typeof makeSession>[]; wall?: { notices: Record<string, boolean>; showBackgroundSessions: boolean; cardTitleMachine: boolean }; view?: "wall" } = {}) {
   const chat = opts.chat ?? fakeChat();
   const sessions = [
-    makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
-    makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
+    makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" } }),
+    makeSession({ id: "s-tester", name: "Tester", status: "waiting", waitReason: "input", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ci-runner-01", id: "m2", os: "Ubuntu 24.04" } }),
     ...(opts.sessions ?? []),
   ];
-  const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true } });
-  const props = { chat: true, respondApi: respondApi(opts.me ?? ED), peersApi: peersApi(), chatApi: chat.api };
+  const state = stateFrom({ sessions, features: { "activity-feed": true, "peer-messaging": opts.peersFlag ?? true }, ...(opts.wall ? { wall: opts.wall } : {}) });
+  const props = { chat: opts.view !== "wall", respondApi: respondApi(opts.me ?? ED), peersApi: peersApi(), chatApi: chat.api };
   const view = render(<FleetView {...props} state={state} />);
   // Each signal moves the state on from the last one, so a second signal in a test is a new signal and not the same one again.
   let current = state;
@@ -265,7 +349,7 @@ function page(opts: { chat?: ReturnType<typeof fakeChat>; me?: RespondMe; peersF
     current = fleetReducer(current, { type: "chat" });
     view.rerender(<FleetView {...props} state={current} />);
   };
-  return { chat, state, signal, ...view };
+  return { chat, state, signal, peers: props.peersApi, ...view };
 }
 
 const row = (key: string) => screen.getByTestId(`chat-row-${key}`);
@@ -306,12 +390,17 @@ describe("the page", () => {
     await flush();
     const info = screen.getByRole("button", { name: "Chat privacy and controls" });
     expect(info).toHaveAttribute("aria-expanded", "false");
-    expect(info.closest(".ttl-row")).toContainElement(screen.getByRole("heading", { level: 1, name: "Chat" }));
+    // The (i) sits in the banner, beside the description, and the page body has no title or description of its own (#1209).
+    expect(info.closest(".banner")).not.toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Chat" })).toHaveClass("vh");
+    expect(document.querySelector(".apage .page-h")).toBeNull();
     expect(screen.queryByText(/A conversation with another person's agent is read by that person/)).toBeNull();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(info);
-    const dialog = screen.getByRole("dialog", { name: "Chat privacy and controls" });
+    const dialog = screen.getByRole("dialog", { name: "About Chat" });
     expect(info).toHaveAttribute("aria-expanded", "true");
+    expect(within(dialog).getByText(PAGE_INFO.chat.description)).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { level: 3, name: "Chat privacy and controls" })).toBeInTheDocument();
     for (const group of ["Who reads what", "How agents act", "Stopping a session", "Admins"]) expect(within(dialog).getByRole("heading", { level: 3, name: group })).toBeInTheDocument();
     expect(within(dialog).getAllByRole("listitem")).toHaveLength(8);
     expect(within(dialog).getByText(/A conversation with another person's agent is read by that person, the agent's owner and an Admin/)).toBeInTheDocument();
@@ -416,12 +505,15 @@ describe("the panes, as the Board has them", () => {
   });
 });
 
+/** The words of each section title in the sidebar (a title is a fold button holding the words and a count, and may be followed by a "+"). */
+const titles = (nav: { getAllByRole: (role: string) => HTMLElement[] }) => nav.getAllByRole("heading").map((h) => h.querySelector(".ch-fold > span")?.textContent ?? h.textContent);
+
 describe("the sidebar", () => {
   it("lists Channels, Direct Messages with their tags and unread counts, and People and agents with state and role", async () => {
     page();
     await flush();
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Channels", "Direct Messages", "People and agents"]);
+    expect(titles(nav)).toEqual(["Channels", "Direct Messages", "People and agents"]);
     expect(row("c:general")).toHaveTextContent("General");
     expect(row("c:group")).toHaveTextContent("My group");
     expect(within(row("c:group")).getByLabelText("1 mention of you")).toHaveTextContent("@ 1");
@@ -476,13 +568,13 @@ describe("the sidebar", () => {
   it("shows nothing for a person's own things to someone without a person, and says why", async () => {
     const w = world();
     w.overview.me = { name: "Root", admin: true, person: false };
-    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } })];
+    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } })];
     w.overview.directs = [];
     w.overview.agents = [];
     page({ chat: fakeChat(w), me: ROOT });
     await flush();
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels"]);
+    expect(titles(nav)).toEqual(["Read as an Admin", "Channels"]);
     expect(nav.getByText(/belong to a person/)).toBeInTheDocument();
   });
 });
@@ -564,7 +656,8 @@ describe("the thread", () => {
     expect(t).toHaveTextContent("Everyone signed in to this server can read and post here.");
     const items = within(t).getAllByTestId("chat-message");
     expect(items.map((li) => li.querySelector(".who")!.textContent)).toEqual(["Maya", "You"]);
-    expect(within(items[1]!).getByText("Posted. No agent was addressed, so none will act on it.")).toBeInTheDocument();
+    expect(within(items[1]!).getByText("Posted")).toBeInTheDocument();
+    expect(within(items[1]!).queryByText(/No agent was addressed/)).toBeNull();
     expect(within(items[0]!).getByText("Posted")).toBeInTheDocument();
   });
 
@@ -575,12 +668,10 @@ describe("the thread", () => {
     const t = thread();
     expect(t).toHaveTextContent("Only you and an Admin can read this.");
     expect(t).toHaveTextContent("Agents addressing each other: 3 of 10 round trips.");
-    const who = within(t).getByLabelText("In this conversation");
-    expect(within(who).getByRole("button", { name: /claude-dashboard/ })).toBeInTheDocument();
-    expect(within(who).getByRole("button", { name: /Tester/ })).toHaveAttribute("title", "Tester, waiting for you. Actions");
-    expect(who).toHaveTextContent("Ed");
-    expect(who.querySelector(".you")).toHaveTextContent("you");
-    expect(who.querySelector(".mono-g")).not.toBeNull();
+    // The two parties are named by avatars before the title, and a Direct Message has no stack or panel (#1236).
+    expect(within(t).queryByLabelText("In this conversation")).toBeNull();
+    expect(within(t).queryByRole("button", { name: /^Members,/ })).toBeNull();
+    expect(t.querySelector(".ch-head h2 .ch-av-pair")).not.toBeNull();
     const msgs = within(t).getAllByTestId("chat-message");
     expect(within(msgs[0]!).getByText(/Delivered at \d\d:\d\d\./)).toBeInTheDocument();
     expect(within(msgs[1]!).getByText("[redacted]")).toHaveClass("rd");
@@ -785,7 +876,7 @@ describe("the box", () => {
     await flush();
     expect(box()).toBeDisabled();
     expect(box()).toHaveAttribute("placeholder", "Paused");
-    const why = document.getElementById(box().getAttribute("aria-describedby")!)!;
+    const why = document.getElementById(box().getAttribute("aria-describedby")!.split(" ")[0]!)!;
     expect(why).toHaveTextContent("Paused: messages are held. Resume from the menu to send.");
     expect(box()).not.toHaveAttribute("role");
     await open("c:group");
@@ -830,8 +921,10 @@ describe("the @ combobox", () => {
       "@group",
       "@everyone",
     ]);
-    expect(box()).not.toHaveAttribute("aria-expanded");
+    expect(box()).toHaveAttribute("role", "combobox");
+    expect(box()).toHaveAttribute("aria-expanded", "true");
     expect(box()).toHaveAttribute("aria-controls", list.id);
+    expect(box().getAttribute("aria-activedescendant")).toBe(options()[0]!.id);
     expect(screen.getByTestId("chat-matches")).toHaveTextContent("7 people and agents. Use the arrow keys.");
     expect(screen.getByTestId("chat-matches")).toHaveAttribute("role", "status");
     type("hi @tes");
@@ -925,6 +1018,196 @@ describe("the @ combobox", () => {
   });
 });
 
+describe("the message box, its tools and its keys (#1233, mockup/podium-chat-redesign.html)", () => {
+  const OWN = "d:dm:person:ed|s-notes";
+  const type = (v: string) => fireEvent.change(box(), { target: { value: v } });
+  const send = () => screen.getByTestId("chat-send");
+  const commands = () => screen.queryByRole("listbox", { name: "Commands" });
+  /** jsdom has no layout, so a textarea's content height is set by hand. */
+  const contentHeight = (px: number) => Object.defineProperty(box(), "scrollHeight", { configurable: true, value: px });
+
+  it("is one line with an accessible name and no visible label, and grows with its text up to 180 px", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    expect(box()).toHaveAttribute("rows", "1");
+    expect(screen.getByLabelText("Message My group")).toBe(box());
+    expect(box().closest(".ch-composer")!.querySelector("label")).toHaveClass("vh");
+    contentHeight(60);
+    type("two\nlines");
+    expect(box().style.height).toBe("60px");
+    contentHeight(500);
+    type("two\nlines\nand a long way more");
+    expect(box().style.height).toBe("180px");
+    contentHeight(0);
+    type("x");
+    expect(box().style.height).toBe("");
+  });
+
+  it("has Send as one icon button, named, muted until there is text, and off while a command has a problem", async () => {
+    page();
+    await flush();
+    expect(send()).toHaveAccessibleName("Send message");
+    expect(send()).toHaveClass("btn", "pri", "ch-send");
+    expect(send()).toHaveTextContent("");
+    expect(send()).toBeDisabled();
+    type("   ");
+    expect(send()).toBeDisabled();
+    type("hello");
+    expect(send()).toBeEnabled();
+    await open(OWN);
+    type("/x");
+    expect(send()).toBeDisabled();
+    type("/compact");
+    expect(send()).toBeEnabled();
+  });
+
+  it("puts the hint beside Send in the tools row, after the tools", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    const tools = box().closest(".ch-box")!.querySelector(".cr-tools")!;
+    expect(tools).toHaveTextContent("Enter to send · Shift+Enter for a new line");
+    expect([...tools.children].map((c) => c.className)).toEqual(["cr-tool", "hint", "btn pri ch-send"]);
+  });
+
+  it("sends on Enter, adds a line on Shift+Enter, and leaves Tab to move focus when no list is open", async () => {
+    const p = page();
+    await flush();
+    await open("c:group");
+    type("hello");
+    expect(fireEvent.keyDown(box(), { key: "Enter", shiftKey: true })).toBe(true);
+    expect(p.chat.api.post).not.toHaveBeenCalled();
+    expect(fireEvent.keyDown(box(), { key: "Tab" })).toBe(true);
+    expect(box().value).toBe("hello");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await flush();
+    expect(p.chat.api.post).toHaveBeenCalledWith("group", "hello");
+  });
+
+  it("offers the @ tool only in a channel, and the / tool only in a message to your own agent", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    expect(screen.getByTestId("chat-tool-at")).toHaveAccessibleName("Mention someone");
+    expect(screen.queryByTestId("chat-tool-slash")).toBeNull();
+    await open(OWN);
+    expect(screen.getByTestId("chat-tool-slash")).toHaveAccessibleName("Session commands");
+    expect(screen.queryByTestId("chat-tool-at")).toBeNull();
+    await open("d:dm:s-dash|s-tester");
+    expect(screen.queryByTestId("chat-tool-at")).toBeNull();
+    expect(screen.queryByTestId("chat-tool-slash")).toBeNull();
+  });
+
+  it("opens the @ list from the @ tool, after a space when the draft does not end in one, and keeps focus in the box", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    fireEvent.click(screen.getByTestId("chat-tool-at"));
+    await flush();
+    expect(box().value).toBe("@");
+    expect(options().length).toBeGreaterThan(0);
+    expect(box()).toHaveFocus();
+    fireEvent.keyDown(box(), { key: "Escape" });
+    type("hi");
+    fireEvent.click(screen.getByTestId("chat-tool-at"));
+    expect(box().value).toBe("hi @");
+    type("hi ");
+    fireEvent.click(screen.getByTestId("chat-tool-at"));
+    expect(box().value).toBe("hi @");
+    expect(fireEvent.mouseDown(screen.getByTestId("chat-tool-at"))).toBe(false);
+  });
+
+  it("opens the command list from the / tool on an empty box, and does nothing to a box with a message in it", async () => {
+    page();
+    await flush();
+    await open(OWN);
+    fireEvent.click(screen.getByTestId("chat-tool-slash"));
+    expect(box().value).toBe("/");
+    expect(commands()).not.toBeNull();
+    // The list is open, so the box is a combobox that names the option the arrow keys are on.
+    expect(box()).toHaveAttribute("role", "combobox");
+    expect(box()).toHaveAttribute("aria-expanded", "true");
+    expect(box()).toHaveAttribute("aria-controls", commands()!.id);
+    const options = within(commands()!).getAllByRole("option");
+    expect(box().getAttribute("aria-activedescendant")).toBe(options[0]!.id);
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    expect(box().getAttribute("aria-activedescendant")).toBe(options[1]!.id);
+    fireEvent.click(screen.getByTestId("chat-tool-slash"));
+    expect(box().value).toBe("/");
+    type("a message");
+    expect(screen.getByTestId("chat-tool-slash")).toBeDisabled();
+    type("/cl");
+    expect(screen.getByTestId("chat-tool-slash")).toBeEnabled();
+    fireEvent.click(screen.getByTestId("chat-tool-slash"));
+    expect(box()).toHaveFocus();
+  });
+
+  it("draws each @ entry with its avatar, its address in bold, its role and its state in a word, and Tab picks it", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    type("@te");
+    await flush();
+    const first = options()[0]!;
+    expect(first.querySelector(".ch-av.agent")).not.toBeNull();
+    expect(first.querySelector("b.h")).toHaveTextContent("@Tester@ci-runner-01");
+    expect(first.querySelector(".r")).toHaveTextContent("Orchestrator");
+    expect(first.querySelector(".stw")).not.toBeNull();
+    type("@ma");
+    expect(options()[0]!.querySelector(".ch-av.person")).not.toBeNull();
+    expect(options()[0]!.querySelector(".r")).toHaveTextContent("Person");
+    expect(options()[0]!.querySelector(".stw")).toBeNull();
+    type("@gr");
+    expect(options()[0]!.querySelector(".ch-av.person svg")).not.toBeNull();
+    type("@pod");
+    await flush();
+    type("hi @tes");
+    fireEvent.keyDown(box(), { key: "Tab" });
+    expect(box().value).toBe("hi @Tester@ci-runner-01 ");
+  });
+
+  it("does nothing on Tab or Enter for an entry that is off, and keeps the list open", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    type("@every");
+    await flush();
+    expect(options()[0]).toHaveAttribute("aria-disabled", "true");
+    expect(fireEvent.keyDown(box(), { key: "Tab" })).toBe(false);
+    expect(box().value).toBe("@every");
+    expect(options()).toHaveLength(1);
+  });
+
+  it("disables the box and its tools while it is off, and says why in the placeholder", async () => {
+    const w = world();
+    w.overview.channels = [channelOf("general"), channelOf("group", { paused: true })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:group");
+    expect(box()).toBeDisabled();
+    expect(box()).toHaveAttribute("placeholder", "Paused");
+    expect(screen.getByTestId("chat-tool-at")).toBeDisabled();
+    expect(send()).toBeDisabled();
+  });
+
+  it("keeps a failed send's draft in the box and shows the server's words in a red box above it", async () => {
+    const chat = fakeChat();
+    page({ chat });
+    await flush();
+    type("keep me");
+    chat.w.postError = new RespondError(429, { error: "You are sending too fast. Wait 12 seconds." });
+    fireEvent.click(send());
+    await flush();
+    const err = screen.getByTestId("chat-send-error");
+    expect(err).toHaveAttribute("role", "alert");
+    expect(err).toHaveTextContent("You are sending too fast. Wait 12 seconds.");
+    expect(box().value).toBe("keep me");
+    expect(err.compareDocumentPosition(box()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(send()).toBeEnabled();
+  });
+});
+
 describe("the menus", () => {
   const more = (name: string) => screen.getByRole("button", { name: `Actions for ${name}` });
 
@@ -961,7 +1244,7 @@ describe("the menus", () => {
     fireEvent.keyDown(items[2]!, { key: "Escape" });
     expect(screen.queryByRole("menu")).toBeNull();
     await act(async () => {
-      await new Promise((r) => setTimeout(r, 5));
+      await new Promise((r) => setTimeout(r, 200));
     });
     expect(document.activeElement).toBe(more("claude-dashboard, Tester"));
   });
@@ -1066,7 +1349,7 @@ describe("the menus", () => {
   it("gives an Admin General's pause for everyone and Remove all messages, and asks before removing", async () => {
     const w = world();
     w.overview.me = { name: "Root", admin: true, person: false };
-    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } })];
+    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } })];
     w.overview.directs = [];
     w.overview.agents = [];
     const chat = fakeChat(w);
@@ -1091,7 +1374,7 @@ describe("the menus", () => {
 
   it("shows a menu with only a reason as a note that takes the focus and closes on Escape", async () => {
     const w = world();
-    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: false, disconnect: false, removeAll: false } }), channelOf("group")];
+    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: false, disconnect: false, removeAll: false, editDescription: false, removeChannel: false } }), channelOf("group")];
     page({ chat: fakeChat(w) });
     await flush();
     fireEvent.click(more("General"));
@@ -1102,7 +1385,7 @@ describe("the menus", () => {
     fireEvent.keyDown(note, { key: "Escape" });
     expect(screen.queryByRole("note")).toBeNull();
     await flush();
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 200));
     expect(document.activeElement).toBe(more("General"));
   });
 
@@ -1111,22 +1394,53 @@ describe("the menus", () => {
     await flush();
     fireEvent.click(more("Tester"));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
-    expect(items.map((i) => i.textContent)).toEqual(["Message Tester", "Open orchestration page"]);
-    expect(items[1]).toHaveAttribute("href", "#/?open=s-tester");
+    expect(items.map((i) => i.textContent)).toEqual(["Message Tester", "Mention Tester", "Open orchestration page"]);
+    expect(items[2]).toHaveAttribute("href", "#/?open=s-tester");
     fireEvent.click(items[0]!);
     await flush();
     expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("Tester");
   });
 
-  it("gives a participant chip the orchestration page and no Message", async () => {
+  it("lists you and your orchestrators behind the stack in My group, and an orchestrator's row has Message, Mention and the orchestration page (#1236, #1235)", async () => {
     page();
     await flush();
-    await open("d:dm:s-dash|s-tester");
-    const who = within(thread()).getByLabelText("In this conversation");
-    fireEvent.click(within(who).getByRole("button", { name: /claude-dashboard/ }));
+    await open("c:group");
+    const stack = within(thread()).getByRole("button", { name: /^Members, \d+\. Show the list$/ });
+    expect(screen.queryByTestId("chat-members")).toBeNull();
+    fireEvent.click(stack);
+    const panel = screen.getByTestId("chat-members");
+    expect(within(panel).getByRole("heading", { name: /^People 1$/ })).toBeInTheDocument();
+    expect(within(panel).getByText("Ed").closest("b")).toHaveTextContent("Ed (you)");
+    fireEvent.click(within(panel).getByRole("button", { name: "Actions for claude-dashboard" }));
     const items = within(screen.getByRole("menu")).getAllByRole("menuitem");
-    expect(items.map((i) => i.textContent)).toEqual(["Open orchestration page"]);
-    expect(items[0]).toHaveAttribute("href", "#/?open=s-dash");
+    expect(items.map((i) => i.textContent)).toEqual(["Message claude-dashboard", "Mention claude-dashboard", "Open orchestration page"]);
+    expect(items[2]).toHaveAttribute("href", "#/?open=s-dash");
+  });
+
+  it("closes the members panel from its own button, and Message on a person in a channel opens New direct message with their name searched (#1236)", async () => {
+    page();
+    await flush();
+    await open("c:general");
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    fireEvent.click(within(screen.getByTestId("chat-members")).getByRole("button", { name: "Close members" }));
+    expect(screen.queryByTestId("chat-members")).toBeNull();
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    fireEvent.click(within(screen.getByTestId("chat-members")).getByRole("button", { name: "Actions for Maya" }));
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Message Maya" }));
+    await flush();
+    expect(screen.getByTestId("dm-form")).toBeInTheDocument();
+  });
+
+  it("keeps the members panel closed when a conversation opens, and closes it when another one does (#1236)", async () => {
+    page();
+    await flush();
+    await open("c:group");
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    expect(screen.getByTestId("chat-split")).toHaveClass("mem-open");
+    await open("c:general");
+    expect(screen.queryByTestId("chat-members")).toBeNull();
+    expect(screen.getByTestId("chat-split")).not.toHaveClass("mem-open");
+    expect(within(thread()).getByRole("button", { name: /Show the list$/ })).toHaveAttribute("aria-expanded", "false");
   });
 });
 
@@ -1137,10 +1451,12 @@ describe("accessibility", () => {
     await flush();
     await open("d:dm:s-dash|s-tester");
     fireEvent.click(screen.getByRole("button", { name: "Actions for claude-dashboard, Tester" }));
-    const run = async () => {
+    // The box is a textarea that carries role=combobox while its @ or / list is open (the spec's "a combobox", #1233), which axe's
+    // `aria-allowed-role` does not list for a textarea; it is judged off only for the pass that has the list open.
+    const run = async (listOpen = false) => {
       const r = await axe.run(container, {
         runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] },
-        rules: { "color-contrast": { enabled: false }, "target-size": { enabled: false }, "scrollable-region-focusable": { enabled: false }, "link-in-text-block": { enabled: false }, region: { enabled: false } },
+        rules: { "aria-allowed-role": { enabled: !listOpen }, "color-contrast": { enabled: false }, "target-size": { enabled: false }, "scrollable-region-focusable": { enabled: false }, "link-in-text-block": { enabled: false }, region: { enabled: false } },
       });
       return { violations: r.violations };
     };
@@ -1149,6 +1465,11 @@ describe("accessibility", () => {
     await open("c:group");
     fireEvent.change(box(), { target: { value: "@te" } });
     await flush();
+    expect((await run(true)).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+    // The members panel, open beside the thread with a row's menu open (#1236).
+    fireEvent.change(box(), { target: { value: "" } });
+    fireEvent.click(within(thread()).getByRole("button", { name: /Show the list$/ }));
+    fireEvent.click(within(screen.getByTestId("chat-members")).getByRole("button", { name: "Actions for claude-dashboard" }));
     expect((await run()).violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
   });
 });
@@ -1181,7 +1502,7 @@ describe("commands in a message to your own agent (#1051, mockup/podium-chat-sec
   const type = (v: string) => fireEvent.change(box(), { target: { value: v } });
   const commands = () => screen.queryByRole("listbox", { name: "Commands" });
   const names = () => within(commands()!).getAllByRole("option").map((o) => o.querySelector(".cn")!.textContent);
-  const opencode = () => makeSession({ id: "s-notes", name: "infra-notes", status: "running", lastSeenAt: T0, owner: "Ed", machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" }, capabilities: { context: false, effort: false, commands: ["compact"] } });
+  const opencode = () => makeSession({ id: "s-notes", name: "infra-notes", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1, machine: { name: "ed-mbp", id: "m1", os: "macOS 26.1" }, capabilities: { context: false, effort: false, commands: ["compact"] } });
 
   it("lists /clear and /compact on a slash, with the footer, and chooses with the arrow keys and Tab", async () => {
     page();
@@ -1554,7 +1875,7 @@ describe("the person an Admin reads, told in the console", () => {
     expect(banner).toHaveTextContent("Root, Alex and 2 more Admins are reading this conversation.");
     expect(banner).toHaveTextContent("after the last of them stops");
     const trigger = within(banner).getByText("Who is reading");
-    const tip = screen.getByRole("tooltip", { hidden: true });
+    const tip = within(trigger.closest("[aria-describedby]") as HTMLElement).getByRole("tooltip", { hidden: true });
     expect(trigger.closest("[aria-describedby]")).toHaveAttribute("aria-describedby", tip.id);
     expect(tip).toHaveTextContent("Reading now: Root since 14:28, Alex since 14:29, Sam since 14:29, Kim since 14:29.");
     expect(tip).not.toBeVisible();
@@ -1842,7 +2163,7 @@ describe("the person an Admin reads, told in the console", () => {
     page({ chat: fakeChat(w) });
     await flush();
     await open("d:dm:s-dash|s-tester");
-    const items = [...thread().querySelectorAll("ol.feed > li")].map((li) => (li.classList.contains("ch-rec") ? `rec:${li.textContent}` : `msg:${li.querySelector(".who")?.textContent}`));
+    const items = [...thread().querySelectorAll("ol.ch-msgs > li:not(.ch-day):not(.ch-newline)")].map((li) => (li.classList.contains("ch-rec") ? `rec:${li.textContent}` : `msg:${li.querySelector(".who")?.textContent}`));
     expect(items).toEqual([
       "msg:claude-dashboard",
       "rec:Root (an Admin) read this conversation on Oct 12 at 14:21.",
@@ -1912,13 +2233,13 @@ describe("an Admin reading a person's conversations", () => {
   const adminWorld = () => {
     const w = world();
     w.overview.me = { name: "Root", admin: true, person: false };
-    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } })];
+    w.overview.channels = [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } })];
     w.overview.directs = [];
     w.overview.agents = [];
     w.overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
     w.owners = {
       Maya: {
-        channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })],
+        channels: [channelOf("general", { can: { pause: false, pauseEveryone: true, disconnect: false, removeAll: true, editDescription: false, removeChannel: false } }), channelOf("group", { thread: "group:maya", messages: 1, adminReading: [] })],
         directs: [MAYA_DM],
       },
     };
@@ -1951,14 +2272,14 @@ describe("an Admin reading a person's conversations", () => {
     expect(stop).toHaveTextContent("Stop reading");
     const picker = screen.getByLabelText("Read a person's conversations") as HTMLSelectElement;
     expect(picker.value).toBe("Maya");
-    expect(screen.getByRole("heading", { name: "Direct Messages" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /^Direct Messages/ })).toBeInTheDocument();
     fireEvent.click(stop);
     await flush();
     expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
     expect((screen.getByLabelText("Read a person's conversations") as HTMLSelectElement).value).toBe("");
-    expect(screen.queryByRole("heading", { name: "Direct Messages" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^Direct Messages/ })).toBeNull();
     expect(screen.getByText("Back to your own conversations.")).toBeInTheDocument();
-    await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
     expect(document.activeElement).toBe(screen.getByLabelText("Read a person's conversations"));
     cleanup();
     page({ chat: fakeChat(world()), me: ED });
@@ -2018,14 +2339,14 @@ describe("an Admin reading a person's conversations", () => {
     await pickPerson();
     expect(p.chat.api.overview).toHaveBeenLastCalledWith("Maya");
     const nav = within(screen.getByRole("navigation", { name: "Chat" }));
-    expect(nav.getAllByRole("heading").map((h) => h.textContent)).toEqual(["Read as an Admin", "Channels", "Direct Messages"]);
+    expect(titles(nav)).toEqual(["Read as an Admin", "Channels", "Direct Messages"]);
     expect(row("c:group")).toHaveTextContent("read only");
     expect(row("d:dm:m-1|m-2")).toHaveTextContent("Two agents, and Maya, read only");
     expect(row("d:dm:m-1|m-2")).toHaveTextContent("maya-api, maya-ui");
     expect(within(row("d:dm:m-1|m-2")).queryByLabelText(/new/)).toBeNull();
   });
 
-  it("opens a thread with a red banner, no message box and the reason, and records nothing as read", async () => {
+  it("opens a thread with a red banner, a message box that is off with the reason, and records nothing as read", async () => {
     const p = page({ chat: fakeChat(adminWorld()), me: ROOT });
     await flush();
     await pickPerson();
@@ -2035,8 +2356,11 @@ describe("an Admin reading a person's conversations", () => {
     expect(banner).toHaveAttribute("role", "status");
     expect(banner).toHaveTextContent("Reading Maya's conversation as an Admin. You cannot send here.");
     expect(banner).toHaveTextContent("Maya is told while you read, and a line stays in the conversation afterward.");
-    expect(screen.queryByTestId("chat-box")).toBeNull();
-    expect(screen.getByTestId("chat-ro-note")).toHaveTextContent("You are reading as an Admin, so there is no message box.");
+    const box = screen.getByTestId("chat-box");
+    expect(box).toBeDisabled();
+    expect(box).toHaveAttribute("placeholder", "An Admin cannot send here");
+    expect(screen.getByTestId("chat-send")).toBeDisabled();
+    expect(screen.getByTestId("chat-ro-note")).toHaveTextContent("You are reading as an Admin, so nothing can be sent here.");
     expect(thread().querySelectorAll(".ch-pick")).toHaveLength(0);
     expect(p.chat.api.markRead).not.toHaveBeenCalled();
     expect(p.chat.api.addresses).not.toHaveBeenCalled();
@@ -2197,6 +2521,57 @@ describe("an Admin reading a person's conversations", () => {
     expect(p.chat.api.overview).toHaveBeenLastCalledWith(null);
     expect(screen.queryByTestId("chat-row-c:group")).toBeNull();
   });
+
+  it("shows an Admin who is not reading the Read as an Admin section, an empty thread area that says what to do, and no row selected", async () => {
+    const w = adminWorld();
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    const nav = within(screen.getByRole("navigation", { name: "Chat" }));
+    expect(titles(nav)[0]).toBe("Read as an Admin");
+    expect(nav.getByText(/belong to a person/)).toBeInTheDocument();
+    const idle = screen.getByTestId("chat-idle");
+    expect(idle).toHaveTextContent("Choose General or a channel to read it.");
+    expect(idle).toHaveTextContent("To read a person's conversations, choose a person under Read as an Admin.");
+    expect(screen.queryByTestId("chat-thread")).toBeNull();
+    expect(row("c:general")).not.toHaveClass("on");
+    await open("c:general");
+    expect(screen.queryByTestId("chat-idle")).toBeNull();
+    expect(screen.getByTestId("chat-thread")).toBeInTheDocument();
+  });
+
+  it("keeps the whole note behind the (i) of the picker and says what is shown once a person is chosen", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    const tip = screen.getByLabelText("About reading as an Admin");
+    expect(tip.closest(".rd-head")).not.toBeNull();
+    expect(within(tip.closest("[aria-describedby]") as HTMLElement).getByRole("tooltip", { hidden: true })).toHaveTextContent("Podium records in the audit log that you read it, never the text.");
+    await pickPerson();
+    expect(screen.getByTestId("chat-stop-reading")).toHaveTextContent("Stop reading");
+    expect(screen.getByText(/'s My group and Direct Messages. Read only./)).toHaveTextContent("Showing Maya's My group and Direct Messages. Read only.");
+    expect(row("c:group")).toHaveTextContent("Maya's own orchestrators and subagents, read only");
+  });
+
+  it("shows a person's My group with the @ tool off beside the box, so nothing can be addressed", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("c:group");
+    expect(screen.getByTestId("chat-box")).toHaveAttribute("placeholder", "An Admin cannot send here");
+    expect(screen.getByTestId("chat-tool-at")).toBeDisabled();
+  });
+
+  it("stops reading from the thread's own button, and leaves nothing that sends in the thread", async () => {
+    page({ chat: fakeChat(adminWorld()), me: ROOT });
+    await flush();
+    await pickPerson();
+    await open("d:dm:m-1|m-2");
+    expect(screen.getByTestId("chat-box")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^Message maya/ })).toBeNull();
+    fireEvent.click(screen.getByTestId("chat-stop-reading-thread"));
+    await flush();
+    expect(screen.queryByTestId("chat-ro-banner")).toBeNull();
+    expect(screen.queryByTestId("chat-stop-reading")).toBeNull();
+  });
 });
 
 // #1067 (mockup/podium-orchestrator-chat-button.html): the orchestrator page's "Chat with Agent" button opens #/chat?with=<id>, and
@@ -2284,7 +2659,7 @@ describe("the Chat button on the orchestrator page (#1067)", () => {
   const consoleWith = (peers: boolean) => {
     window.location.hash = "#/?open=s-dash";
     const state = stateFrom({
-      sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed" })],
+      sessions: [makeSession({ id: "s-dash", name: "claude-dashboard", status: "running", lastSeenAt: T0, owner: "Ed", ownerId: 1 })],
       features: { "activity-feed": true, "peer-messaging": peers },
     });
     return render(<FleetView respondApi={respondApi(ED)} peersApi={peersApi()} chatApi={fakeChat().api} state={state} />);
@@ -2328,5 +2703,2271 @@ describe("opening a thread moves the focus to its heading", () => {
     } finally {
       focus.mockRestore();
     }
+  });
+});
+
+// ---- Public channels, New channel and New direct message (#1035, mockup/podium-channels.html) ------------------------------
+
+const tick = () =>
+  act(async () => {
+    await new Promise((r) => setTimeout(r, 200));
+  });
+const OWN_CAN = { pause: true, pauseEveryone: false, disconnect: true, removeAll: false, editDescription: true, removeChannel: false };
+const ELSE_CAN = { ...OWN_CAN, editDescription: false };
+const ADMIN_CAN = { pause: true, pauseEveryone: true, disconnect: true, removeAll: true, editDescription: true, removeChannel: true };
+const DESC = "Public channels: design questions, and who is working on what.";
+
+/** Ed's overview with General, two public channels (one Maya opened, one Ed opened, nothing in it) and My group. */
+function chanWorld(admin = false) {
+  const w = world();
+  const can = (own: boolean) => (admin ? ADMIN_CAN : own ? OWN_CAN : ELSE_CAN);
+  w.overview.channels = [
+    channelOf("general"),
+    channelOf("issue-1035", { description: DESC, link: { kind: "issue", ref: "1035" }, openedBy: "Maya", unread: 3, messages: 2, can: can(false) }),
+    channelOf("mine-chan", { description: "Ed's own scratch channel.", openedBy: "Ed", messages: 0, can: can(true) }),
+    channelOf("group", { mentions: 1, messages: 2 }),
+  ];
+  if (admin) w.overview.me = { name: "Ed", admin: true, person: true };
+  w.channels["issue-1035"] = {
+    messages: [
+      cmsg("p1", "Decision: only the orchestrator posts here.", { mine: false, authorName: "Maya", authorRef: "Maya" }),
+      cmsg("p2", "Reading this before I draft. <b>bold</b><script>alert(1)</script>", { mine: false, authorKind: "orchestrator", authorName: "docs-writer", authorRef: "s-docs", authorOwner: "Maya" }),
+    ],
+  };
+  w.channels["mine-chan"] = { messages: [] };
+  return w;
+}
+const TARGETS: DirectTarget[] = [
+  { sessionId: "s-dash", name: "claude-dashboard", machine: "ed-mbp", address: "claude-dashboard@ed-mbp", owner: "Ed", own: true, status: "running", waitReason: null, canMessage: true, why: null, needsApproval: false, link: null, thread: "dm:person:ed|s-dash" },
+  { sessionId: "s-docs", name: "docs-writer", machine: "maya-laptop", address: "docs-writer@maya-laptop", owner: "Maya", own: false, status: "running", waitReason: null, canMessage: true, why: null, needsApproval: true, link: "none", thread: "dm:person:ed|s-docs" },
+  { sessionId: "s-gone", name: "old-agent", machine: "maya-laptop", address: "old-agent@maya-laptop", owner: "Maya", own: false, status: "done", waitReason: null, canMessage: true, why: null, needsApproval: true, link: "none", thread: "dm:person:ed|s-gone" },
+  { sessionId: "s-blocked", name: "release-bot", machine: "maya-laptop", address: "release-bot@maya-laptop", owner: "Maya", own: false, status: "waiting", waitReason: "input", canMessage: false, why: "Maya removed the link to release-bot, so it takes no messages from you.", needsApproval: false, link: "removed", thread: "dm:person:ed|s-blocked" },
+];
+const AXE_RULES = {
+  runOnly: { type: "tag" as const, values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] },
+  rules: { "color-contrast": { enabled: false }, "target-size": { enabled: false }, "scrollable-region-focusable": { enabled: false }, "link-in-text-block": { enabled: false }, region: { enabled: false } },
+};
+
+describe("public channels in the sidebar", () => {
+  it("lists General, then the public channels, then My group, each with its description, its unread badge and its menu", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    const keys = within(screen.getByRole("navigation", { name: "Chat" })).getAllByTestId(/^chat-row-c:/).map((r) => r.getAttribute("data-testid"));
+    expect(keys).toEqual(["chat-row-c:general", "chat-row-c:issue-1035", "chat-row-c:mine-chan", "chat-row-c:group"]);
+    const r = row("c:issue-1035");
+    expect(r.querySelector(".nm")).toHaveTextContent("issue-1035");
+    expect(r.querySelector(".sub")).toHaveTextContent(DESC);
+    expect(r.querySelector(".unread")).toHaveAttribute("aria-label", "3 new");
+    expect(within(r).getByRole("button", { name: "Actions for issue-1035" })).toBeInTheDocument();
+    expect(row("c:mine-chan").querySelector(".sub")).toHaveTextContent("Ed's own scratch channel.");
+    expect(row("c:general").querySelector(".sub")).toHaveTextContent("Everyone signed in to this server");
+  });
+
+  it("puts each section's title and its + in one row: the fold button first, with its count, then the + with its tip", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    for (const [h, b, tip] of [["Channels", "New channel", "Create a channel"], ["Direct Messages", "New direct message", "Start a direct message"], ["People and agents", "New direct message", "Start a direct message"]] as const) {
+      const heading = screen.getByRole("heading", { level: 2, name: new RegExp(`^${h}`) });
+      const btn = within(heading).getByRole("button", { name: b });
+      expect(heading).toContainElement(btn);
+      expect(btn).toHaveAttribute("aria-haspopup", "dialog");
+      expect(btn).toHaveAccessibleDescription(tip);
+      expect(heading.firstElementChild).toBe(within(heading).getByRole("button", { name: new RegExp(`^${h}`) }));
+      expect(heading.querySelector(".ch-fold .ch-count")).toHaveTextContent(/^\d+$/);
+    }
+  });
+
+  it("says so when a channel has no description yet", async () => {
+    const w = chanWorld();
+    w.overview.channels[2] = channelOf("mine-chan", { description: "", openedBy: "Ed", can: OWN_CAN });
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(row("c:mine-chan").querySelector(".sub")).toHaveTextContent("No description yet.");
+  });
+
+  it("opens the channel's menu with a right-click as well", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    fireEvent.contextMenu(row("c:issue-1035"));
+    expect(screen.getByRole("menu", { name: "Actions for issue-1035" })).toBeInTheDocument();
+  });
+
+  it("draws a description as text, never as HTML", async () => {
+    const w = chanWorld();
+    w.overview.channels[1] = channelOf("issue-1035", { description: "<b>loud</b><script>alert(1)</script>", openedBy: "Maya", can: ELSE_CAN });
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:issue-1035");
+    expect(row("c:issue-1035").querySelector("b, script")).toBeNull();
+    expect(row("c:issue-1035").querySelector(".sub")).toHaveTextContent("<b>loud</b><script>alert(1)</script>");
+    expect(screen.getByTestId("chat-desc").querySelector("b, script")).toBeNull();
+    expect(screen.getByTestId("chat-desc")).toHaveTextContent("<b>loud</b><script>alert(1)</script>");
+  });
+
+  it("turns New channel off at the limit and says why in the server's words", async () => {
+    const w = chanWorld();
+    w.overview.channels = [channelOf("general"), ...Array.from({ length: 50 }, (_, i) => channelOf(`c-${i}`, { description: "x", can: ELSE_CAN })), channelOf("group")];
+    page({ chat: fakeChat(w) });
+    await flush();
+    const btn = screen.getByRole("button", { name: "New channel" });
+    expect(btn).toBeDisabled();
+    expect(btn).toHaveAccessibleDescription(/This server has 50 channels besides General, the most it keeps\. An Admin can remove one that is no longer used\./);
+    fireEvent.click(btn);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("has New channel on while the server is below the limit", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    expect(screen.getByRole("button", { name: "New channel" })).toBeEnabled();
+    expect(screen.queryByText(/the most it keeps/)).toBeNull();
+  });
+});
+
+describe("a public channel's thread", () => {
+  it("shows the link chip, who opened it, the count, the description and the scope line, and 'orchestrator of' on an agent's message", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    await open("c:issue-1035");
+    const t = thread();
+    expect(within(t).getByRole("heading", { level: 2, name: /issue-1035/ })).toBeInTheDocument();
+    expect(screen.getByTestId("chat-link-chip")).toHaveTextContent("Issue #1035");
+    expect(t).toHaveTextContent("Opened by Maya");
+    expect(t).toHaveTextContent("2 messages");
+    expect(screen.getByTestId("chat-desc")).toHaveTextContent(DESC);
+    expect(t).toHaveTextContent("Every person and Admin signed in to this server can read and post here. An orchestrator reads or posts here only when an @ called it in during the last hour, and sees at most that hour. A subagent does not post here; its orchestrator does.");
+    const msgs = within(t).getAllByTestId("chat-message");
+    expect(msgs[1]).toHaveTextContent("docs-writer");
+    expect(msgs[1]).toHaveTextContent("orchestrator of Maya");
+    expect(msgs[0]).not.toHaveTextContent("orchestrator of");
+    // The text of a message is a text node.
+    expect(msgs[1].querySelector("b, script")).toBeNull();
+    expect(msgs[1]).toHaveTextContent("<b>bold</b><script>alert(1)</script>");
+    expect(screen.getByTestId("chat-box")).toBeEnabled();
+    expect(screen.getByLabelText("Message issue-1035")).toBeInTheDocument();
+  });
+
+  it("names a link to a milestone and to a project", async () => {
+    const w = chanWorld();
+    w.overview.channels[1] = channelOf("issue-1035", { description: "d", link: { kind: "milestone", ref: "v1.7" }, can: ELSE_CAN });
+    w.overview.channels[2] = channelOf("mine-chan", { description: "d", link: { kind: "project", ref: "podium" }, can: OWN_CAN });
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:issue-1035");
+    expect(screen.getByTestId("chat-link-chip")).toHaveTextContent("Milestone v1.7");
+    await open("c:mine-chan");
+    expect(screen.getByTestId("chat-link-chip")).toHaveTextContent("Project podium");
+  });
+
+  it("shows an issue number with one # and any other issue reference as it is, never ## or none", async () => {
+    const w = chanWorld();
+    w.overview.channels[1] = channelOf("issue-1035", { description: "d", link: { kind: "issue", ref: "PODIUM-7" }, can: ELSE_CAN });
+    w.overview.channels[2] = channelOf("mine-chan", { description: "d", link: { kind: "milestone", ref: "1035" }, can: OWN_CAN });
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:issue-1035");
+    expect(screen.getByTestId("chat-link-chip").textContent).toBe("Issue PODIUM-7");
+    await open("c:mine-chan");
+    expect(screen.getByTestId("chat-link-chip").textContent).toBe("Milestone 1035");
+  });
+
+  it("has no link chip, no description and no 'Opened by' when the channel has none of them", async () => {
+    const w = chanWorld();
+    w.overview.channels[2] = channelOf("mine-chan", { description: "", can: OWN_CAN });
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("c:mine-chan");
+    expect(screen.queryByTestId("chat-link-chip")).toBeNull();
+    expect(screen.queryByTestId("chat-desc")).toBeNull();
+    expect(thread()).not.toHaveTextContent("Opened by");
+  });
+
+  it("starts an empty channel with an introduction above the composer, and posts to it by its name", async () => {
+    const chat = fakeChat(chanWorld());
+    page({ chat });
+    await flush();
+    await open("c:mine-chan");
+    const intro = within(thread()).getByTestId("chat-intro");
+    expect(intro).toHaveTextContent("This is the start of");
+    expect(intro).toHaveTextContent("Say something, or type @ to hand work to an agent.");
+    fireEvent.change(box(), { target: { value: "first" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await flush();
+    expect(chat.api.post).toHaveBeenCalledWith("mine-chan", "first");
+  });
+
+  it("reads again on the chat signal when a channel is described or removed, and falls back to General once it is gone", async () => {
+    const chat = fakeChat(chanWorld());
+    const p = page({ chat });
+    await flush();
+    await open("c:mine-chan");
+    chat.w.overview.channels = chat.w.overview.channels.map((c) => (c.id === "mine-chan" ? { ...c, description: "Edited elsewhere." } : c));
+    p.signal();
+    await flush();
+    expect(screen.getByTestId("chat-desc")).toHaveTextContent("Edited elsewhere.");
+    chat.w.overview.channels = chat.w.overview.channels.filter((c) => c.id !== "mine-chan");
+    p.signal();
+    await flush();
+    expect(screen.queryByTestId("chat-row-c:mine-chan")).toBeNull();
+    expect(rowBtn("c:general")).toHaveAttribute("aria-current", "true");
+  });
+
+  it("raises no Admin notice for a public channel an Admin reads while reading a person, and lets the Admin post in it", async () => {
+    const w = chanWorld();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    w.overview.channels = [channelOf("general", { can: ADMIN_CAN }), w.overview.channels[1]!];
+    w.overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
+    w.overview.directs = [];
+    w.overview.agents = [];
+    w.owners = { Maya: { channels: [channelOf("general", { can: ADMIN_CAN }), { ...w.overview.channels[1]!, can: ADMIN_CAN }, channelOf("group", { thread: "group:maya" })], directs: [] } };
+    w.channels.group = { messages: [] };
+    const chat = fakeChat(w);
+    page({ chat, me: ROOT });
+    await flush();
+    fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
+    await flush();
+    await open("c:issue-1035");
+    expect(screen.queryByTestId("chat-ro-note")).toBeNull();
+    expect(screen.queryByText(/Reading Maya's conversation as an Admin/)).toBeNull();
+    expect(screen.getByTestId("chat-box")).toBeEnabled();
+    expect(chat.api.readingChannel).not.toHaveBeenCalled();
+  });
+});
+
+describe("a public channel's menu", () => {
+  const items = () => within(screen.getByRole("menu")).getAllByRole("menuitem").map((i) => i.textContent);
+
+  it("offers a person who did not open it only to pause or disconnect their own agents, and says what is an Admin's", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    expect(items()).toEqual(["Pause my agents in issue-1035", "Disconnect my agents in issue-1035"]);
+    expect(screen.getByRole("menu")).toHaveTextContent("Only an Admin can pause issue-1035 for everyone or remove its messages or the channel.");
+  });
+
+  it("adds Edit description to the channel's opener", async () => {
+    page({ chat: fakeChat(chanWorld()) });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for mine-chan" }));
+    expect(items()).toEqual(["Pause my agents in mine-chan", "Disconnect my agents in mine-chan", "Edit description…"]);
+  });
+
+  it("gives an Admin everything, in order", async () => {
+    page({ chat: fakeChat(chanWorld(true)), me: ROOT });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    expect(items()).toEqual(["Pause my agents in issue-1035", "Disconnect my agents in issue-1035", "Pause issue-1035 for everyone", "Edit description…", "Remove channel…", "Remove all messages…"]);
+  });
+
+  it("pauses and disconnects the person's own agents in that channel, and an Admin pauses it for everyone", async () => {
+    const chat = fakeChat(chanWorld(true));
+    page({ chat, me: ROOT });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Pause my agents in issue-1035/ }));
+    await flush();
+    expect(chat.api.pause).toHaveBeenCalledWith("issue-1035", true);
+    expect(screen.getByText("Paused.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /Disconnect my agents in issue-1035/ }));
+    await flush();
+    expect(chat.api.disconnect).toHaveBeenCalledWith("issue-1035", true);
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pause issue-1035 for everyone" }));
+    await flush();
+    expect(chat.api.pause).toHaveBeenCalledWith("issue-1035", true, true);
+    expect(screen.getByText("issue-1035 is paused for everyone.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Resume issue-1035 for everyone" }));
+    await flush();
+    expect(screen.getByText("issue-1035 resumed.")).toBeInTheDocument();
+  });
+
+  it("says in the words when pausing a channel for everyone fails", async () => {
+    const chat = fakeChat(chanWorld(true));
+    chat.api.pause.mockRejectedValueOnce(new RespondError(500, { error: "The store is busy." }));
+    page({ chat, me: ROOT });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Pause issue-1035 for everyone" }));
+    await flush();
+    expect(screen.getByTestId("chat-action-error")).toHaveTextContent("Could not change issue-1035: The store is busy. Nothing changed. Try again.");
+  });
+
+  it("removes the history of a public channel after a confirmation that says everyone loses it", async () => {
+    const chat = fakeChat(chanWorld(true));
+    page({ chat, me: ROOT });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove all messages…" }));
+    expect(screen.getByTestId("chat-confirm")).toHaveTextContent("Remove all 2 messages in issue-1035? Everyone loses the history, and it cannot be recovered.");
+  });
+});
+
+describe("Remove channel (an Admin)", () => {
+  const ask = async (chat: ReturnType<typeof fakeChat>) => {
+    page({ chat, me: ROOT });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove channel…" }));
+  };
+
+  it("asks first, in the mockup's words, and names who is told", async () => {
+    await ask(fakeChat(chanWorld(true)));
+    const c = screen.getByTestId("chat-confirm");
+    expect(c).toHaveAttribute("role", "alertdialog");
+    expect(c).toHaveTextContent("Remove the channel issue-1035? Its 2 messages are removed for everyone, and it cannot be recovered. Maya is told that an Admin removed it.");
+    expect(screen.getByRole("button", { name: "Keep it" })).toHaveFocus();
+  });
+
+  it("removes the channel, goes back to General and says so", async () => {
+    const chat = fakeChat(chanWorld(true));
+    await ask(chat);
+    fireEvent.click(screen.getByRole("button", { name: "Remove channel" }));
+    await flush();
+    expect(chat.api.removeChannel).toHaveBeenCalledWith("issue-1035");
+    expect(screen.queryByTestId("chat-row-c:issue-1035")).toBeNull();
+    expect(rowBtn("c:general")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByText("Channel removed.")).toBeInTheDocument();
+  });
+
+  it("changes nothing on Keep it, and says what to do when the server refuses", async () => {
+    const chat = fakeChat(chanWorld(true));
+    await ask(chat);
+    fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
+    expect(screen.queryByTestId("chat-confirm")).toBeNull();
+    expect(chat.api.removeChannel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for issue-1035" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove channel…" }));
+    chat.api.removeChannel.mockRejectedValueOnce(new RespondError(404, { error: "There is no such channel." }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove channel" }));
+    await flush();
+    expect(screen.getByTestId("chat-action-error")).toHaveTextContent("Could not remove the channel: There is no such channel. Nothing changed. Try again.");
+  });
+
+  it("leaves the opener out of the words when nobody opened the channel", async () => {
+    const w = chanWorld(true);
+    w.overview.channels[1] = channelOf("issue-1035", { description: "d", openedBy: null, messages: 1, can: ADMIN_CAN });
+    await ask(fakeChat(w));
+    expect(screen.getByTestId("chat-confirm")).toHaveTextContent(/^Remove the channel issue-1035\? Its 1 messages are removed for everyone, and it cannot be recovered\.Keep itRemove channel$/);
+  });
+});
+
+describe("the New channel form", () => {
+  const openForm = async (chat = fakeChat(chanWorld())) => {
+    const p = page({ chat });
+    await flush();
+    const btn = screen.getByRole("button", { name: "New channel" });
+    btn.focus();
+    fireEvent.click(btn);
+    await tick();
+    return { chat, btn, p };
+  };
+  const field = (name: string) => within(screen.getByRole("dialog")).getByLabelText(name) as HTMLInputElement;
+  const submit = async () => {
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create channel" }));
+    await flush();
+  };
+  const banner = () => within(screen.getByRole("dialog")).getByRole("alert");
+
+  it("opens a dialog with the fields, the privacy hint and the focus on Name", async () => {
+    await openForm();
+    const d = screen.getByRole("dialog", { name: "New channel" });
+    expect(d).toHaveTextContent("Every person and Admin signed in to this server can read and post in a channel, and so can an orchestrator for the hour after an @ calls it in.");
+    for (const l of ["Name", "Description", "About (optional)", "Which one"]) expect(within(d).getByLabelText(l)).toBeInTheDocument();
+    expect([...(field("About (optional)") as unknown as HTMLSelectElement).options].map((o) => o.textContent)).toEqual(["Nothing", "Issue", "Milestone", "Project"]);
+    expect(field("Name")).toHaveFocus();
+    expect(within(d).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(within(d).queryByRole("alert")).toBeNull();
+  });
+
+  it("lowercases the name as it is typed and counts the description out of 280", async () => {
+    await openForm();
+    fireEvent.change(field("Name"), { target: { value: "Staging-Incident" } });
+    expect(field("Name").value).toBe("staging-incident");
+    expect(screen.getByRole("dialog")).toHaveTextContent("0 of 280");
+    fireEvent.change(field("Description"), { target: { value: "hello" } });
+    expect(screen.getByRole("dialog")).toHaveTextContent("5 of 280");
+    expect(field("Description")).toHaveAttribute("maxlength", "280");
+  });
+
+  it("asks for a name, and refuses one the server would, before it asks the server", async () => {
+    const { chat } = await openForm();
+    await submit();
+    expect(banner()).toHaveTextContent("Name the channel.");
+    expect(field("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(field("Name")).toHaveFocus();
+    fireEvent.change(field("Name"), { target: { value: "-bad" } });
+    await submit();
+    expect(banner()).toHaveTextContent("A name has lowercase letters, numbers and hyphens only, starts with a letter or a number, and is at most 40 characters.");
+    expect(chat.api.createChannel).not.toHaveBeenCalled();
+  });
+
+  it("asks which issue, milestone or project when one is chosen and none is named", async () => {
+    const { chat } = await openForm();
+    fireEvent.change(field("Name"), { target: { value: "new-one" } });
+    fireEvent.change(field("About (optional)"), { target: { value: "milestone" } });
+    await submit();
+    expect(banner()).toHaveTextContent("Say which milestone it is about, or choose Nothing.");
+    expect(field("Which one")).toHaveAttribute("aria-invalid", "true");
+    expect(field("Which one")).toHaveFocus();
+    expect(chat.api.createChannel).not.toHaveBeenCalled();
+  });
+
+  it("creates the channel, selects it, closes the form, says so and leaves the focus on the thread", async () => {
+    const { chat } = await openForm();
+    fireEvent.change(field("Name"), { target: { value: "Staging-Incident" } });
+    fireEvent.change(field("Description"), { target: { value: " What broke. " } });
+    fireEvent.change(field("About (optional)"), { target: { value: "issue" } });
+    fireEvent.change(field("Which one"), { target: { value: " #1035 " } });
+    await submit();
+    expect(chat.api.createChannel).toHaveBeenCalledWith("staging-incident", "What broke.", { kind: "issue", ref: "#1035" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(rowBtn("c:staging-incident")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("heading", { level: 2, name: /staging-incident/ })).toBeInTheDocument();
+    expect(screen.getByText("Channel staging-incident created.")).toBeInTheDocument();
+    await tick();
+    expect(document.activeElement).toBe(document.getElementById("th-h"));
+  });
+
+  it("sends no link when About is Nothing", async () => {
+    const { chat } = await openForm();
+    fireEvent.change(field("Name"), { target: { value: "plain" } });
+    await submit();
+    expect(chat.api.createChannel).toHaveBeenCalledWith("plain", "", null);
+  });
+
+  const refused: [string, number, string, string, string][] = [
+    ["a name that is taken", 409, "name-taken", "There is already a channel called issue-1035. Open it, or pick another name.", "Name"],
+    ["a link that is taken", 409, "link-taken", "There is already a channel for issue #1035: issue-1035. Open it instead.", "Which one"],
+    ["the limit", 409, "limit-reached", "This server has 50 channels besides General, the most it keeps. An Admin can remove one that is no longer used.", "banner"],
+    ["a reserved name", 422, "reserved", "general is the name of a built-in channel.", "Name"],
+    ["an invalid name", 422, "invalid", "The name must be 1 to 40 characters.", "Name"],
+    ["an invalid link", 422, "invalid", "The link reference must be at most 100 characters.", "Which one"],
+    ["a description that is too long", 422, "invalid", "The description must be at most 280 characters.", "Description"],
+  ];
+  for (const [what, status, reason, words, focus] of refused) {
+    it(`shows the server's own words for ${what}, keeps the form and the draft, and focuses the field`, async () => {
+      const { chat } = await openForm();
+      chat.api.createChannel.mockRejectedValueOnce(new RespondError(status, { ok: false, error: words, reason }));
+      fireEvent.change(field("Name"), { target: { value: "issue-1035" } });
+      fireEvent.change(field("About (optional)"), { target: { value: "issue" } });
+      fireEvent.change(field("Which one"), { target: { value: "#1035" } });
+      await submit();
+      expect(banner()).toHaveTextContent(words);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(field("Name").value).toBe("issue-1035");
+      if (focus === "banner") {
+        expect(banner()).toHaveFocus();
+        expect(within(screen.getByRole("dialog")).getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+      } else expect(field(focus)).toHaveFocus();
+      expect(screen.getByRole("button", { name: "Create channel" })).toBeEnabled();
+    });
+  }
+
+  it("says what went wrong and what to try when the server does not answer", async () => {
+    const { chat } = await openForm();
+    chat.api.createChannel.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.change(field("Name"), { target: { value: "one" } });
+    await submit();
+    expect(banner()).toHaveTextContent("Could not create the channel: the server did not answer. Nothing was saved. Try again.");
+  });
+
+  it("closes on Cancel, the X, Escape and a click on the dimmed area, each giving the focus back to New channel", async () => {
+    const closers: [string, () => void][] = [
+      ["Cancel", () => fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }))],
+      ["the X", () => fireEvent.click(screen.getByRole("button", { name: "Close (Esc)" }))],
+      ["Escape", () => fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })],
+      ["the scrim", () => fireEvent.mouseDown(screen.getByRole("dialog").parentElement!)],
+    ];
+    const { btn } = await openForm();
+    for (const [, close] of closers) {
+      if (!screen.queryByRole("dialog")) {
+        btn.focus();
+        fireEvent.click(btn);
+        await tick();
+      }
+      close();
+      await tick();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(btn).toHaveFocus();
+    }
+  });
+
+  it("passes the axe rules jsdom can judge, with an error showing", async () => {
+    vi.useRealTimers();
+    await openForm();
+    await submit();
+    const r = await axe.run(screen.getByRole("dialog"), AXE_RULES);
+    expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  });
+});
+
+describe("Edit description", () => {
+  const openEdit = async (chat = fakeChat(chanWorld())) => {
+    page({ chat });
+    await flush();
+    const more = screen.getByRole("button", { name: "Actions for mine-chan" });
+    more.focus();
+    fireEvent.click(more);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit description…" }));
+    await tick();
+    return chat;
+  };
+
+  it("opens the same form with the name fixed and the description filled in, focused", async () => {
+    await openEdit();
+    const d = screen.getByRole("dialog", { name: "Edit description" });
+    expect(within(d).getByLabelText("Name")).toBeDisabled();
+    expect(within(d).getByLabelText("Name")).toHaveValue("mine-chan");
+    expect(within(d).getByLabelText("Description")).toHaveValue("Ed's own scratch channel.");
+    expect(within(d).getByLabelText("Description")).toHaveFocus();
+    expect(d).toHaveTextContent("A name cannot be changed after the channel is made.");
+    expect(within(d).queryByLabelText("About (optional)")).toBeNull();
+    expect(within(d).getByRole("button", { name: "Save description" })).toBeInTheDocument();
+  });
+
+  it("names the link it cannot change", async () => {
+    const w = chanWorld();
+    w.overview.channels[2] = channelOf("mine-chan", { description: "d", link: { kind: "project", ref: "podium" }, openedBy: "Ed", can: OWN_CAN });
+    await openEdit(fakeChat(w));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Linked to Project podium. The link cannot be changed.");
+  });
+
+  it("saves the new description, shows it in the row and says so", async () => {
+    const chat = await openEdit();
+    fireEvent.change(screen.getByLabelText("Description"), { target: { value: " A better line. " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save description" }));
+    await flush();
+    expect(chat.api.describeChannel).toHaveBeenCalledWith("mine-chan", "A better line.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(row("c:mine-chan").querySelector(".sub")).toHaveTextContent("A better line.");
+    expect(screen.getByText("Description saved.")).toBeInTheDocument();
+    await tick();
+    expect(document.activeElement).toBe(within(row("c:mine-chan")).getByRole("button", { name: "Actions for mine-chan" }));
+  });
+
+  it("shows the server's refusal and keeps the form", async () => {
+    const chat = await openEdit();
+    chat.api.describeChannel.mockRejectedValueOnce(new RespondError(403, { ok: false, error: "Only Ed or an Admin can change the description of mine-chan." }));
+    fireEvent.click(screen.getByRole("button", { name: "Save description" }));
+    await flush();
+    expect(within(screen.getByRole("dialog")).getByRole("alert")).toHaveTextContent("Only Ed or an Admin can change the description of mine-chan.");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("passes the axe rules jsdom can judge", async () => {
+    vi.useRealTimers();
+    await openEdit();
+    const r = await axe.run(screen.getByRole("dialog"), AXE_RULES);
+    expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  });
+});
+
+describe("the New direct message form", () => {
+  const withTargets = (targets: DirectTarget[] = TARGETS) => {
+    const w = chanWorld();
+    w.targets = targets;
+    return fakeChat(w);
+  };
+  const openForm = async (chat = withTargets()) => {
+    const p = page({ chat });
+    await flush();
+    const btn = within(screen.getByRole("heading", { level: 2, name: /^Direct Messages/ })).getByRole("button", { name: "New direct message" });
+    btn.focus();
+    fireEvent.click(btn);
+    await flush();
+    await tick();
+    return { chat, btn, p };
+  };
+  const dlg = () => within(screen.getByRole("dialog", { name: "New direct message" }));
+  const sendBtn = () => dlg().getByRole("button", { name: "Send message" });
+
+  it("puts a + named New direct message, with the tip Start a direct message and no visible words, in the Direct Messages title", async () => {
+    page({ chat: withTargets() });
+    await flush();
+    const b = within(screen.getByRole("heading", { level: 2, name: /^Direct Messages/ })).getByRole("button", { name: "New direct message" });
+    expect(b).toHaveAttribute("aria-label", "New direct message");
+    expect(b).toHaveTextContent("");
+    expect(b).toHaveAccessibleDescription("Start a direct message");
+    expect(b.closest("section")).toContainElement(screen.getByRole("heading", { name: /^Direct Messages/ }));
+  });
+
+  it("lists people, then your agents, then other people's, hides an ended agent of another person and focuses the search", async () => {
+    await openForm();
+    const d = screen.getByRole("dialog");
+    expect(within(d).getByRole("heading", { level: 3, name: "People" })).toBeInTheDocument();
+    expect(within(d).getByRole("heading", { level: 3, name: "Your agents" })).toBeInTheDocument();
+    expect(within(d).getByRole("heading", { level: 3, name: "Other people's agents" })).toBeInTheDocument();
+    expect(within(d).getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["p:Maya", "a:s-dash", "a:s-docs", "a:s-blocked"]);
+    expect(within(d).queryByText(/old-agent/)).toBeNull();
+    expect(within(d).getByLabelText(/claude-dashboard/)).toBeEnabled();
+    expect(d).toHaveTextContent("Your orchestrator, running");
+    expect(dlg().getByLabelText("Find a person or an agent")).toHaveFocus();
+    expect(d).toHaveTextContent("Between people only, a direct message is read by them alone and an Admin cannot read it.");
+    expect(d).toHaveTextContent("whether or not an orchestrator of theirs is running");
+  });
+
+  it("shows another person's agent disabled, and says it cannot be added yet", async () => {
+    await openForm();
+    expect(dlg().getByLabelText(/release-bot/)).toBeDisabled();
+    expect(dlg().getByLabelText(/docs-writer/)).toBeDisabled();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Adding another person's agent is not available yet.");
+  });
+
+  it("searches as it is typed, asking the server, and says when nothing matches", async () => {
+    const { chat } = await openForm();
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "docs" } });
+    await flush();
+    expect(chat.api.directTargets).toHaveBeenLastCalledWith("docs");
+    expect(chat.api.chatPeople).toHaveBeenLastCalledWith("docs");
+    expect(dlg().getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["a:s-docs"]);
+    expect(screen.queryByRole("heading", { level: 3, name: "Your agents" })).toBeNull();
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "zzz" } });
+    await flush();
+    expect(screen.getByRole("dialog")).toHaveTextContent("No person or agent matches that.");
+  });
+
+  it("says so when there is no one to message", async () => {
+    const w = chanWorld();
+    w.overview.people = [{ name: "Ed", you: true }];
+    w.targets = [];
+    await openForm(fakeChat(w));
+    expect(screen.getByRole("dialog")).toHaveTextContent("There is no one to message yet.");
+  });
+
+  it("lists a person who has no orchestrator running, so they can be messaged", async () => {
+    const w = chanWorld();
+    w.targets = [];
+    await openForm(fakeChat(w));
+    expect(dlg().getByRole("checkbox", { name: "Maya" })).toBeEnabled();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("Choose who to message.");
+  });
+
+  it("says what went wrong when the list cannot be read", async () => {
+    const chat = withTargets();
+    chat.api.directTargets.mockRejectedValueOnce(new RespondError(500, { error: "The store is busy." }));
+    await openForm(chat);
+    expect(dlg().getByRole("alert")).toHaveTextContent("Could not read who you can message: The store is busy. Try again.");
+  });
+
+  it("asks who to message, then for the first message, before it sends anything", async () => {
+    const { chat } = await openForm();
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveTextContent("Choose at least one person or agent.");
+    expect(dlg().getByLabelText("Find a person or an agent")).toHaveFocus();
+    fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveTextContent("Write the first message.");
+    expect(dlg().getByLabelText("Message")).toHaveFocus();
+    expect(chat.api.sendDm).not.toHaveBeenCalled();
+  });
+
+  it("opens a conversation with a person who has no orchestrator running, sends the first message and shows it", async () => {
+    const w = chanWorld();
+    w.targets = [];
+    const chat = fakeChat(w);
+    await openForm(chat);
+    fireEvent.click(dlg().getByRole("checkbox", { name: "Maya" }));
+    expect(screen.getByTestId("dm-summary")).toHaveTextContent("To Maya.");
+    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: " are you around? " } });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(chat.api.openConversation).toHaveBeenCalledWith([{ kind: "person", name: "Maya" }], "are you around?");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByTestId("chat-conversation")).toHaveTextContent("are you around?");
+    expect(screen.getByTestId("chat-conversation-privacy")).toHaveTextContent("Only you and Maya can read this. An Admin cannot.");
+    expect(screen.getByText("Sent to Maya.")).toBeInTheDocument();
+  });
+
+  it("says an Admin can read it when an agent is ticked, and that it makes a conversation of everyone chosen", async () => {
+    await openForm();
+    fireEvent.click(dlg().getByRole("checkbox", { name: "Maya" }));
+    expect(screen.queryByTestId("dm-agent-warn")).toBeNull();
+    fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
+    expect(screen.getByTestId("dm-agent-warn")).toHaveTextContent("An agent is in this conversation, so an Admin can read it.");
+    expect(screen.getByTestId("dm-summary")).toHaveTextContent("To Maya and claude-dashboard. This makes a conversation of 3 with you.");
+  });
+
+  it("sends to your own agent, opens the conversation and says so", async () => {
+    const { chat } = await openForm();
+    fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
+    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: " hello there " } });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(chat.api.sendDm).toHaveBeenCalledWith("me", "s-dash", "hello there");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("heading", { level: 2, name: /claude-dashboard/ })).toBeInTheDocument();
+    expect(screen.getByText("Sent to claude-dashboard.")).toBeInTheDocument();
+  });
+
+
+  it("says what could not be delivered when the server sent the message but skipped or failed an agent", async () => {
+    const chat = withTargets();
+    chat.api.sendDm.mockResolvedValueOnce({ ok: true as const, message: dmsg("y1", ME, agent("s-dash", "claude-dashboard"), "hi", { state: "queued" }), skipped: [{ name: "claude-dashboard", why: "Its link is paused." }], errors: [{ name: "x", error: "no route" }] });
+    await openForm(chat);
+    fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
+    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: "hi" } });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(screen.getByText("Sent, but x: no route Its link is paused.")).toBeInTheDocument();
+  });
+
+  it("shows the server's refusal in the banner and keeps the form, with the draft", async () => {
+    const { chat } = await openForm();
+    chat.api.sendDm.mockRejectedValueOnce(new RespondError(422, { ok: false, error: "claude-dashboard's reporter does not take messages from Podium." }));
+    fireEvent.click(dlg().getByLabelText(/claude-dashboard/));
+    fireEvent.change(dlg().getByLabelText("Message"), { target: { value: "hello" } });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveTextContent("claude-dashboard's reporter does not take messages from Podium.");
+    expect(dlg().getByLabelText("Message")).toHaveValue("hello");
+    chat.api.sendDm.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveTextContent("Could not send the message: the server did not answer. Nothing was sent. Try again.");
+  });
+
+  it("closes on Cancel, Escape and the dimmed area, giving the focus back to the button", async () => {
+    const { btn } = await openForm();
+    for (const close of [() => fireEvent.click(dlg().getByRole("button", { name: "Cancel" })), () => fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" }), () => fireEvent.mouseDown(screen.getByRole("dialog").parentElement!)]) {
+      if (!screen.queryByRole("dialog")) {
+        btn.focus();
+        fireEvent.click(btn);
+        await flush();
+      }
+      close();
+      await tick();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(btn).toHaveFocus();
+    }
+  });
+
+  it("ignores an answer to an older search, whether it lands or fails after the newer one", async () => {
+    const chat = withTargets();
+    let late: (v: { ok: true; targets: DirectTarget[] }) => void = () => {};
+    let lateFail: (e: unknown) => void = () => {};
+    chat.api.directTargets.mockImplementation(async (q = "") => {
+      if (q === "a") return new Promise((res) => (late = res));
+      if (q === "b") return new Promise((_, rej) => (lateFail = rej));
+      return { ok: true as const, targets: TARGETS.filter((t) => t.name.includes(q)) };
+    });
+    await openForm(chat);
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "a" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "b" } });
+    fireEvent.change(dlg().getByLabelText("Find a person or an agent"), { target: { value: "docs" } });
+    await flush();
+    expect(dlg().getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["a:s-docs"]);
+    await act(async () => {
+      late({ ok: true, targets: [] });
+      lateFail(new Error("offline"));
+    });
+    expect(dlg().getAllByRole("checkbox").map((r) => (r as HTMLInputElement).value)).toEqual(["a:s-docs"]);
+    expect(dlg().queryByText(/Could not read who you can message/)).toBeNull();
+  });
+
+
+  it("is not offered to an Admin who is reading a person", async () => {
+    const w = chanWorld();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    w.overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
+    w.owners = { Maya: { channels: [channelOf("general", { can: ADMIN_CAN })], directs: [] } };
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
+    await flush();
+    expect(screen.getByRole("heading", { name: /^Direct Messages/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New direct message" })).toBeNull();
+  });
+
+  it("passes the axe rules jsdom can judge, with an error showing", async () => {
+    vi.useRealTimers();
+    await openForm();
+    fireEvent.click(sendBtn());
+    await flush();
+    const r = await axe.run(screen.getByRole("dialog"), AXE_RULES);
+    expect(r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+  });
+});
+
+describe("a refusal that is not about a field (#1035)", () => {
+  const dlg = () => within(screen.getByRole("dialog"));
+  const anyInvalid = () => screen.getByRole("dialog").querySelectorAll('[aria-invalid="true"]').length;
+  const limited = () => new RespondError(429, { ok: false, error: "Too many requests. Wait a minute and try again." });
+
+  it("in create mode shows a 429 in the banner, focuses the banner and marks no field invalid", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.createChannel.mockRejectedValueOnce(limited());
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "New channel" }));
+    await tick();
+    fireEvent.change(dlg().getByLabelText("Name"), { target: { value: "fine-name" } });
+    fireEvent.click(dlg().getByRole("button", { name: "Create channel" }));
+    await flush();
+    const banner = dlg().getByRole("alert");
+    expect(banner).toHaveTextContent("Too many requests. Wait a minute and try again.");
+    expect(banner).toHaveFocus();
+    expect(anyInvalid()).toBe(0);
+  });
+
+  it("in edit mode shows a 429 in the banner, keeps the focus in the dialog and never marks the disabled name", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.describeChannel.mockRejectedValueOnce(limited());
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for mine-chan" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit description…" }));
+    await tick();
+    fireEvent.click(dlg().getByRole("button", { name: "Save description" }));
+    await flush();
+    const banner = dlg().getByRole("alert");
+    expect(banner).toHaveTextContent("Too many requests. Wait a minute and try again.");
+    expect(banner).toHaveFocus();
+    expect(dlg().getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+    expect(anyInvalid()).toBe(0);
+  });
+
+  it("in edit mode puts an invalid description on the description, and a network failure in the banner", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.describeChannel.mockRejectedValueOnce(new RespondError(422, { ok: false, error: "The description is too long.", reason: "invalid" }));
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for mine-chan" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit description…" }));
+    await tick();
+    fireEvent.click(dlg().getByRole("button", { name: "Save description" }));
+    await flush();
+    expect(dlg().getByLabelText("Description")).toHaveAttribute("aria-invalid", "true");
+    expect(dlg().getByLabelText("Description")).toHaveFocus();
+    expect(dlg().getByLabelText("Name")).not.toHaveAttribute("aria-invalid");
+    chat.api.describeChannel.mockRejectedValueOnce(new Error("offline"));
+    fireEvent.click(dlg().getByRole("button", { name: "Save description" }));
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveFocus();
+    expect(anyInvalid()).toBe(0);
+  });
+
+  it("an unknown reason in create mode is a banner too, and a reserved name still marks the name", async () => {
+    const chat = fakeChat(chanWorld());
+    chat.api.createChannel.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "Something else.", reason: "mystery" }));
+    page({ chat });
+    await flush();
+    fireEvent.click(screen.getByRole("button", { name: "New channel" }));
+    await tick();
+    fireEvent.change(dlg().getByLabelText("Name"), { target: { value: "general" } });
+    fireEvent.click(dlg().getByRole("button", { name: "Create channel" }));
+    await flush();
+    expect(dlg().getByRole("alert")).toHaveFocus();
+    expect(anyInvalid()).toBe(0);
+    chat.api.createChannel.mockRejectedValueOnce(new RespondError(422, { ok: false, error: "general is built in.", reason: "reserved" }));
+    fireEvent.click(dlg().getByRole("button", { name: "Create channel" }));
+    await flush();
+    expect(dlg().getByLabelText("Name")).toHaveAttribute("aria-invalid", "true");
+    expect(dlg().getByLabelText("Name")).toHaveFocus();
+  });
+});
+
+describe("message rows, one bubble, dividers and code blocks (#1232)", () => {
+  const MIN = 60_000;
+  const DAY = 86_400_000;
+  const general = (messages: ChannelMessage[], unread = 0) => {
+    const w = world();
+    w.channels.general = { messages };
+    w.overview.channels = w.overview.channels.map((c) => (c.id === "general" ? { ...c, unread, messages: messages.length } : c));
+    return fakeChat(w);
+  };
+  const maya = (id: string, text: string, at: number, over: Partial<ChannelMessage> = {}) => cmsg(id, text, { mine: false, authorName: "Maya", authorRef: "Maya", createdAt: at, updatedAt: at, ...over });
+  const rows = () => within(thread()).getAllByTestId("chat-message");
+  const settle = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 200));
+    });
+
+  it("shares one avatar, name and time across a run, and starts another for a new sender, a gap over five minutes or a new day", async () => {
+    page({
+      chat: general([
+        maya("a", "first", T0 - DAY - 5 * MIN),
+        maya("b", "second", T0 - 9 * MIN),
+        maya("c", "third", T0 - 7 * MIN),
+        maya("d", "after a gap", T0 - MIN),
+        cmsg("e", "mine", { createdAt: T0 - 30_000 }),
+      ]),
+    });
+    await flush();
+    await open("c:general");
+    const r = rows();
+    expect(r.map((x) => (x.classList.contains("cont") ? "cont" : "first"))).toEqual(["first", "first", "cont", "first", "first"]);
+    expect(r[1]!.querySelector(".ch-av.person")).not.toBeNull();
+    expect(r[1]!.querySelector(".who")).toHaveTextContent("Maya");
+    expect(r[2]!.querySelector(".ch-av, .who, .at")).toBeNull();
+    expect(r[2]!.querySelector(".ch-gut")).toHaveTextContent(/^\d\d:\d\d$/);
+    expect(r[2]!.querySelector(".ch-tx")).toHaveTextContent("third");
+  });
+
+  it("puts your messages on the right in the same bubble as everyone's, with the inverted disc and You", async () => {
+    page({ chat: general([maya("a", "hello", T0 - 5 * MIN), cmsg("b", "hi back", { createdAt: T0 - 4 * MIN })]) });
+    await flush();
+    await open("c:general");
+    const [theirs, mine] = rows();
+    expect(theirs).not.toHaveClass("mine");
+    expect(mine).toHaveClass("mine");
+    expect(mine!.querySelector(".ch-av.me")).not.toBeNull();
+    expect(mine!.querySelector(".who")).toHaveTextContent("You");
+    expect(mine!.querySelector(".ch-tx")!.className).toBe(theirs!.querySelector(".ch-tx")!.className);
+  });
+
+  it("draws an agent as a tile with its model and state, and says Agent and the model beside the name", async () => {
+    page({ chat: general([cmsg("a", "On it.", { mine: false, authorKind: "orchestrator", authorName: "Tester", authorRef: "s-tester", createdAt: T0 - MIN })]) });
+    await flush();
+    await open("c:general");
+    const m = rows()[0]!;
+    expect(m.querySelector(".ch-av.agent")).not.toBeNull();
+    expect(m.querySelector(".chip.model")).toHaveTextContent(/^Agent · /);
+  });
+
+  it("draws a day divider for Yesterday and Today, and a New line at the first unread message with the word", async () => {
+    page({ chat: general([maya("a", "old", T0 - DAY), maya("b", "read", T0 - 3 * MIN), maya("c", "unread one", T0 - 2 * MIN), maya("d", "unread two", T0 - MIN)], 2) });
+    await flush();
+    await open("c:general");
+    const flow = [...thread().querySelectorAll("ol.ch-msgs > li")].map((li) => (li.classList.contains("ch-day") ? `day:${li.textContent}` : li.classList.contains("ch-newline") ? `new:${li.textContent}` : `msg:${li.querySelector(".ch-tx")?.textContent}`));
+    expect(flow).toEqual(["day:Yesterday", "msg:old", "day:Today", "msg:read", "new:New", "msg:unread one", "msg:unread two"]);
+  });
+
+  it("draws no New line when nothing was unread, and keeps it where it was after the thread is read", async () => {
+    const p = page({ chat: general([maya("a", "one", T0 - 3 * MIN), maya("b", "two", T0 - 2 * MIN), maya("c", "three", T0 - MIN)], 1) });
+    await flush();
+    await open("c:general");
+    expect(thread().querySelectorAll(".ch-newline")).toHaveLength(1);
+    p.chat.w.overview.channels = p.chat.w.overview.channels.map((c) => (c.id === "general" ? { ...c, unread: 0 } : c));
+    p.signal();
+    await flush();
+    expect(thread().querySelectorAll(".ch-newline")).toHaveLength(1);
+    await open("c:group");
+    expect(thread().querySelectorAll(".ch-newline")).toHaveLength(0);
+  });
+
+  it("draws a fenced block as text in a focusable monospace block with its language word, and a tag in a message as text", async () => {
+    const text = "run it:\n```sh\nnpm test <script>alert(1)</script>\n```\ndone `x`";
+    page({ chat: general([maya("a", text, T0 - MIN)]) });
+    await flush();
+    await open("c:general");
+    const block = within(thread()).getByTestId("chat-code");
+    const pre = block.querySelector("pre")!;
+    expect(pre).toHaveAttribute("tabindex", "0");
+    expect(pre.querySelector("code")!.textContent).toBe("npm test <script>alert(1)</script>");
+    expect(block).toHaveTextContent("sh");
+    expect(thread().querySelector("script")).toBeNull();
+    expect(rows()[0]!.querySelector(".ch-inline")).toHaveTextContent("x");
+    // The line break against the block is its edge, not a blank line.
+    expect(rows()[0]!.querySelector(".ch-tx")!.firstChild!.textContent).toBe("run it:");
+  });
+
+  it("copies a block and says Copied, or says Select and copy when the clipboard is refused or missing", async () => {
+    page({ chat: general([maya("a", "```\nls\n```", T0 - MIN)]) });
+    await flush();
+    await open("c:general");
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const copy = () => within(thread()).getByRole("button", { name: /Copy|Copied|Select and copy/ });
+    fireEvent.click(copy());
+    await flush();
+    expect(writeText).toHaveBeenCalledWith("ls");
+    expect(copy()).toHaveTextContent("Copied");
+    writeText.mockRejectedValueOnce(new Error("denied"));
+    fireEvent.click(copy());
+    await flush();
+    expect(copy()).toHaveTextContent("Select and copy");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    fireEvent.click(copy());
+    await flush();
+    expect(copy()).toHaveTextContent("Select and copy");
+    await settle();
+    await settle();
+  });
+
+  it("shows a message that was not delivered in the critical color with the icon and the words", async () => {
+    page({ chat: general([cmsg("a", "go @Tester@ci-runner-01", { mentions: [{ typed: "Tester@ci-runner-01", sessionId: "s-tester", state: "not-delivered", why: "it ended", stateAt: T0 }] })]) });
+    await flush();
+    await open("c:general");
+    const bad = rows()[0]!.querySelector(".ds.bad")!;
+    expect(bad).toHaveTextContent("Not delivered to Tester");
+    expect(bad.querySelector("svg")).not.toBeNull();
+  });
+
+  describe("the live region", () => {
+    const log = () => within(thread()).getByRole("log", { name: "Messages" });
+    it("is a polite log of additions, and does not announce what loads with the conversation", async () => {
+      page({ chat: general([maya("a", "history", T0 - MIN)]) });
+      await flush();
+      await open("c:general");
+      expect(log()).toHaveAttribute("aria-live", "off");
+      expect(log()).toHaveAttribute("aria-relevant", "additions");
+      expect(log()).toHaveAttribute("aria-atomic", "false");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("announces a message that arrives while the conversation is open", async () => {
+      const p = page({ chat: general([maya("a", "history", T0 - MIN)]) });
+      await flush();
+      await open("c:general");
+      await settle();
+      p.chat.w.channels.general!.messages.push(maya("b", "arrived", T0));
+      p.signal();
+      await flush();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+      expect(rows()).toHaveLength(2);
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("does not announce a message the person has just sent, a record line or earlier messages", async () => {
+      const w = world();
+      w.channels.general = { messages: [maya("a", "history", T0 - MIN)] };
+      const p = page({ chat: fakeChat(w) });
+      await flush();
+      await open("c:general");
+      await settle();
+      w.channels.general!.messages.push(cmsg("m", "mine", { createdAt: T0 }));
+      p.signal();
+      await flush();
+      expect(log()).toHaveAttribute("aria-live", "off");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+    it("does not announce earlier messages a person asks for", async () => {
+      page();
+      await flush();
+      await open("d:dm:s-dash|s-tester");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+      fireEvent.click(within(thread()).getByRole("button", { name: "Earlier messages" }));
+      await flush();
+      expect(within(thread()).getAllByTestId("chat-message")[0]).toHaveTextContent("An older message.");
+      expect(log()).toHaveAttribute("aria-live", "off");
+      await settle();
+      expect(log()).toHaveAttribute("aria-live", "polite");
+    });
+
+    it("does not announce a record line an Admin's reading leaves", async () => {
+      const w = world();
+      const p = page({ chat: fakeChat(w) });
+      await flush();
+      await open("d:dm:s-dash|s-tester");
+      await settle();
+      w.reads = { "s-dash|s-tester": [{ admin: "Root", startedAt: T0, lastSeenAt: T0 }] };
+      p.signal();
+      await flush();
+      expect(within(thread()).getByTestId("chat-record")).toBeInTheDocument();
+      expect(log()).toHaveAttribute("aria-live", "off");
+      await settle();
+    });
+  });
+});
+
+// ---- The sidebar redesign (#1234, mockup/podium-chat-redesign.html) ---------------------------------------------------------
+describe("the redesigned sidebar", () => {
+  const nav = () => screen.getByRole("navigation", { name: "Chat" });
+  const section = (id: string) => nav().querySelector(`section:has(#sec-${id})`) as HTMLElement;
+  const fold = (id: string) => within(section(id)).getAllByRole("button")[0]!;
+
+  it("folds a section from its title: aria-expanded flips, the count stays, and the others do not move", async () => {
+    page();
+    await flush();
+    const f = fold("ch");
+    expect(f).toHaveAttribute("aria-expanded", "true");
+    expect(f).toHaveAttribute("aria-controls", "list-ch");
+    expect(nav().querySelector("#list-ch")).toBeInTheDocument();
+    fireEvent.click(f);
+    expect(f).toHaveAttribute("aria-expanded", "false");
+    expect(section("ch")).toHaveClass("shut");
+    expect(section("dm")).not.toHaveClass("shut");
+    expect(f.querySelector(".ch-count")).toHaveTextContent("2");
+    fireEvent.click(f);
+    expect(f).toHaveAttribute("aria-expanded", "true");
+    expect(section("ch")).not.toHaveClass("shut");
+  });
+
+  it("counts the rows of each section in its title", async () => {
+    page();
+    await flush();
+    expect(fold("ch").querySelector(".ch-count")).toHaveTextContent("2");
+    expect(fold("dm").querySelector(".ch-count")).toHaveTextContent("3");
+    // three orchestrators and the one other person
+    expect(fold("pe").querySelector(".ch-count")).toHaveTextContent("4");
+  });
+
+  it("shows the + tip on hover and on keyboard focus, takes no tab stop of its own, and hides it on blur", async () => {
+    page();
+    await flush();
+    const btn = screen.getByRole("button", { name: "New channel" });
+    const wrap = btn.closest(".ch-addwrap") as HTMLElement;
+    expect(wrap).not.toHaveAttribute("tabindex");
+    const tip = within(wrap).getByRole("tooltip", { hidden: true });
+    expect(tip).toHaveTextContent("Create a channel");
+    expect(tip).not.toBeVisible();
+    fireEvent.mouseEnter(wrap);
+    expect(tip).toBeVisible();
+    fireEvent.mouseLeave(wrap);
+    expect(tip).not.toBeVisible();
+    fireEvent.focus(btn);
+    expect(tip).toBeVisible();
+    fireEvent.blur(btn);
+    expect(tip).not.toBeVisible();
+    expect(btn).toHaveAttribute("aria-describedby", expect.stringContaining(tip.id));
+  });
+
+  it("gives an Admin who reads a person no + in Direct Messages and a + in Channels", async () => {
+    const w = world();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    expect(screen.getByRole("button", { name: "New channel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New direct message" })).toBeNull();
+  });
+
+  it("draws one agent's tile for a conversation with one agent, and an overlapped pair for two parties", async () => {
+    const w = world();
+    const across = direct({ ...ME, sessionId: "person:maya", name: "Maya Kim" }, agent("s-mb", "maya-main", "maya-mbp"), { thread: "dm:person:maya|s-mb", owner: "Ed", cross: { person: "Maya Kim", owner: "Ed", link: "open", viewerIs: "owner" } });
+    w.overview.directs = [...w.overview.directs, across];
+    page({ chat: fakeChat(w) });
+    await flush();
+    const own = rowBtn("d:dm:person:ed|s-notes");
+    expect(own.querySelector(".ch-av-pair")).toBeNull();
+    expect(own.querySelector(".ch-av.agent .ch-av-st")).toBeInTheDocument();
+    const link = rowBtn("d:dm:s-dash|s-tester");
+    expect(link.querySelectorAll(".ch-av-pair .ch-av.agent")).toHaveLength(2);
+    const cross = rowBtn("d:dm:person:maya|s-mb");
+    const kinds = [...cross.querySelectorAll(".ch-av-pair .ch-av")].map((e) => (e.classList.contains("person") ? "person" : "agent"));
+    expect(kinds).toEqual(["person", "agent"]);
+    expect(cross.querySelector(".nm")).toHaveTextContent("Maya Kim, maya-main");
+    expect(cross.querySelector(".sub")).toHaveTextContent("Maya Kim and your agent");
+  });
+
+  it("draws a plain conversation icon for a conversation with no agent in it", async () => {
+    const w = world();
+    w.overview.directs = [direct(ME, { ...ME, sessionId: "person:x", name: "Xi" }, { thread: "dm:person:ed|person:x" })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    const r = rowBtn("d:dm:person:ed|person:x");
+    expect(r.querySelector(".ic-wrap svg")).toBeInTheDocument();
+    expect(r.querySelector(".ch-av")).toBeNull();
+  });
+
+  it("marks a row with unread messages or mentions so its name is bold", async () => {
+    page();
+    await flush();
+    expect(row("d:dm:s-dash|s-tester")).toHaveClass("un");
+    expect(row("c:group")).toHaveClass("un");
+    expect(row("c:general")).not.toHaveClass("un");
+    expect(row("d:dm:person:ed|s-notes")).not.toHaveClass("un");
+  });
+
+  it("lists the other people in People and agents, not you, each with a menu that offers Message and Mention", async () => {
+    page();
+    await flush();
+    expect(screen.queryByTestId("chat-row-p:Ed")).toBeNull();
+    const r = row("p:Maya");
+    expect(r.closest("section")).toContainElement(screen.getByRole("heading", { name: /^People and agents/ }));
+    expect(r).toHaveTextContent("Maya");
+    expect(r).toHaveTextContent("Person");
+    expect(r.querySelector(".ch-av.person")).toBeInTheDocument();
+    fireEvent.click(within(r).getByRole("button", { name: "Actions for Maya" }));
+    const menu = screen.getByTestId("chat-menu");
+    expect(within(menu).getAllByRole("menuitem").map((m) => m.textContent)).toEqual(["Message Maya", "Mention Maya"]);
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    fireEvent.contextMenu(r);
+    expect(screen.getByTestId("chat-menu")).toBeInTheDocument();
+  });
+
+  describe("People and agents is paged ten at a time (#1272)", () => {
+    const many = () => {
+      const w = world();
+      w.overview.people = [{ name: "Ed", you: true }, ...Array.from({ length: 14 }, (_, i) => ({ name: `Pat ${String(i + 1).padStart(2, "0")}`, you: false }))];
+      return w;
+    };
+    const rows = () => Array.from(document.querySelectorAll("#list-pe > li")).map((li) => li.getAttribute("data-testid"));
+    const pager = () => within(screen.getByRole("navigation", { name: "People and agents pages" }));
+
+    it("shows ten rows and the standard footer, with Previous off on the first page and Next off on the last", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      const sec = screen.getByRole("heading", { level: 2, name: /^People and agents/ }).closest("section")!;
+      expect(rows()).toHaveLength(10);
+      expect(within(sec).getByText("Showing 1–10 of 17")).toBeInTheDocument();
+      expect(sec.querySelector(".ch-count")).toHaveTextContent("17");
+      expect(pager().getByText("1 of 2")).toBeInTheDocument();
+      expect(pager().getByRole("button", { name: "Previous page" })).toBeDisabled();
+      fireEvent.click(pager().getByRole("button", { name: "Next page" }));
+      expect(rows()).toHaveLength(7);
+      expect(within(sec).getByText("Showing 11–17 of 17")).toBeInTheDocument();
+      expect(within(sec).getByRole("status")).toHaveTextContent("Page 2 of 2");
+      expect(pager().getByRole("button", { name: "Next page" })).toBeDisabled();
+      fireEvent.click(pager().getByRole("button", { name: "Previous page" }));
+      expect(rows()).toHaveLength(10);
+    });
+
+    it("puts the rows that need this person on the first page: a running agent and an agent with unread messages", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      expect(rows()).toContain("chat-row-a:s-dash");
+      expect(rows()).toContain("chat-row-a:s-tester");
+      expect(rows()).not.toContain("chat-row-p:Pat 14");
+      fireEvent.click(pager().getByRole("button", { name: "Next page" }));
+      expect(rows()).toContain("chat-row-p:Pat 14");
+      expect(rows()).not.toContain("chat-row-a:s-dash");
+    });
+
+    it("folds with the list: the footer and its page buttons go when the section is folded, and come back when it opens", async () => {
+      page({ chat: fakeChat(many()) });
+      await flush();
+      const fold = within(screen.getByRole("heading", { level: 2, name: /^People and agents/ })).getByRole("button", { name: /^People and agents/ });
+      expect(screen.getByRole("navigation", { name: "People and agents pages" })).toBeInTheDocument();
+      fireEvent.click(fold);
+      expect(screen.queryByRole("navigation", { name: "People and agents pages" })).toBeNull();
+      expect(screen.queryByText(/^Showing 1–10 of 17$/)).toBeNull();
+      fireEvent.click(fold);
+      expect(screen.getByRole("navigation", { name: "People and agents pages" })).toBeInTheDocument();
+    });
+
+    it("says ten a page when everyone fits on one page", async () => {
+      page();
+      await flush();
+      const sec = screen.getByRole("heading", { level: 2, name: /^People and agents/ }).closest("section")!;
+      expect(within(sec).getByText("Showing 1–4 of 4")).toBeInTheDocument();
+      expect(within(sec).getByText("10 per page")).toBeInTheDocument();
+      expect(screen.queryByRole("navigation", { name: "People and agents pages" })).toBeNull();
+    });
+
+    it("opens New direct message from the + in People and agents, the same form as the one in Direct Messages", async () => {
+      page();
+      await flush();
+      const heading = screen.getByRole("heading", { level: 2, name: /^People and agents/ });
+      const btn = within(heading).getByRole("button", { name: "New direct message" });
+      expect(btn).toHaveAccessibleDescription("Start a direct message");
+      fireEvent.click(btn);
+      await flush();
+      expect(screen.getByRole("dialog", { name: "New direct message" })).toBeInTheDocument();
+    });
+  });
+
+  it("opens New direct message with the person ticked, from the row and from its menu", async () => {
+    const w = world();
+    w.targets = TARGETS;
+    const chat = fakeChat(w);
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("p:Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    // The person is chosen, whether or not an orchestrator of theirs is running, and the message box is the next thing to write in.
+    expect(dlg.getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    expect(dlg.getByLabelText("Find a person or an agent")).toHaveValue("");
+    fireEvent.change(dlg.getByLabelText("Message"), { target: { value: "half a draft" } });
+    fireEvent.click(dlg.getByRole("button", { name: "Cancel" }));
+    await flush();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(within(row("p:Maya")).getByRole("button", { name: "Actions for Maya" }));
+    fireEvent.click(within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name: "Message Maya" }));
+    await flush();
+    expect(within(screen.getByRole("dialog")).getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    // Closing reset the draft: this dialog starts with an empty message box.
+    expect(within(screen.getByRole("dialog")).getByLabelText("Message")).toHaveValue("");
+  });
+
+
+
+  it("offers Message on a person with no orchestrator running, and the dialog lets you send to them", async () => {
+    const w = world();
+    w.targets = [];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("p:Maya"));
+    await flush();
+    expect(within(screen.getByRole("dialog")).getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("has no orchestrator that takes a message");
+  });
+
+  describe("a row's menu placement", () => {
+    const rects = (menuBottom: number) =>
+      vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        const r = (top: number, bottom: number) => ({ top, bottom, left: 0, right: 0, width: 0, height: bottom - top, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+        if (this.classList.contains("ch-side")) return r(0, 100);
+        if (this.classList.contains("ch-menu")) return r(menuBottom - 40, menuBottom);
+        if (this.classList.contains("ch-item")) return r(menuBottom - 70, menuBottom - 40);
+        return r(0, 0);
+      });
+    afterEach(() => vi.restoreAllMocks());
+
+    it("opens under the row", async () => {
+      rects(60);
+      page();
+      await flush();
+      fireEvent.click(within(row("c:general")).getByRole("button", { name: "Actions for General" }));
+      expect(screen.getByTestId("chat-menu")).not.toHaveClass("up");
+    });
+
+    it("flips up when it would run past the bottom of the sidebar", async () => {
+      rects(300);
+      page();
+      await flush();
+      fireEvent.click(within(row("c:general")).getByRole("button", { name: "Actions for General" }));
+      expect(screen.getByTestId("chat-menu")).toHaveClass("up");
+    });
+  });
+});
+
+
+describe("the menu on a sender's avatar (#1235)", () => {
+  const MIN = 60_000;
+  const maya = (id: string, text: string, over: Partial<ChannelMessage> = {}) => cmsg(id, text, { mine: false, authorName: "Maya", authorRef: "Maya", createdAt: T0 - 9 * MIN, updatedAt: T0 - 9 * MIN, ...over });
+  const tester = (id: string, text: string) => cmsg(id, text, { mine: false, authorKind: "orchestrator", authorName: "Tester", authorRef: "s-tester", createdAt: T0 - 8 * MIN, updatedAt: T0 - 8 * MIN });
+  const generalWith = (messages: ChannelMessage[], targets: DirectTarget[] = []) => {
+    const w = world();
+    w.channels.general = { messages };
+    w.overview.channels = w.overview.channels.map((c) => (c.id === "general" ? { ...c, messages: messages.length } : c));
+    w.targets = targets;
+    return fakeChat(w);
+  };
+  const msgs = () => within(thread()).getAllByTestId("chat-message");
+  const gutOf = (m: HTMLElement) => m.querySelector(".ch-gut") as HTMLElement;
+  const item = (name: string) => within(screen.getByTestId("chat-menu")).getByRole("menuitem", { name });
+  const items = () => within(screen.getByTestId("chat-menu")).getAllByRole("menuitem").map((i) => i.textContent);
+
+  it("offers Message and Mention on a person's avatar, and Message opens New direct message with her chosen", async () => {
+    page({ chat: generalWith([maya("a", "hello")], TARGETS.slice(0, 2)) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!), { clientX: 120, clientY: 200 });
+    expect(items()).toEqual(["Message Maya", "Mention Maya"]);
+    // It hangs at the pointer, fixed, inside the page's own wrapper.
+    const menu = screen.getByTestId("chat-menu");
+    expect(menu).toHaveClass("at");
+    expect(menu).toHaveStyle({ left: "120px", top: "200px" });
+    expect(menu.closest(".podium, .adminv")).not.toBeNull();
+    fireEvent.click(item("Message Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    expect(dlg.getByRole("checkbox", { name: "Maya" })).toBeChecked();
+  });
+
+  it("opens the dialog with the person chosen when they have no orchestrator that takes a message", async () => {
+    page({ chat: generalWith([maya("a", "hello")], []) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Message Maya"));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "New direct message" }));
+    expect(dlg.getByRole("checkbox", { name: "Maya" })).toBeChecked();
+    expect(dlg.queryByText(/has no orchestrator that takes a message/)).toBeNull();
+  });
+
+  it("writes the person's address at the caret in the message box and focuses it", async () => {
+    page({ chat: generalWith([maya("a", "hello")]) });
+    await flush();
+    const box = screen.getByTestId("chat-box") as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: "ping later" } });
+    box.setSelectionRange(4, 4);
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Maya"));
+    await flush();
+    expect(box.value).toBe("ping @Maya@console later");
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe("ping @Maya@console ".length);
+    // A second Mention is a second request.
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Maya"));
+    await flush();
+    expect(box.value).toBe("ping @Maya@console @Maya@console later");
+  });
+
+  it("offers an agent Message, Mention and Open orchestration page, as its sidebar row does", async () => {
+    page({ chat: generalWith([tester("t", "done")]) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(items()).toEqual(["Message Tester", "Mention Tester", "Open orchestration page"]);
+    expect(item("Open orchestration page")).toHaveAttribute("href", "#/?open=s-tester");
+    fireEvent.click(item("Mention Tester"));
+    await flush();
+    expect((screen.getByTestId("chat-box") as HTMLTextAreaElement).value).toBe("@Tester@ci-runner-01 ");
+  });
+
+  it("starts a conversation with an agent the person owns, and finds one they do not by its name", async () => {
+    const stranger = cmsg("z", "from elsewhere", { mine: false, authorKind: "orchestrator", authorName: "docs-writer", authorRef: "s-docs", createdAt: T0 - 7 * MIN, updatedAt: T0 - 7 * MIN });
+    page({ chat: generalWith([tester("t", "done"), stranger], TARGETS.slice(0, 2)) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Message Tester"));
+    await flush();
+    expect(within(thread()).getByRole("heading", { level: 2 })).toHaveTextContent("Tester");
+    await open("c:general");
+    fireEvent.contextMenu(gutOf(msgs()[1]!));
+    fireEvent.click(item("Message docs-writer"));
+    await flush();
+    expect(within(screen.getByRole("dialog", { name: "New direct message" })).getByLabelText("Find a person or an agent")).toHaveValue("docs-writer");
+  });
+
+  it("gives your own avatar no menu", async () => {
+    page({ chat: generalWith([cmsg("m", "mine", { createdAt: T0 - MIN, updatedAt: T0 - MIN })]) });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    fireEvent.keyDown(msgs()[0]!, { key: "Enter" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+  });
+
+  it("keeps the list to one tab stop, opens from the keyboard under the avatar, moves, closes on Esc with focus back, and on Tab", async () => {
+    const list = Array.from({ length: 12 }, (_, i) => (i % 2 ? tester(`t${i}`, `t ${i}`) : maya(`m${i}`, `m ${i}`)));
+    page({ chat: generalWith(list) });
+    await flush();
+    const all = msgs();
+    expect(all.filter((m) => m.tabIndex === 0)).toHaveLength(1);
+    all[0]!.focus();
+    fireEvent.keyDown(all[0]!, { key: "ArrowDown" });
+    expect(all[1]).toHaveFocus();
+    spyRect(gutOf(all[1]!), { left: 40, bottom: 300, top: 260 });
+    fireEvent.keyDown(all[1]!, { key: "ContextMenu" });
+    const menu = screen.getByTestId("chat-menu");
+    expect(menu).toHaveStyle({ left: "40px", top: "300px" });
+    await waitFor(() => expect(within(menu).getAllByRole("menuitem")[0]).toHaveFocus());
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(within(menu).getAllByRole("menuitem")[1]).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    await waitFor(() => expect(all[1]).toHaveFocus());
+    fireEvent.keyDown(all[1]!, { key: "F10", shiftKey: true });
+    expect(screen.getByTestId("chat-menu")).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByTestId("chat-menu"), { key: "Tab" });
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("flips above the avatar near the bottom of the window and stays inside it", async () => {
+    page({ chat: generalWith([maya("a", "hello")]) });
+    await flush();
+    const spy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      return this.classList.contains("ch-menu") ? ({ top: 0, left: 0, bottom: 90, right: 200, width: 200, height: 90, x: 0, y: 0, toJSON: () => ({}) } as DOMRect) : ({ top: 0, left: 0, bottom: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
+    });
+    const bottom = window.innerHeight - 20;
+    const el = gutOf(msgs()[0]!);
+    fireEvent.contextMenu(el, { clientX: window.innerWidth - 5, clientY: bottom });
+    const menu = screen.getByTestId("chat-menu");
+    // Past the bottom and the right edge: it moves in, and sits above the pointer.
+    expect(menu).toHaveStyle({ left: `${window.innerWidth - 208}px`, top: `${bottom - 90}px` });
+    spy.mockRestore();
+  });
+
+  it("keeps Message everywhere, and Mention only in a channel: a Direct Message has no @", async () => {
+    const w = world();
+    w.dms["person:ed|s-notes"] = { messages: [dmsg("x1", NOTES, ME, "from the agent")] };
+    page({ chat: fakeChat(w) });
+    await flush();
+    await open("d:dm:person:ed|s-notes");
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(items()).toEqual(["Message infra-notes", "Open orchestration page"]);
+  });
+
+  it("gives an Admin reading a person no item that sends: a note for a person, the orchestration page for an agent", async () => {
+    const w = world();
+    w.overview.me = { name: "Root", admin: true, person: false };
+    w.overview.channels = [channelOf("general")];
+    w.overview.directs = [];
+    w.overview.agents = [];
+    w.overview.people = [{ name: "Ed", you: false }, { name: "Maya", you: false }];
+    w.owners = { Maya: { channels: [channelOf("general"), channelOf("group", { thread: "group:maya", messages: 2 })], directs: [] } };
+    w.channels.group = { messages: [maya("q1", "run the tests"), cmsg("q2", "On it.", { mine: false, authorKind: "orchestrator", authorName: "maya-api", authorRef: "m-1", createdAt: T0 - 8 * MIN, updatedAt: T0 - 8 * MIN })] };
+    page({ chat: fakeChat(w), me: ROOT });
+    await flush();
+    fireEvent.change(screen.getByLabelText("Read a person's conversations"), { target: { value: "Maya" } });
+    await flush();
+    await open("c:group");
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    expect(screen.queryByTestId("chat-menu")).toBeNull();
+    expect(screen.getByTestId("chat-menu-note")).toHaveTextContent("An Admin reading cannot send, so there is no Message or Mention.");
+    fireEvent.keyDown(screen.getByTestId("chat-menu-note"), { key: "Escape" });
+    fireEvent.contextMenu(gutOf(msgs()[1]!));
+    expect(items()).toEqual(["Open orchestration page"]);
+  });
+
+  it("says so, and writes nothing, when the person has no address in the channel", async () => {
+    const chat = generalWith([cmsg("o", "hi", { mine: false, authorName: "Zed", authorRef: "Zed", createdAt: T0 - MIN, updatedAt: T0 - MIN })]);
+    page({ chat });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Zed"));
+    await flush();
+    expect(screen.getByTestId("chat-action-error")).toHaveTextContent("Could not find an address for Zed in this channel. Nothing was written.");
+    expect((screen.getByTestId("chat-box") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("says so when the addresses cannot be read", async () => {
+    const chat = generalWith([maya("a", "hello")]);
+    chat.api.addresses.mockRejectedValueOnce(new RespondError(500, { error: "The store is busy." }));
+    page({ chat });
+    await flush();
+    fireEvent.contextMenu(gutOf(msgs()[0]!));
+    fireEvent.click(item("Mention Maya"));
+    await flush();
+    expect(screen.getByTestId("chat-action-error")).toHaveTextContent(/Could not read who can be mentioned/);
+  });
+});
+
+/** Makes one element answer getBoundingClientRect with a place of its own; restored by vi.restoreAllMocks. */
+function spyRect(el: Element, r: { left: number; top: number; bottom: number }) {
+  const real = el.getBoundingClientRect.bind(el);
+  vi.spyOn(el, "getBoundingClientRect").mockImplementation(() => ({ ...real(), ...r, right: r.left + 40, width: 40, height: r.bottom - r.top, x: r.left, y: r.top, toJSON: () => ({}) }) as DOMRect);
+}
+
+// ---- Every Admin notice in the redesigned layout (#1238) -----------------------------------------------------------------------
+
+describe("the notices a person gets, in the redesigned layout (#1238)", () => {
+  it("tells the person in each place the layout draws: the tag on the row, the tag under the title, the red banner above the messages, and the record line among them", async () => {
+    const w = world();
+    w.overview.directs = [direct(DASH, TESTER, { adminReading: [live("Root")] })];
+    w.reads = { "s-dash|s-tester": [{ admin: "Alex", startedAt: ago(200_000), lastSeenAt: ago(190_000) }] };
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(within(row("d:dm:s-dash|s-tester")).getByTestId("chat-tag-reading")).toHaveTextContent("Admin reading");
+    await open("d:dm:s-dash|s-tester");
+    const head = thread().querySelector(".ch-head")!;
+    expect(within(head as HTMLElement).getByTestId("chat-tag-reading")).toHaveTextContent("Admin reading");
+    const banner = within(thread()).getByTestId("chat-reading-banner");
+    expect(banner).toHaveClass("ch-nav", "ro", "crit");
+    expect(head.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const list = thread().querySelector("ol.ch-msgs")!;
+    expect(banner.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(list as HTMLElement).getByTestId("chat-record")).toHaveClass("ch-rec");
+  });
+
+  it("tells the person of an Admin's pause with the tag on the row, the tag under the title and the banner", async () => {
+    const w = world();
+    w.overview.directs = [direct(DASH, TESTER, { state: "paused", paused: true, pausedBy: "admin", pausedByAdmin: "Root" })];
+    page({ chat: fakeChat(w) });
+    await flush();
+    expect(within(row("d:dm:s-dash|s-tester")).getByTestId("chat-tag-paused")).toHaveTextContent("Paused by an Admin");
+    await open("d:dm:s-dash|s-tester");
+    expect(within(thread().querySelector(".ch-head") as HTMLElement).getByTestId("chat-tag-paused")).toBeInTheDocument();
+    expect(within(thread()).getByTestId("chat-admin-pause-banner")).toHaveClass("ch-nav", "ro", "crit");
+  });
+});
+
+describe("conversations of people and agents (#1278)", () => {
+  const convo = (over: Partial<ConversationInfo> = {}): ConversationInfo => ({
+    id: "cnv_1",
+    thread: "convo:cnv_1",
+    members: [
+      { kind: "person", name: "Ed", you: true, addedBy: null, address: "Ed@console", sessionId: null },
+      { kind: "person", name: "Maya", you: false, addedBy: "Ed", address: "Maya@console", sessionId: null },
+    ],
+    hasAgent: false,
+    unread: 2,
+    mentions: 0,
+    messages: 2,
+    lastAt: T0,
+    adminReading: [],
+    ...over,
+  });
+  const cmessage = (id: string, text: string, you: boolean, over: Partial<ConversationMessage> = {}): ConversationMessage => ({
+    id,
+    author: { kind: "person", name: you ? "Ed" : "Maya", you },
+    text,
+    createdAt: T0 - 60_000,
+    editedAt: null,
+    deletedAt: null,
+    replyTo: null,
+    canChange: you,
+    changeWhy: null,
+    deliveries: [],
+    ...over,
+  });
+  const withConvo = (info: ConversationInfo = convo(), messages: ConversationMessage[] = [cmessage("k1", "can you look at my PR?", false), cmessage("k2", "yes, after standup", true)]) => {
+    const w = world();
+    w.overview.conversations = [info];
+    w.convoMessages[info.id] = messages;
+    return fakeChat(w);
+  };
+
+  it("lists a conversation with the other person's name, its unread count and no text", async () => {
+    page({ chat: withConvo() });
+    await flush();
+    const r = row("v:cnv_1");
+    expect(r.querySelector(".nm")).toHaveTextContent("Maya");
+    expect(r.querySelector(".sub")).toHaveTextContent("Direct message");
+    expect(r.querySelector(".unread")).toHaveAttribute("aria-label", "2 new");
+    expect(r).not.toHaveTextContent("PR");
+  });
+
+  it("opens it, shows the messages, says an Admin cannot read it, and reads up to the newest", async () => {
+    const chat = withConvo();
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const c = screen.getByTestId("chat-conversation");
+    expect(within(c).getByRole("heading", { level: 2 })).toHaveTextContent("Maya");
+    expect(within(c).getAllByTestId("chat-message")).toHaveLength(2);
+    expect(within(c).getByText("can you look at my PR?")).toBeInTheDocument();
+    expect(within(c).getByTestId("chat-conversation-privacy")).toHaveTextContent("Only you and Maya can read this. An Admin cannot.");
+    expect(chat.api.markRead).toHaveBeenCalledWith("convo:cnv_1", "k2");
+  });
+
+  it("sends a message into it", async () => {
+    const chat = withConvo();
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    fireEvent.change(screen.getByLabelText("Message Maya"), { target: { value: "thanks" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await flush();
+    expect(chat.api.sendConversation).toHaveBeenCalledWith("cnv_1", "thanks");
+    expect(within(screen.getByTestId("chat-conversation")).getByText("thanks")).toBeInTheDocument();
+  });
+
+  // #1296: an open conversation reads on the console's signal like a thread does, and parses only what changed.
+  it("reads the open conversation and the overview again on a chat signal, once each, and shows what they returned", async () => {
+    const chat = withConvo();
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const read = { overview: chat.api.overview.mock.calls.length, convo: chat.api.conversationMessages.mock.calls.length };
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k3", "A message that came with the signal.", false)];
+    p.signal();
+    await flush();
+    expect({ overview: chat.api.overview.mock.calls.length - read.overview, convo: chat.api.conversationMessages.mock.calls.length - read.convo }).toEqual({ overview: 1, convo: 1 });
+    expect(within(screen.getByTestId("chat-conversation")).getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("parses only the message that arrived in an open conversation, and the one that was edited, not the ones already on screen", async () => {
+    const chat = withConvo(convo(), [cmessage("k1", "first", false), cmessage("k2", "second", true), cmessage("k3", "third", false)]);
+    const p = page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = [...chat.w.convoMessages.cnv_1!, cmessage("k4", "Only this one is new.", false)];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+    parse.mockClear();
+    chat.w.convoMessages.cnv_1 = chat.w.convoMessages.cnv_1!.map((m) => (m.id === "k2" ? { ...m, text: "second, edited on another console", editedAt: T0 } : m));
+    p.signal();
+    await flush();
+    expect(screen.getByText("second, edited on another console")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  describe("editing and deleting your own message (#1296: the rows are memoized, so the actions must still reach the page's latest props)", () => {
+    // Your message is the second row; a right-click opens the menu every other chat has (#1345).
+    const chooseOwn = (name: string) => {
+      fireEvent.contextMenu(within(screen.getByTestId("chat-conversation")).getAllByTestId("chat-message")[1]!, { clientX: 100, clientY: 100 });
+      fireEvent.click(within(screen.getByRole("menu", { name: "Your message" })).getByRole("menuitem", { name }));
+    };
+    const opened = async () => {
+      const chat = withConvo();
+      const p = page({ chat });
+      await flush();
+      fireEvent.click(rowBtn("v:cnv_1"));
+      await flush();
+      return { chat, p, c: within(screen.getByTestId("chat-conversation")) };
+    };
+
+    it("saves an edit, keeps the box and what was typed while a signal reads the conversation again, and shows the saved text", async () => {
+      const { chat, p, c } = await opened();
+      chat.api.editConversationMessage.mockImplementation(async (id: string, mid: string, text: string) => {
+        const m = { ...chat.w.convoMessages[id]!.find((x) => x.id === mid)!, text, editedAt: T0 };
+        chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
+        return { ok: true as const, message: m };
+      });
+      chooseOwn("Edit message");
+      fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "yes, after lunch" } });
+      p.signal();
+      await flush();
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toHaveValue("yes, after lunch");
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(chat.api.editConversationMessage).toHaveBeenCalledWith("cnv_1", "k2", "yes, after lunch");
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(c.getByText("yes, after lunch")).toBeInTheDocument();
+      expect(c.getByText(/^edited /)).toBeInTheDocument();
+    });
+
+    it("closes the box on Cancel and on a save of the same text, without asking the server", async () => {
+      const { chat, c } = await opened();
+      chooseOwn("Edit message");
+      fireEvent.click(c.getByRole("button", { name: "Cancel" }));
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      chooseOwn("Edit message");
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(chat.api.editConversationMessage).not.toHaveBeenCalled();
+    });
+
+    it("shows the server's words when a save is refused, and a plain line when it did not answer, and keeps the box", async () => {
+      const { chat, c } = await opened();
+      chooseOwn("Edit message");
+      fireEvent.change(c.getByRole("textbox", { name: "Edit your message" }), { target: { value: "changed" } });
+      chat.api.editConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "Podium has already sent this message to Tester, so it can no longer be changed." }));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.getByRole("alert")).toHaveTextContent("Podium has already sent this message to Tester, so it can no longer be changed.");
+      chat.api.editConversationMessage.mockRejectedValueOnce(new Error("offline"));
+      fireEvent.click(c.getByRole("button", { name: "Save" }));
+      await flush();
+      expect(c.getByRole("alert")).toHaveTextContent("Could not save: the server did not answer. Your message is unchanged. Try again.");
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toHaveValue("changed");
+    });
+
+    it("deletes after the question, leaves the note a delete leaves, and says so when the server refuses", async () => {
+      const { chat } = await opened();
+      chat.api.deleteConversationMessage.mockRejectedValueOnce(new RespondError(409, { ok: false, error: "It is locked." }));
+      chooseOwn("Delete message");
+      const dialog = within(screen.getByRole("alertdialog"));
+      fireEvent.click(dialog.getByRole("button", { name: "Delete message" }));
+      await flush();
+      expect(within(screen.getByRole("alertdialog")).getByRole("alert")).toHaveTextContent("It is locked.");
+      chat.api.deleteConversationMessage.mockImplementationOnce(async (id: string, mid: string) => {
+        const m = { ...chat.w.convoMessages[id]!.find((x) => x.id === mid)!, text: "", deletedAt: T0, canChange: false };
+        chat.w.convoMessages[id] = chat.w.convoMessages[id]!.map((x) => (x.id === mid ? m : x));
+        return { ok: true as const, message: m };
+      });
+      fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Delete message" }));
+      await flush();
+      expect(chat.api.deleteConversationMessage).toHaveBeenLastCalledWith("cnv_1", "k2");
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+      expect(within(screen.getByTestId("chat-conversation")).getByText("You deleted this message.")).toBeInTheDocument();
+    });
+  });
+
+  // #1345: a Direct Message to a person is the same chat as every other one.
+  describe("a Direct Message to a person looks and acts like every other chat (#1345)", () => {
+    const opened = async (chat = withConvo()) => {
+      const p = page({ chat });
+      await flush();
+      fireEvent.click(rowBtn("v:cnv_1"));
+      await flush();
+      return { chat, p, c: within(screen.getByTestId("chat-conversation")) };
+    };
+
+    it("has no Edit, Delete or Leave button among the messages or above the box", async () => {
+      const { c } = await opened();
+      expect(c.queryByRole("button", { name: "Edit message" })).toBeNull();
+      expect(c.queryByRole("button", { name: "Delete message" })).toBeNull();
+      expect(screen.getByTestId("chat-conversation").querySelector(".ch-own, .ch-actions")).toBeNull();
+      expect(screen.getByTestId("chat-conversation").querySelector(".ch-composer")!.previousElementSibling?.querySelector("button")).toBeNull();
+    });
+
+    it("uses the thread's own layout classes, so its list scrolls and is padded like the others", async () => {
+      await opened();
+      const t = screen.getByTestId("chat-conversation");
+      expect(t.querySelector(".ch-body")).not.toBeNull();
+      expect(t.querySelector(".ch-scroll")).toBeNull();
+      expect(t.querySelector(".ch-alert")).not.toBeNull();
+    });
+
+    it("says who can read it under the title, in the second line, and the count in the first", async () => {
+      await opened();
+      const subs = screen.getByTestId("chat-conversation").querySelectorAll(".ch-head > .sub");
+      expect(subs).toHaveLength(2);
+      expect(subs[0]).toHaveTextContent("2 messages");
+      expect(subs[1]).toHaveTextContent("Only you and Maya can read this. An Admin cannot.");
+    });
+
+    it("opens the menu on a right-click, from the keyboard on the focused message, and does so for your own message only", async () => {
+      const { c } = await opened();
+      const rows = c.getAllByTestId("chat-message");
+      expect(fireEvent.contextMenu(rows[0]!)).toBe(true);
+      expect(screen.queryByRole("menu", { name: "Your message" })).toBeNull();
+      expect(fireEvent.contextMenu(rows[1]!, { clientX: 130, clientY: 210 })).toBe(false);
+      const m = screen.getByRole("menu", { name: "Your message" });
+      expect(within(m).getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Edit messageE", "Delete messageDel"]);
+      expect(rows[1]).toHaveClass("menu-open");
+      fireEvent.keyDown(m, { key: "Escape" });
+      await flush();
+      act(() => rows[1]!.focus());
+      fireEvent.keyDown(rows[1]!, { key: "Enter" });
+      expect(screen.getByRole("menu", { name: "Your message" })).toBeInTheDocument();
+    });
+
+    it("edits on E and asks before deleting on Delete, on the focused message", async () => {
+      const { c } = await opened();
+      const mine = () => c.getAllByTestId("chat-message")[1]!;
+      act(() => mine().focus());
+      fireEvent.keyDown(mine(), { key: "e" });
+      expect(c.getByRole("textbox", { name: "Edit your message" })).toBeInTheDocument();
+      fireEvent.click(c.getByRole("button", { name: "Cancel" }));
+      act(() => mine().focus());
+      fireEvent.keyDown(mine(), { key: "Delete" });
+      expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+    });
+
+    it("moves to your latest message on Up in an empty box", async () => {
+      const { c } = await opened();
+      const box = c.getByLabelText("Message Maya");
+      fireEvent.keyDown(box, { key: "ArrowUp" });
+      expect(c.getAllByTestId("chat-message")[1]).toHaveFocus();
+    });
+
+    it("keeps the menu closed on a message the server will not let you change, and says why on E", async () => {
+      const { c } = await opened(withConvo(convo(), [cmessage("k1", "locked", true, { canChange: false, changeWhy: "Podium has already sent this message to Tester, so it can no longer be changed." })]));
+      const row0 = c.getAllByTestId("chat-message")[0]!;
+      fireEvent.contextMenu(row0, { clientX: 1, clientY: 1 });
+      expect(within(screen.getByRole("menu", { name: "Your message" })).getByRole("menuitem", { name: "Edit message" })).toHaveAttribute("aria-disabled", "true");
+      fireEvent.keyDown(screen.getByRole("menu", { name: "Your message" }), { key: "Escape" });
+      await flush();
+      act(() => row0.focus());
+      fireEvent.keyDown(row0, { key: "e" });
+      expect(c.queryByRole("textbox", { name: "Edit your message" })).toBeNull();
+      expect(screen.getByTestId("chat-msg-said")).toHaveTextContent("so it can no longer be changed");
+    });
+
+    it("opens the sender's menu on another person's avatar, with Message", async () => {
+      const { c } = await opened();
+      fireEvent.contextMenu(c.getAllByTestId("chat-message")[0]!.querySelector(".ch-gut")!, { clientX: 20, clientY: 20 });
+      expect(within(screen.getByRole("menu", { name: "Actions for Maya" })).getByRole("menuitem", { name: "Message Maya" })).toBeInTheDocument();
+    });
+
+    it("puts Leave conversation in the header, left of the members, and leaves from there", async () => {
+      const { chat } = await opened();
+      const top = screen.getByTestId("chat-conversation").querySelector(".ch-head-top") as HTMLElement;
+      const leave = within(top).getByRole("button", { name: "Leave conversation" });
+      const stack = within(top).getByTestId("chat-members-toggle");
+      expect(leave.compareDocumentPosition(stack) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      fireEvent.click(leave);
+      await flush();
+      expect(chat.api.leaveConversation).toHaveBeenCalledWith("cnv_1");
+      expect(screen.queryByTestId("chat-conversation")).toBeNull();
+      expect(screen.getByText("You left the conversation.")).toBeInTheDocument();
+    });
+
+    it("gives its row in the list the same ... menu as the others, with Leave conversation", async () => {
+      const { chat } = await opened();
+      const more = within(row("v:cnv_1")).getByRole("button", { name: "Actions for Maya" });
+      fireEvent.click(more);
+      const m = screen.getByRole("menu", { name: "Actions for Maya" });
+      fireEvent.click(within(m).getByRole("menuitem", { name: /Leave conversation/ }));
+      await flush();
+      expect(chat.api.leaveConversation).toHaveBeenCalledWith("cnv_1");
+      expect(screen.queryByTestId("chat-conversation")).toBeNull();
+      expect(screen.getByText("You left the conversation.")).toBeInTheDocument();
+    });
+
+    it("says so, and stays, when leaving fails", async () => {
+      const chat = withConvo();
+      chat.api.leaveConversation.mockRejectedValueOnce(new Error("offline"));
+      await opened(chat);
+      fireEvent.click(within(screen.getByTestId("chat-conversation").querySelector(".ch-head-top") as HTMLElement).getByRole("button", { name: "Leave conversation" }));
+      await flush();
+      expect(screen.getByTestId("chat-conversation")).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent("Could not leave: the server did not answer. You are still in it. Try again.");
+    });
+
+    it("shows the start of an empty one with the people's avatars, as every other thread does", async () => {
+      await opened(withConvo(convo(), []));
+      const intro = screen.getByTestId("chat-intro");
+      expect(intro.querySelector(".ch-intro-av")).not.toBeNull();
+      expect(intro).toHaveTextContent("This is the start of Maya");
+    });
+  });
+
+  const agent = (name: string, machine = "ed-mbp") => ({ kind: "agent" as const, name, you: false, addedBy: "Ed", address: `${name}@${machine}`, sessionId: `s-${name}` });
+  const withAgents = () => convo({ hasAgent: true, members: [...convo().members, agent("Tester"), agent("infra-notes")] });
+  const openConvo = async (chat: ReturnType<typeof withConvo>) => {
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+  };
+
+  it("says who is in it, and not what an Admin may do, when an agent is in it (#1282)", async () => {
+    await openConvo(withConvo(withAgents()));
+    expect(screen.getByTestId("chat-conversation-privacy")).toHaveTextContent("You, Maya and 2 agents.");
+    expect(screen.getByTestId("chat-conversation-privacy")).not.toHaveTextContent("Admin");
+  });
+
+  it("opens the @ list on the members of the conversation, and no one else (#1282)", async () => {
+    await openConvo(withConvo(withAgents()));
+    const box = screen.getByLabelText("Message Maya, Tester, infra-notes");
+    fireEvent.change(box, { target: { value: "Can @", selectionStart: 5 } });
+    const list = within(await screen.findByRole("listbox", { name: "People and agents" }));
+    expect(list.getAllByRole("option").map((o) => o.querySelector("b.h")?.textContent)).toEqual(["@Maya@console", "@Tester@ed-mbp", "@infra-notes@ed-mbp"]);
+    expect(list.queryByText(/@group/)).toBeNull();
+    expect(list.queryByText(/@everyone/)).toBeNull();
+  });
+
+  it("offers no @ list where no agent is in the conversation (#1282)", async () => {
+    await openConvo(withConvo());
+    expect(screen.queryByTestId("chat-tool-at")).toBeNull();
+  });
+
+  it("says who a message was for, and shows the delivery line for only the agents it was handed to (#1282)", async () => {
+    const msgs = [
+      cmessage("k1", "both of you: status?", true, { deliveries: [{ kind: "agent", name: "Tester", named: false, state: "delivered" }, { kind: "agent", name: "infra-notes", named: false, state: "delivered" }] }),
+      cmessage("k2", "@Tester@ed-mbp rerun it", true, { deliveries: [{ kind: "agent", name: "Tester", named: true, state: "delivered" }] }),
+      cmessage("k3", "@Maya@console look", true, { deliveries: [{ kind: "person", name: "Maya", named: true, state: null }] }),
+      cmessage("k4", "@infra-notes@ed-mbp add it", true, { deliveries: [{ kind: "agent", name: "infra-notes", named: true, state: "queued" }] }),
+    ];
+    await openConvo(withConvo(withAgents(), msgs));
+    const rows = screen.getAllByTestId("chat-message");
+    expect(within(rows[0]!).getByTestId("chat-for")).toHaveTextContent("For everyone in this conversation");
+    expect(within(rows[0]!).getByTestId("chat-delivery")).toHaveTextContent("Delivered to Tester and infra-notes");
+    expect(within(rows[1]!).getByTestId("chat-for")).toHaveTextContent("For Tester");
+    expect(within(rows[1]!).getByTestId("chat-delivery")).toHaveTextContent("Delivered to Tester");
+    expect(within(rows[1]!).getByTestId("chat-delivery")).not.toHaveTextContent("infra-notes");
+    expect(within(rows[2]!).getByTestId("chat-for")).toHaveTextContent("For Maya. No agent received it.");
+    expect(within(rows[2]!).queryByTestId("chat-delivery")).toBeNull();
+    expect(within(rows[3]!).getByTestId("chat-delivery")).toHaveTextContent("Waiting for infra-notes to take it");
+  });
+
+  it("shows the server's words for a refused @ and keeps what was typed (#1282)", async () => {
+    const chat = withConvo(withAgents());
+    chat.api.sendConversation = vi.fn(async () => {
+      throw new RespondError(422, { error: "docs-sweeper@ed-mbp is not in this conversation, so nothing was sent. Add it from Members, or remove the @." });
+    });
+    await openConvo(chat);
+    const box = screen.getByLabelText("Message Maya, Tester, infra-notes");
+    fireEvent.change(box, { target: { value: "@docs-sweeper@ed-mbp check the docs" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await flush();
+    expect(screen.getByRole("alert")).toHaveTextContent("docs-sweeper@ed-mbp is not in this conversation, so nothing was sent. Add it from Members, or remove the @.");
+    expect((screen.getByLabelText("Message Maya, Tester, infra-notes") as HTMLTextAreaElement).value).toBe("@docs-sweeper@ed-mbp check the docs");
+  });
+
+  it("adds people or agents from the members panel, in the same dialog, with no first message", async () => {
+    const chat = withConvo();
+    chat.w.targets = TARGETS.slice(0, 1);
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    fireEvent.click(screen.getByTestId("chat-members-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "Add people or agents" }));
+    await flush();
+    const dlg = within(screen.getByRole("dialog", { name: "Add to this conversation" }));
+    expect(dlg.queryByLabelText("Message")).toBeNull();
+    expect(dlg.queryByRole("checkbox", { name: "Maya" })).toBeNull();
+    fireEvent.click(dlg.getByLabelText(/claude-dashboard/));
+    expect(screen.getByTestId("dm-agent-warn")).toBeInTheDocument();
+    fireEvent.click(dlg.getByRole("button", { name: "Add" }));
+    await flush();
+    expect(chat.api.addConversationMembers).toHaveBeenCalledWith("cnv_1", [{ kind: "agent", sessionId: "s-dash" }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("Added claude-dashboard.")).toBeInTheDocument();
+  });
+
+  it("goes back to the list when the conversation is gone", async () => {
+    const chat = withConvo();
+    chat.api.conversationMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    page({ chat });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    expect(screen.queryByTestId("chat-conversation")).toBeNull();
+  });
+});
+
+describe("a Direct Message concluded because an agent ended (#1283)", () => {
+  const ENDED: Concluded = { id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 };
+  const wallNotice = () => screen.queryByText("Tester ended.");
+
+  it("shows a notice on the wall for each, and an X that dismisses only that one and says the kind can be turned off in Admin > Settings", async () => {
+    window.location.hash = "#/";
+    const chat = fakeChat();
+    chat.w.concluded = [ENDED, { ...ENDED, id: "dm:s-x|s-y@2", agent: "infra-notes", with: ["Maya Kim"] }];
+    page({ chat, view: "wall" });
+    await flush();
+    expect(wallNotice()).toBeInTheDocument();
+    expect(screen.getByText(/Its direct message with claude-dashboard was concluded and deleted/)).toBeInTheDocument();
+    expect(screen.getByText("infra-notes ended.")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close notice: Concluded direct messages" })[0]!);
+    await flush();
+    expect(chat.api.dismissConcluded).toHaveBeenCalledWith(ENDED.id);
+    expect(wallNotice()).toBeNull();
+    expect(screen.getByText("infra-notes ended.")).toBeInTheDocument();
+    const toast = screen.getByText("Notice dismissed").closest(".toast") as HTMLElement;
+    expect(toast).toHaveTextContent("will show again the next time a direct message is concluded");
+    expect(within(toast).getByRole("link", { name: /Open Admin > Settings/ })).toHaveAttribute("href", "#/admin/settings");
+  });
+
+  it("says an agent that was cleared with /clear was cleared and still runs, and not that it ended (#1340)", async () => {
+    window.location.hash = "#/";
+    const chat = fakeChat();
+    chat.w.concluded = [{ ...ENDED, cleared: true }];
+    page({ chat, view: "wall" });
+    await flush();
+    expect(screen.getByText("Tester was cleared.")).toBeInTheDocument();
+    expect(screen.queryByText("Tester ended.")).toBeNull();
+    expect(screen.getByText(/It is still running under a new session\. Its direct message with claude-dashboard was concluded and deleted\./)).toBeInTheDocument();
+  });
+
+  it("says a message the person wrote was not delivered, when one was waiting for approval or never taken", async () => {
+    window.location.hash = "#/";
+    const chat = fakeChat();
+    chat.w.concluded = [{ ...ENDED, undelivered: 1 }, { ...ENDED, id: "dm:s-x|s-y@2", agent: "infra-notes", with: ["Maya Kim"], undelivered: 3 }];
+    page({ chat, view: "wall" });
+    await flush();
+    expect(screen.getByText(/Its direct message with claude-dashboard was concluded and deleted\..*A message you wrote to it was not delivered\./)).toBeInTheDocument();
+    expect(screen.getByText(/3 messages you wrote to it were not delivered\./)).toBeInTheDocument();
+  });
+
+  it("shows nothing when none was concluded, and nothing when the Admin switched the kind off", async () => {
+    window.location.hash = "#/";
+    const none = page({ view: "wall" });
+    await flush();
+    expect(wallNotice()).toBeNull();
+    none.unmount();
+    const chat = fakeChat();
+    chat.w.concluded = [ENDED];
+    page({ chat, view: "wall", wall: { notices: { "background-sessions": true, "concluded-direct-messages": false }, showBackgroundSessions: false, cardTitleMachine: false } });
+    await flush();
+    expect(wallNotice()).toBeNull();
+  });
+});
+
+describe("the open Direct Message is concluded because its agent ended (#1283)", () => {
+  it("stays open with a banner that says so, turns the composer off, and leaves with Back to conversations", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    expect(screen.queryByTestId("chat-concluded")).toBeNull();
+    // The server concludes it: the row leaves the overview, the thread is gone, and the list says why.
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    const banner = screen.getByTestId("chat-concluded");
+    expect(banner).toHaveTextContent("Tester ended. This direct message has been concluded and deleted. Nothing in it is kept.");
+    expect(screen.getByText("This direct message has ended.")).toBeInTheDocument();
+    expect(screen.queryByText("That conversation is gone, so nothing can be sent.")).toBeNull();
+    fireEvent.click(within(banner).getByRole("button", { name: "Back to conversations" }));
+    await flush();
+    expect(screen.queryByTestId("chat-concluded")).toBeNull();
+  });
+
+  // #1340: the text was deleted by the server, so the page shows none of it, reads nothing more, and does not call a deleted conversation a failed read.
+  it("shows no deleted message, no read error and no header of the conversation under the banner, and reads it no more (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    expect(screen.getByText("Also Debian 12.")).toBeInTheDocument();
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    expect(screen.getByTestId("chat-concluded")).toBeInTheDocument();
+    expect(screen.queryByText(/Could not load the messages/)).toBeNull();
+    expect(screen.queryByText("Also Debian 12.")).toBeNull();
+    expect(screen.queryByText(/Please run the tests\./)).toBeNull();
+    expect(screen.queryByText(/The ones below may be out of date/)).toBeNull();
+    // The feed is empty: no count of messages and no "Loading…" (the sidebar has its own "Showing N of M").
+    const feed = screen.getByRole("region", { name: "Messages, oldest first" });
+    expect(within(feed).queryByText(/Showing \d+ of \d+/)).toBeNull();
+    expect(within(feed).queryByText(/Loading…/)).toBeNull();
+    const reads = chat.api.dmMessages.mock.calls.length;
+    p.signal();
+    await flush();
+    expect(chat.api.dmMessages.mock.calls.length).toBe(reads);
+  });
+
+  it("says the agent was cleared, and is still running, when the Direct Message was concluded by a /clear (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0, cleared: true }];
+    p.signal();
+    await flush();
+    const banner = screen.getByTestId("chat-concluded");
+    expect(banner).toHaveTextContent("Tester was cleared. It is still running under a new session. This direct message has been concluded and deleted. Nothing in it is kept.");
+    expect(banner).not.toHaveTextContent("ended");
+  });
+
+  it("still shows a 404 on a channel as a failed read, since only a Direct Message has a box that says it is gone (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    chat.api.channelMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such channel." }));
+    p.signal();
+    await flush();
+    expect(screen.getByText(/Could not load the messages: There is no such channel/)).toBeInTheDocument();
+  });
+
+  it("does not show a 404 on a Direct Message as a failed read; the box says the conversation is gone (#1340)", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    p.signal();
+    await flush();
+    expect(screen.queryByText(/Could not load the messages/)).toBeNull();
+    expect(screen.getByText("That conversation is gone, so nothing can be sent.")).toBeInTheDocument();
+  });
+});
+
+describe("a conversation that keeps going after an agent in it ended (#1283)", () => {
+  const info = (): ConversationInfo => ({
+    id: "cnv_1",
+    thread: "convo:cnv_1",
+    members: [
+      { kind: "person", name: "Ed", you: true, addedBy: null, address: "Ed@console", sessionId: null },
+      { kind: "person", name: "Maya", you: false, addedBy: "Ed", address: "Maya@console", sessionId: null },
+      { kind: "agent", name: "Tester", you: false, addedBy: "Ed", ended: true, address: null, sessionId: "sess-tester" },
+    ],
+    hasAgent: true,
+    unread: 0,
+    mentions: 0,
+    messages: 1,
+    lastAt: T0,
+    adminReading: [],
+  });
+
+  it("marks the ended agent in the header and the members panel, and leaves a line in the thread that says the people can keep writing", async () => {
+    const w = world();
+    w.overview.conversations = [info()];
+    w.convoMessages.cnv_1 = [{ id: "k1", author: { kind: "person", name: "Maya", you: false }, text: "rerun the suite?", createdAt: T0 - 60_000, editedAt: null, deletedAt: null, replyTo: null, canChange: false, changeWhy: null, deliveries: [] }];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    const c = within(screen.getByTestId("chat-conversation"));
+    expect(c.getByTestId("chat-conversation-ended")).toHaveTextContent("Tester: Ended. It can no longer be written to.");
+    expect(c.getByTestId("chat-conversation-ended-line")).toHaveTextContent("Tester ended. This direct message has been concluded for Tester. You and Maya can keep writing here.");
+    expect(c.getByText("rerun the suite?")).toBeInTheDocument();
+  });
+
+  it("shows neither when no agent in it has ended", async () => {
+    const w = world();
+    const plain = info();
+    plain.members = plain.members.map((m) => ({ ...m, ended: undefined }));
+    w.overview.conversations = [plain];
+    w.convoMessages.cnv_1 = [];
+    page({ chat: fakeChat(w) });
+    await flush();
+    fireEvent.click(rowBtn("v:cnv_1"));
+    await flush();
+    expect(screen.queryByTestId("chat-conversation-ended")).toBeNull();
+    expect(screen.queryByTestId("chat-conversation-ended-line")).toBeNull();
+  });
+});
+
+// #1311: a chat signal makes the console read what changed once each, and a tick or an unrelated change does not draw the thread again.
+describe("a chat signal and the clock (#1311)", () => {
+  const seen = (p: ReturnType<typeof page>) => ({ overview: p.chat.api.overview.mock.calls.length, thread: p.chat.api.channelMessages.mock.calls.length, concluded: p.chat.api.concluded.mock.calls.length, peers: (p.peers.read as ReturnType<typeof vi.fn>).mock.calls.length });
+  const since = (a: ReturnType<typeof seen>, b: ReturnType<typeof seen>) => ({ overview: b.overview - a.overview, thread: b.thread - a.thread, concluded: b.concluded - a.concluded, peers: b.peers - a.peers });
+  const longThread = (n: number) => Array.from({ length: n }, (_, i) => cmsg(`g${i}`, `Message ${i}: \`inline\` and @Maya, then\n\`\`\`ts\nconst x = ${i};\n\`\`\``, { mine: i % 2 === 0, authorName: i % 2 === 0 ? "Ed" : "Maya", authorRef: i % 2 === 0 ? "Ed" : "Maya", createdAt: T0 - (n - i) * 60_000 }));
+
+  it("reads the overview, the open thread, what was concluded and My reporters once each, and shows what each returned", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(4);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const before = seen(p);
+    expect(before.concluded).toBe(1);
+    w.channels.general!.messages = [...w.channels.general!.messages, cmsg("g-new", "A message that came with the signal.")];
+    p.signal();
+    await flush();
+    expect(since(before, seen(p))).toEqual({ overview: 1, thread: 1, concluded: 1, peers: 1 });
+    expect(screen.getByText("A message that came with the signal.")).toBeInTheDocument();
+  });
+
+  it("reads what was concluded once on the wall, and the notice shows what it returned", async () => {
+    window.location.hash = "#/";
+    const p = page({ view: "wall" });
+    await flush();
+    const before = seen(p);
+    p.chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0 }];
+    p.signal();
+    await flush();
+    expect(since(before, seen(p))).toEqual({ overview: 0, thread: 0, concluded: 1, peers: 1 });
+    expect(screen.getByText("Tester ended.")).toBeInTheDocument();
+  });
+
+  it("shows the banner of an open Direct Message that was concluded, from the one read the wall and the page share", async () => {
+    const chat = fakeChat();
+    const p = page({ chat });
+    await flush();
+    await open("d:dm:s-dash|s-tester");
+    chat.api.overview.mockImplementation(async () => ({ ...structuredClone(chat.w.overview), directs: [] }));
+    chat.api.dmMessages.mockRejectedValue(new RespondError(404, { ok: false, error: "There is no such conversation." }));
+    chat.w.concluded = [{ id: "dm:s-dash|s-tester@1", thread: "dm:s-dash|s-tester", agent: "Tester", with: ["claude-dashboard"], at: T0, undelivered: 2 }];
+    const was = chat.api.concluded.mock.calls.length;
+    p.signal();
+    await flush();
+    expect(chat.api.concluded.mock.calls.length - was).toBe(1);
+    expect(screen.getByTestId("chat-concluded")).toHaveTextContent("Tester ended.");
+    expect(screen.getByTestId("chat-concluded")).toHaveTextContent("2 messages you wrote to it were not delivered.");
+  });
+
+  it("parses only the message that arrived, not the ones already on screen", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    w.channels.general!.messages = [...w.channels.general!.messages, cmsg("g-new", "Only this one is new.")];
+    p.signal();
+    await flush();
+    expect(screen.getByText("Only this one is new.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("parses again a message that was edited, and only that one", async () => {
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    const msgs = structuredClone(w.channels.general!.messages);
+    msgs[2] = { ...msgs[2]!, text: "This one was edited on another console.", updatedAt: T0 };
+    w.channels.general!.messages = msgs;
+    p.signal();
+    await flush();
+    expect(screen.getByText("This one was edited on another console.")).toBeInTheDocument();
+    expect(parse).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not parse a message on the 2 second clock, and still moves a time that shows the date when the day changes", async () => {
+    const jest = vi.useFakeTimers({ toFake: ["Date", "setInterval", "setTimeout"] });
+    jest.setSystemTime(T0);
+    const w = world();
+    w.channels.general!.messages = longThread(6);
+    const p = page({ chat: fakeChat(w) });
+    await flush();
+    const parse = vi.mocked(messageParts);
+    parse.mockClear();
+    const log = () => screen.getByRole("log", { name: "Messages" });
+    expect(within(log()).getByText("Today")).toBeInTheDocument();
+    expect(within(log()).getAllByText(/^14:\d\d$/).length).toBeGreaterThan(0);
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(parse).not.toHaveBeenCalled();
+    expect(within(log()).getByText("Today")).toBeInTheDocument();
+    // The next day: the divider says Yesterday and a stamp says the day it was written, as it did when every tick drew the page.
+    jest.setSystemTime(T0 + 86_400_000);
+    await act(async () => {
+      jest.advanceTimersByTime(2_000);
+    });
+    expect(within(log()).queryByText("Today")).toBeNull();
+    expect(within(log()).getByText("Yesterday")).toBeInTheDocument();
+    expect(within(log()).queryAllByText(/^14:\d\d$/)).toHaveLength(0);
+    expect(within(log()).getAllByText(/^Mon 14:\d\d$/).length).toBeGreaterThan(0);
+    p.unmount();
   });
 });

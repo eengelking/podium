@@ -2,7 +2,7 @@
 // machine id the reporter sends, or on its source address when it sends none. A method that reads and then writes is one transaction,
 // which is what the SQLite lock gave it. All statements are parameterized.
 import { checkReporter } from '../../fleet/compat.js';
-import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, nameSuffix, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
+import { checkTime, keyOf, apartKeyOf, SOURCE_MAX, canonicalReporterName, storedReporterNames, REPORTER_STATES, ADMIN_SECRET, sameAccount, IGNORE_KINDS, type ReporterSeen, type ReporterState, type ReporterSort, type ReporterRow, type ReporterList, type ReporterDetail, type ReporterVersionCount, type ReporterPlatformCount, type IgnoreKind, type IgnoreRule, type IgnoreTarget, type ForgetSetting } from '../rows.js';
 import type { ReporterStoreApi } from '../types.js';
 import type { PgDb } from './conn.js';
 import { pgPeerLookup, STATE_SQL } from './peerLookup.js';
@@ -26,6 +26,7 @@ interface DbReporter {
   machine_name: string | null;
   source_address: string | null;
   owner: string | null;
+  owner_id: number | null;
   credential: string | null;
   reporter_version: string;
   engine_version: string | null;
@@ -99,14 +100,14 @@ export class PgReporterStore implements ReporterStoreApi {
    * the first one keeps the machine id as its key (rows and ignore rules made before this stay valid) and each
    * other account gets `<machine id>#<owner>`. A reporter with no machine id is keyed by `keyOf` alone.
    */
-  private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'reporterName'>): Promise<string> {
+  private async accountKey(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'owner' | 'ownerId' | 'reporterName'>): Promise<string> {
     const own = keyOf(s);
     if (!s.machineId) return own;
     const apart = apartKeyOf(s);
-    const has = (key: string) => this.db.get<{ owner: string | null }>('SELECT owner FROM reporters WHERE key = ?', [key]);
+    const has = (key: string) => this.db.get<{ owner: string | null; owner_id: number | null }>('SELECT owner, owner_id FROM reporters WHERE key = ?', [key]);
     if (await has(apart)) return apart;
     const bare = await has(own);
-    return !bare || bare.owner === s.owner ? own : apart;
+    return !bare || sameAccount(bare, s) ? own : apart;
   }
 
   /**
@@ -128,7 +129,7 @@ export class PgReporterStore implements ReporterStoreApi {
     return hit?.key;
   }
 
-  async keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null }): Promise<string[]> {
+  async keysFor(s: Pick<ReporterSeen, 'kind' | 'machineId' | 'source' | 'sessionId' | 'reporterName'> & { owner?: string | null; ownerId?: number | null }): Promise<string[]> {
     const own = keyOf(s);
     const known = await this.knownKey(s);
     const account = await this.accountKey({ ...s, owner: s.owner ?? null });
@@ -147,12 +148,13 @@ export class PgReporterStore implements ReporterStoreApi {
       const key = known ?? (await this.accountKey(s));
       // A row made for this address before a known session turned up here is the same reporter: fold it in.
       if (known && known !== own) await this.merge(own, known);
+      await this.takeover(key, s);
       const peers = s.peers === undefined || s.peers === null ? null : Number(s.peers);
       await this.db.run(
-        `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO reporters (key, kind, reporter_name, machine_id, machine_name, source_address, owner, owner_id, credential, reporter_version, engine_version, first_seen_at, last_seen_at, os, peers)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET kind = excluded.kind, reporter_name = excluded.reporter_name, machine_name = excluded.machine_name, source_address = excluded.source_address,
-           owner = excluded.owner, credential = excluded.credential, reporter_version = excluded.reporter_version,
+           owner = excluded.owner, owner_id = excluded.owner_id, credential = excluded.credential, reporter_version = excluded.reporter_version,
            engine_version = excluded.engine_version, last_seen_at = excluded.last_seen_at,
            os = COALESCE(excluded.os, reporters.os), peers = COALESCE(excluded.peers, reporters.peers)`,
         [
@@ -163,6 +165,7 @@ export class PgReporterStore implements ReporterStoreApi {
           s.machineName?.slice(0, 64) ?? null,
           s.source?.slice(0, SOURCE_MAX) ?? null,
           s.owner,
+          s.ownerId ?? null,
           s.credential,
           s.version.slice(0, 64),
           s.engineVersion?.slice(0, 64) ?? null,
@@ -205,6 +208,18 @@ export class PgReporterStore implements ReporterStoreApi {
     await this.db.run('DELETE FROM reporters WHERE key = ?', [from]);
   }
 
+  /**
+   * A reporter row that changes hands starts clean (#1284), as in the SQLite store: when a report comes for a key whose row belongs to another account (a different person's id, or a row with no id
+   * that a person now claims), its links, rights, requests and session links are cleared before the new owner is written, so a newcomer who takes a deleted person's name inherits none of them.
+   */
+  private async takeover(key: string, s: ReporterSeen): Promise<void> {
+    const had = await this.db.get<{ owner: string | null; owner_id: number | null }>('SELECT owner, owner_id FROM reporters WHERE key = ?', [key]);
+    if (!had || sameAccount(had, s)) return;
+    await this.db.run('DELETE FROM peer_rights WHERE from_key = ? OR to_key = ?', [key, key]);
+    await this.db.run('DELETE FROM peer_requests WHERE from_key = ? OR to_key = ?', [key, key]);
+    await this.db.run('DELETE FROM reporter_sessions WHERE reporter_key = ?', [key]);
+  }
+
   /** Memory only, as in the SQLite store. The reason is one of the server's own fixed phrases. */
   async rejected(source: string | null, reason: string, now: number): Promise<void> {
     if (!source) return;
@@ -219,6 +234,7 @@ export class PgReporterStore implements ReporterStoreApi {
       name: r.machine_name ?? (r.kind === 'hooks' ? 'Hooks only' : (r.project ?? r.source_address ?? 'Unnamed reporter')),
       named: r.machine_name !== null,
       who: r.owner ?? 'Unassigned',
+      whoId: r.owner_id ?? null,
       credential: r.credential,
       adminSecret: r.credential === ADMIN_SECRET,
       version: r.reporter_version,

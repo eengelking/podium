@@ -3,14 +3,13 @@ import { repoRoot } from '../serverRoot.js';
 import type { Storage } from './types.js';
 import type { ContractAdapter } from './contractAdapter.js';
 
-export type { Storage, FleetStore, FleetStoreApi, PeerSettingsStoreApi, PeerRightsStoreApi, PeopleStoreApi, ReporterStoreApi, AsyncPeerReporterLookup,
-  FeatureFlagsApi, PeerStoreApi, ActivityStorage, ActivityStoreOptions, ActivityHistoryApi, ActivityHistoryOptions, SessionRecordingsApi, RecordingsOptions, PeerStoreOptions, WallSettingsApi, ModelPricesApi, RecordingSettingsApi, ActivityHistorySettingsApi, TlsSettingsApi, PersonCertsApi } from './types.js';
+export type { Storage } from './types.js';
 
 /** Opens the storage a target names. `target` is what follows the kind: a file for a file-based kind. */
-export type StorageOpener = (target: string) => Storage | Promise<Storage>;
+type StorageOpener = (target: string) => Storage | Promise<Storage>;
 
 /** Imports a kind's adapter module and returns its opener. Called only when that kind is chosen, so a server never loads another kind's driver. */
-export type StorageLoader = () => Promise<StorageOpener>;
+type StorageLoader = () => Promise<StorageOpener>;
 
 /** A registered implementation. `fileBased` is true when its target is a file, so the folder holding it is a data directory. `defaultTarget` is what it opens when PODIUM_DB is not set. */
 export interface StorageKind {

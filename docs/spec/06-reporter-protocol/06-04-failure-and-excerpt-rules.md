@@ -433,6 +433,9 @@ the server alone.
 same sign-in and the same owner test as the Activity history ([7.7](../07-server/07-07-hardening.md#session-recording-353)). The wall and the
 orchestrator page show to **everyone** that a session is recorded, who started it, which loops and when it goes (the
 notice, [8.1](../08-ui/08-01-what-the-ui-must-do.md#session-recording-353-mockuppodium-recordinghtml)), and show nothing of its content.
+The page of a replay (`RecordingPage`, [7.1](../07-server/07-01-endpoints.md#browser-routes-for-session-recording-353)) carries the owner's `people.id` as `ownerId` beside the `owner` name (#1291), `null` for a
+session owned by nobody, and absent from an older server (read as `null`). The console decides whether the viewer is the owner, or an Admin
+reading someone else's recording, by comparing `ownerId` with its own `RespondMe.id`, never the names. Nothing about who is told changes.
 
 ## File diff (opt-in, on request, #319)
 

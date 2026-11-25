@@ -64,16 +64,16 @@ describe('chat: the page', () => {
     cy.contains('Everyone signed in to this server can read and post here.');
   });
 
-  it('explains the privacy rules in a modal behind the (i) beside the title, and the thread has no "Who can read what" panel (#1099)', () => {
+  it('explains the privacy rules in a modal behind the (i) in the banner, and the thread has no "Who can read what" panel (#1099, #1209)', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     cy.tid('chat-split').should('exist');
     cy.contains('h2', 'Who can read what').should('not.exist');
     cy.get('main[aria-label=Chat] h1').should('have.text', 'Chat');
-    cy.get('main[aria-label=Chat]').find('button.info').should('have.attr', 'aria-label', 'Chat privacy and controls').and('have.attr', 'aria-haspopup', 'dialog').and('have.attr', 'aria-expanded', 'false');
-    cy.get('main[aria-label=Chat]').contains('.tip', 'Click to learn about chat privacy and controls');
+    cy.displaySettings().find('button.info').should('have.attr', 'aria-label', 'Chat privacy and controls').and('have.attr', 'aria-haspopup', 'dialog').and('have.attr', 'aria-expanded', 'false');
+    cy.displaySettings().contains('.tip', 'Click to learn about chat privacy and controls');
     cy.get('[role=dialog]').should('not.exist');
-    const opener = () => cy.get('main[aria-label=Chat] button.info');
+    const opener = () => cy.displaySettings().find('button.info');
     const open = () => {
       opener().click().should('have.attr', 'aria-expanded', 'true');
       cy.get('[role=dialog]').should('be.visible');
@@ -84,9 +84,10 @@ describe('chat: the page', () => {
     };
     open();
     cy.get('[role=dialog]').within(() => {
-      cy.contains('Chat privacy and controls');
+      cy.contains('h2', 'About Chat');
+      cy.contains('h3', 'Chat privacy and controls');
       ['Who reads what', 'How agents act', 'Stopping a session', 'Admins'].forEach((h) => cy.contains('h3', h));
-      cy.get('h3').should('have.length', 4);
+      cy.get('h3').should('have.length', 5);
       cy.get('li').should('have.length', 8);
       cy.contains('li', "A conversation with another person's agent is read by that person, the agent's owner and an Admin");
     });
@@ -98,6 +99,40 @@ describe('chat: the page', () => {
     open();
     cy.get('.scrim').trigger('mousedown', 'topLeft', { force: true });
     closed();
+  });
+
+  it('folds a section from its title, tips the + buttons, and opens New direct message from a person with that person ticked (#1234, #1278)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    const fold = () => cy.get('nav[aria-label=Chat] #sec-ch .ch-fold');
+    fold().should('have.attr', 'aria-expanded', 'true').click().should('have.attr', 'aria-expanded', 'false');
+    cy.chatRow(GENERAL).should('not.be.visible');
+    fold().click().should('have.attr', 'aria-expanded', 'true');
+    cy.chatRow(GENERAL).should('be.visible');
+    // The + takes the shared tip on hover and on keyboard focus.
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').focus();
+    cy.contains('[role=tooltip]', 'Create a channel').should('be.visible');
+    cy.get('nav[aria-label=Chat] button[aria-label="New channel"]').blur();
+    // A person is a row in People and agents; Message opens New direct message with that person ticked, whether or not they have an orchestrator Ed may message (#1278).
+    cy.chatRow('p:Alex').should('contain.text', 'Person').find('button.ch-row').click();
+    cy.get('[role=dialog]').should('contain.text', 'New direct message');
+    cy.get('[role=dialog] input[type=search]').should('have.value', '');
+    cy.tid('dm-form').find('input[type=checkbox]:checked').should('have.length', 1).and('have.value', 'p:Alex');
+    cy.tid('dm-summary').should('have.text', 'To Alex.');
+    cy.tid('dm-agent-warn').should('not.exist');
+    cy.get('[role=dialog] input[type=search]').should('have.focus');
+  });
+
+  it('opens New direct message from a person with several orchestrators and ticks only the person; their agents are listed disabled (#1237, #1278)', () => {
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow('p:Ed').find('button.ch-row').click();
+    cy.get('[role=dialog] input[type=search]').should('have.value', '');
+    // Only Ed is chosen; none of Ed's orchestrators is, and another person's agent cannot be added yet.
+    cy.tid('dm-form').find('input[type=checkbox]:checked').should('have.length', 1).and('have.value', 'p:Ed');
+    cy.tid('dm-form').contains('h3', 'Other people\'s agents');
+    cy.tid('dm-form').contains('label', 'invoice-v2').should('have.attr', 'aria-disabled', 'true').and('contain.text', 'Adding another person\'s agent is not available yet.').find('input').should('be.disabled');
+    cy.get('[role=dialog] input[type=search]').should('have.focus');
   });
 
   it('colors a People and agents row by the agent\'s state when it is pointed at, with the state said in words', () => {
@@ -114,7 +149,9 @@ describe('chat: the page', () => {
     cy.openConsole('#/chat');
     cy.chatRow(DM).find('button.ch-row').click();
     cy.get('#th-h').should('contain.text', 'invoice-v2').and('contain.text', 'Tester');
-    cy.get('[aria-label="In this conversation"]').should('contain.text', 'invoice-v2').and('contain.text', 'Tester').and('contain.text', 'Ed');
+    // A Direct Message has two parties, named by the avatars before the title, and no members stack or panel (#1236).
+    cy.get('.ch-head h2 .ch-av-pair').should('exist');
+    cy.get('button[aria-controls="ch-members"]').should('not.exist');
     cy.tid('chat-message').should('have.length', 4);
     cy.tid('chat-thread').should('contain.text', 'Please run the unit tests on this branch.').and('contain.text', '2 of 14 failed on Ubuntu 24.04.');
     cy.tid('chat-thread').should('contain.text', 'Waiting: Tester is working. It gets this when its turn ends.');
@@ -131,7 +168,7 @@ describe('chat: the page', () => {
     cy.tid('chat-message').should('have.length', 0);
     cy.tid('chat-box').type('{enter}');
     cy.tid('chat-box').should('have.value', '');
-    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'first line').and('contain.text', 'second line').and('contain.text', 'Posted. No agent was addressed, so none will act on it.');
+    cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'first line').and('contain.text', 'second line').and('contain.text', 'Posted').and('not.contain.text', 'No agent was addressed');
     // The box stays empty and is read again from the server after a reload.
     cy.reload();
     cy.tid('chat-message').should('have.length', 1);
@@ -164,6 +201,37 @@ describe('chat: the page', () => {
     cy.tid('chat-listbox').find('[role=option]').eq(1).should('have.attr', 'aria-selected', 'true');
     cy.tid('chat-box').type('{uparrow}');
     cy.tid('chat-listbox').find('[role=option]').first().should('have.attr', 'aria-selected', 'true');
+    cy.tid('chat-box').clear();
+  });
+
+  it('draws the message box as one box with a Send icon that ends at its edge, grows with its text, and has an @ tool and Tab to pick (#1233)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.get('.ch-composer label').should('have.text', 'Message General').and('have.class', 'vh');
+    cy.tid('chat-send').should('have.attr', 'aria-label', 'Send message').and('be.disabled');
+    cy.tid('chat-box').type('hello');
+    cy.tid('chat-send').should('not.be.disabled');
+    // Send ends at the box's right edge, within the box's padding.
+    cy.get('.ch-box').then(($box) => {
+      cy.tid('chat-send').should(($send) => {
+        const gap = $box[0].getBoundingClientRect().right - $send[0].getBoundingClientRect().right;
+        expect(gap).to.be.within(0, 12);
+      });
+    });
+    // One line to start; it grows with its text and stops at 180 px.
+    cy.tid('chat-box').clear().type('a{shift}{enter}{enter}{enter}{enter}{enter}{enter}{enter}');
+    cy.tid('chat-box').should(($b) => expect($b[0].getBoundingClientRect().height).to.be.within(100, 181));
+    cy.tid('chat-box').clear();
+    cy.tid('chat-box').should(($b) => expect($b[0].getBoundingClientRect().height).to.be.below(60));
+    // The @ tool writes an @ and opens the list; Tab picks the first entry, and an entry that is off is not picked.
+    cy.tid('chat-tool-at').click();
+    cy.tid('chat-box').should('have.value', '@').and('have.attr', 'role', 'combobox').and('have.attr', 'aria-expanded', 'true');
+    cy.tid('chat-listbox').should('be.visible');
+    cy.tid('chat-box').type('inv').trigger('keydown', { key: 'Tab' });
+    cy.tid('chat-box').should('have.value', '@invoice-v2@ed-mbp ');
+    cy.tid('chat-box').clear().type('@gr').trigger('keydown', { key: 'Tab' });
+    cy.tid('chat-box').should('have.value', '@gr');
+    cy.tid('chat-listbox').should('be.visible');
     cy.tid('chat-box').clear();
   });
 
@@ -214,7 +282,7 @@ describe('chat: the page', () => {
     cy.openConsole('#/chat');
     cy.chatRow(GROUP).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 0);
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
     cy.chatRow(GENERAL).find('button.ch-row').click();
     cy.tid('chat-thread').should('not.contain.text', 'group note');
   });
@@ -299,9 +367,11 @@ describe('chat: the stop buttons of a channel', () => {
     cy.tid('chat-message').should('have.length', 1);
     cy.signIn('Admin');
     cy.openConsole('#/chat');
-    // The admin secret reads General and has no group or Direct Messages of its own.
+    // The admin secret has no group or Direct Messages of its own, and no thread is open until it picks one (#1238).
     cy.chatRow(GROUP).should('not.exist');
     cy.contains('Direct Messages and People and agents belong to a person.');
+    cy.tid('chat-idle').should('contain.text', 'Choose General or a channel to read it.');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 1);
     openMenu(GENERAL).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.include.members(['Pause General for everyone', 'Remove all messages…']));
     cy.tid('chat-menu').contains('[role=menuitem]', 'Pause General for everyone').click();
@@ -324,7 +394,7 @@ describe('chat: the stop buttons of a channel', () => {
     openMenu(GENERAL).contains('[role=menuitem]', 'Remove all messages…').click();
     cy.tid('chat-confirm').contains('button', 'Remove all messages').click();
     cy.tid('chat-message').should('have.length', 0);
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
   });
 
   it('lets a person remove all the messages of My group after a confirmation', () => {
@@ -401,5 +471,171 @@ describe('chat: at 400 px', () => {
     cy.contains('button', 'Back to the list').click();
     cy.tid('chat-split').should('have.attr', 'data-pane', 'side');
     cy.chatRow(DM).should('be.visible');
+  });
+  it('fills a phone window with an 8 px gutter on every side, the list and the thread alike', () => {
+    cy.atWidth(400);
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    const gutters = () => cy.tid('chat-split').should(($s) => {
+      const r = $s[0].getBoundingClientRect();
+      const page = $s[0].closest('.apage').getBoundingClientRect();
+      expect(r.top - page.top, 'top gutter').to.eq(8);
+      expect(r.left - page.left, 'left gutter').to.eq(8);
+      expect(page.right - r.right, 'right gutter').to.eq(8);
+      expect(page.bottom - r.bottom, 'bottom gutter').to.eq(8);
+    });
+    gutters();
+    cy.chatRow(DM).find('button.ch-row').click();
+    cy.tid('chat-split').should('have.attr', 'data-pane', 'thread');
+    gutters();
+  });
+  it('fills the window with a 16 px gutter on every side, at two heights, with the box always in view', () => {
+    cy.signIn('Ed');
+    [700, 1100].forEach((h) => {
+      cy.viewport(1440, h);
+      cy.openConsole('#/chat');
+      cy.tid('chat-split').should('exist');
+      cy.tid('chat-split').then(($s) => {
+        const r = $s[0].getBoundingClientRect();
+        const page = $s[0].closest('.apage').getBoundingClientRect();
+        expect(r.top - page.top, 'top gutter').to.eq(16);
+        expect(r.left - page.left, 'left gutter').to.eq(16);
+        expect(page.right - r.right, 'right gutter').to.eq(16);
+        expect(page.bottom - r.bottom, 'bottom gutter').to.eq(16);
+        expect(Math.round(page.bottom), 'the page ends at the window').to.eq(h);
+      });
+      cy.get('.ch-composer textarea').should('be.visible');
+      cy.document().should((doc) => expect(doc.documentElement.scrollHeight, 'the page does not scroll').to.be.at.most(doc.documentElement.clientHeight));
+    });
+  });
+});
+
+describe('chat: messages drawn as rows (#1232)', () => {
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  const LONG = `const longLine = "${'x'.repeat(240)}";`;
+
+  const seedRows = () => {
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).should('exist');
+    post('general', 'hello from Alex');
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).should('exist');
+    post('general', 'first from Ed');
+    post('general', 'second from Ed');
+    post('general', `see this:\n\`\`\`js\n${LONG}\n\`\`\`\nand \`inline\` code <script>window.__pwned = 1</script>`);
+    // The page decides its "New" line once, from the unread count when the thread first loads, and marks the thread read only when it
+    // sees unread messages. Where that mark lands against the reload is timing, and a "New" line between Ed's own messages splits the
+    // run this spec looks at. So the spec marks the thread read itself, by request, and checks the server's answer, before the reload.
+    cy.tid('chat-message').should('have.length', 4);
+    cy.request({ method: 'POST', url: '/api/fleet/respond/chat/read', headers: H, body: { thread: 'public', upTo: null }, log: false })
+      .its('body', { log: false }).should('deep.include', { ok: true, unread: 0, mentions: 0 });
+    cy.chatRow(GENERAL).should('not.have.class', 'un').find('.unread').should('not.exist');
+    cy.reload();
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('li.ch-newline').should('not.exist');
+  };
+
+  it('groups a run under one name, right-aligns your own messages in the same bubble, and dates the day', () => {
+    seedRows();
+    cy.tid('chat-message').eq(0).should('have.class', 'first').and('not.have.class', 'mine').and('contain.text', 'hello from Alex');
+    cy.tid('chat-message').eq(1).should('have.class', 'first').and('have.class', 'mine');
+    cy.tid('chat-message').eq(2).should('have.class', 'cont').and('have.class', 'mine').and('contain.text', 'second from Ed');
+    cy.tid('chat-message').eq(2).find('.who').should('not.exist');
+    cy.tid('chat-message').eq(3).should('have.class', 'cont').and('have.class', 'mine');
+    cy.tid('chat-message').eq(0).find('.ch-tx').invoke('attr', 'class').then((theirs) => {
+      cy.tid('chat-message').eq(1).find('.ch-tx').should('have.attr', 'class', theirs);
+    });
+    cy.get('ol.ch-msgs li.ch-day').should('have.length', 1).and('contain.text', 'Today');
+  });
+
+  it('draws a fenced block as text in a focusable pre, and a script tag as text', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.tid('chat-code').should('have.length', 1).within(() => {
+      cy.get('pre[tabindex=0] code').should('contain.text', 'const longLine');
+      cy.get('.ch-code-lang').should('have.text', 'js');
+      cy.contains('button', 'Copy').should('be.visible');
+    });
+    cy.tid('chat-message').last().find('code.ch-inline').should('have.text', 'inline');
+    cy.tid('chat-message').last().should('contain.text', '<script>window.__pwned = 1</script>');
+    cy.tid('chat-message').last().find('script').should('not.exist');
+    cy.window().its('__pwned').should('be.undefined');
+  });
+
+  it('keeps the page from scrolling sideways at 400 px while the code block scrolls inside itself', () => {
+    cy.atWidth(400);
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
+    cy.tid('chat-code').scrollIntoView().should('be.visible');
+    cy.document().should((doc) => expect(doc.documentElement.scrollWidth, 'the page does not scroll sideways').to.eq(doc.documentElement.clientWidth));
+    cy.tid('chat-code').then(($c) => {
+      expect($c[0].getBoundingClientRect().right, 'the block is inside the window').to.be.at.most(400);
+    });
+    cy.tid('chat-code').find('pre').should(($p) => expect($p[0].scrollWidth, 'the pre scrolls sideways').to.be.greaterThan($p[0].clientWidth));
+  });
+
+  it('anchors a short thread to the bottom, just above the message box, and grows it upward', () => {
+    cy.viewport(1440, 1100);
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('.ch-body').should(($b) => {
+      const body = $b[0].getBoundingClientRect();
+      const last = $b[0].querySelector('li.ch-msg:last-of-type').getBoundingClientRect();
+      const first = $b[0].querySelector('li.ch-msg').getBoundingClientRect();
+      expect(body.bottom - last.bottom, 'the newest message ends within the body padding').to.be.within(0, 16);
+      expect(first.top - body.top, 'the room left over is above the thread').to.be.greaterThan(100);
+    });
+    cy.get('.ch-composer textarea').should('be.visible');
+  });
+
+  it('empty thread: the introduction sits at the bottom, just above the message box', () => {
+    cy.viewport(1440, 1100);
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow(GROUP).find('button.ch-row').click();
+    cy.tid('chat-intro').should(($i) => {
+      const body = $i.closest('.ch-body')[0].getBoundingClientRect();
+      const intro = $i[0].getBoundingClientRect();
+      expect(body.bottom - intro.bottom, 'the introduction ends within the body padding').to.be.within(0, 16);
+      expect(intro.top - body.top, 'the room left over is above it').to.be.greaterThan(100);
+    });
+  });
+
+  it('is one tab stop; the arrow keys, Home and End move between messages', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('li.ch-msg[tabindex=0]').should('have.length', 1);
+    cy.get('li.ch-msg[tabindex="-1"]').should('have.length', 3);
+    const at = (i) => cy.tid('chat-message').eq(i).should('have.focus').and('have.attr', 'tabindex', '0');
+    cy.tid('chat-message').eq(0).focus();
+    at(0);
+    cy.focused().type('{downarrow}');
+    at(1);
+    cy.focused().type('{downarrow}{downarrow}{downarrow}');
+    at(3);
+    cy.focused().type('{uparrow}');
+    at(2);
+    cy.focused().type('{home}');
+    at(0);
+    cy.focused().type('{uparrow}');
+    at(0);
+    cy.focused().type('{end}');
+    at(3);
+    cy.get('li.ch-msg[tabindex=0]').should('have.length', 1);
+  });
+
+  it('is a polite log of additions once it has settled', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.tid('chat-message').should('have.length', 4);
+    cy.get('[role=log][aria-label=Messages]').should('have.attr', 'aria-relevant', 'additions').and('have.attr', 'aria-live', 'polite');
+    cy.get('[role=log][aria-label=Messages] ol.ch-msgs').should('exist');
   });
 });

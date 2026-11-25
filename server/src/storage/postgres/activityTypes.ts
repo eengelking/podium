@@ -3,7 +3,7 @@
 import type { ActivityHistoryOpts, RecordingsOpts } from '../rows.js';
 
 /** Runs one step of a chunked operation under the activity connection's lock, and tells the recordings' trail afterward. */
-export type PgStep = <T>(fn: () => Promise<T>) => Promise<T>;
+type PgStep = <T>(fn: () => Promise<T>) => Promise<T>;
 
 export type PgHistoryOptions = Omit<ActivityHistoryOpts, 'step'> & { step?: PgStep };
 

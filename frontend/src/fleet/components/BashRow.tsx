@@ -12,17 +12,17 @@ export const ARG_CUT = LINE_CUT - "Bash ".length;
 /** The Admin's `activity-output` flag as the console's state last said; null where the page does not have the state. */
 export const ActivityOutputFlag = createContext<boolean | null>(null);
 
-const CHEV = (
+export const CHEV = (
   <svg className="chev" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M3 1.5 6.5 5 3 8.5" />
   </svg>
 );
-const OK = (
+export const OK = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="m3 8.5 3.2 3.2L13 5" />
   </svg>
 );
-const BAD = (
+export const BAD = (
   <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
     <path d="m4 4 8 8M12 4l-8 8" />
   </svg>
@@ -44,13 +44,13 @@ export function Redacted(props: { text: string }) {
 }
 
 /** A command or output as pre-formatted text: `[redacted]` marked, and the line that says it was cut left plain and muted. */
-function Marked(props: { text: string }) {
+export function Marked(props: { text: string }) {
   const lines = props.text.split("\n");
   return (
     <>
       {lines.map((l, i) => (
         <span key={i}>
-          {l.startsWith("[cut off") ? <span className="mark">{l}</span> : <Redacted text={l} />}
+          {/^\[(older output )?cut off/.test(l) ? <span className="mark">{l}</span> : <Redacted text={l} />}
           {i < lines.length - 1 && "\n"}
         </span>
       ))}
@@ -85,7 +85,7 @@ export function missingOutput(why: { stored: boolean; adminOn: boolean | null; m
   return { title: "Output was not collected.", note: "Output is only collected while this panel is open." };
 }
 
-export interface BashData {
+interface BashData {
   /** The whole command, as the mod sent or the history stored it; absent from an older reporter. */
   command?: string;
   output?: string;
@@ -102,7 +102,7 @@ export interface BashData {
 const failedOf = (d: BashData) => d.failed === true || (d.exitCode !== undefined && d.exitCode !== 0);
 
 /** The exit status as a shape, a word and a color. A success is a bare check, named for a screen reader and by a tooltip. */
-export function ExitStatus(props: { d: BashData }) {
+function ExitStatus(props: { d: BashData }) {
   const { d } = props;
   if (!failedOf(d)) {
     return (
@@ -121,7 +121,7 @@ export function ExitStatus(props: { d: BashData }) {
 }
 
 /** A small Copy button. It reads Copied with a check for 1.6 s, and shows nothing at all when the clipboard refuses. */
-function CopyButton(props: { label: string; text: string }) {
+export function CopyButton(props: { label: string; text: string }) {
   const { state, copy } = useCopy(props.text);
   return (
     <button type="button" className="btn" onClick={copy}>

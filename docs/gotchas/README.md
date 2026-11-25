@@ -102,7 +102,7 @@ The feature is in [REPLAY.md](../REPLAY.md).
 **Orchestrator messaging**
 
 - [Two orchestrators on the same machine cannot message each other](two-orchestrators-on-one-machine-cannot-message.md): Sessions on one machine share a reporter that has no right to itself; set the diagonal cell on My reporters or trust your own reporters.
-- [A message does not arrive while the other session waits at a permission prompt](message-waits-while-the-other-session-is-at-a-prompt.md): A message is handed over only when the receiver is idle, so answer the permission prompt and it arrives after that turn.
+- [A message does not arrive while the other session waits at a permission prompt](message-waits-while-the-other-session-is-at-a-prompt.md): A message is held while the receiver has a permission prompt open, so answer the prompt and it is handed over at once.
 - [My reporters is missing after signing in with the admin secret](my-reporters-missing-after-admin-sign-in.md): The admin secret belongs to no one and has no reporters; sign in with your own name and token.
 
 **Session recording**

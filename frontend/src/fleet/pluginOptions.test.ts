@@ -4,7 +4,7 @@ import { DESKTOP_OPTIONS, harnessesOnMachine, harnessesToShow, OPTION_CMD, optio
 describe("pluginOptions (#857)", () => {
   it("names the variable that turns each consent option on, the way the reporters read it", () => {
     // The same table as CONSENT_VARS in plugin/core/settings.ts, which the frontend cannot import (its own build refuses the .ts extensions there).
-    const consentVars = { respond: "PODIUM_RESPOND", peers: "PODIUM_PEERS", sessionRecording: "PODIUM_SESSION_RECORDING", fullPrompts: "PODIUM_FULL_PROMPTS", activityFeed: "PODIUM_ACTIVITY_FEED", activityOutput: "PODIUM_ACTIVITY_OUTPUT", fileDiff: "PODIUM_FILE_DIFF" };
+    const consentVars = { respond: "PODIUM_RESPOND", peers: "PODIUM_PEERS", sessionRecording: "PODIUM_SESSION_RECORDING", fullPrompts: "PODIUM_FULL_PROMPTS", activityFeed: "PODIUM_ACTIVITY_FEED", activityOutput: "PODIUM_ACTIVITY_OUTPUT", backgroundOutput: "PODIUM_BACKGROUND_OUTPUT", fileDiff: "PODIUM_FILE_DIFF" };
     for (const [option, variable] of Object.entries(consentVars)) expect(optionVariable(option), option).toBe(variable);
   });
 

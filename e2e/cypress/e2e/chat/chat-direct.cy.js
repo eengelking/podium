@@ -1,7 +1,7 @@
 // SPEC 8.1 Chat page (#1034), Direct Messages: the controls Traffic had, now in the menu on each Direct Message (Pause link, Resume link, Remove link…, Delete conversation…), who may
 // use them, what a failure says, messaging an agent from People and agents, an agent's menu, and a conversation that leaves the list when its agents have ended.
 // Order: in each describe the tests run in order on one server, and a later one reads what an earlier one left (named where it matters); each describe resets the server once, in `before`.
-import { seeded } from '../../../support/commands';
+import { personDmRow, seeded } from '../../../support/commands';
 
 const DM = 'd:dm:e2e-s-invoice|e2e-s-tester';
 const GENERAL = 'c:general';
@@ -10,6 +10,17 @@ const NAME = 'Actions for invoice-v2, Tester';
 const openMenu = (row) => {
   cy.chatRow(row).find('button.ch-more').click();
   return cy.tid('chat-menu').should('be.visible');
+};
+// People and agents is paged ten at a time (#1272): a row that is not on the first page is found by paging forward.
+const showRow = (key, pagesLeft = 6) => {
+  cy.get('#list-pe > li').should('have.length.greaterThan', 0);
+  return cy.get('body').then(($b) => {
+    if ($b.find(`[data-testid="chat-row-${key}"]`).length) return;
+    const next = $b.find('nav[aria-label="People and agents pages"] button[aria-label="Next page"]:not(:disabled)');
+    if (!next.length || pagesLeft === 0) throw new Error(`chat-row-${key} is on no page of People and agents`);
+    cy.wrap(next).click();
+    showRow(key, pagesLeft - 1);
+  });
 };
 const openDm = () => {
   cy.signIn('Ed');
@@ -43,7 +54,7 @@ describe('chat: the controls of a Direct Message', () => {
     cy.signIn('Alex');
     cy.openConsole('#/chat');
     cy.chatRow(DM).should('not.exist');
-    cy.contains('No conversations. Start one from People and agents.');
+    cy.contains('No conversations. Use + to start one.');
     // And the server answers them as it would for a conversation that does not exist (404), with no text.
     cy.request({ url: '/api/fleet/respond/chat/dm/e2e-s-invoice/e2e-s-tester/messages?limit=50', failOnStatusCode: false }).then((r) => {
       expect(r.status).to.eq(404);
@@ -126,7 +137,7 @@ describe('chat: the controls of a Direct Message', () => {
     openMenu(DM).contains('[role=menuitem]', 'Delete conversation…').click();
     cy.tid('chat-confirm').contains('button', /^Delete conversation$/).click();
     cy.chatRow(DM).should('not.exist');
-    cy.contains('No conversations. Start one from People and agents.');
+    cy.contains('No conversations. Use + to start one.');
     cy.get('#th-h').should('have.text', 'General');
     cy.chatRow(GENERAL).find('button.ch-row').should('have.attr', 'aria-current', 'true');
   });
@@ -135,32 +146,32 @@ describe('chat: the controls of a Direct Message', () => {
 describe('chat: People and agents', () => {
   before(() => cy.resetServer({ seedArgs: '--talk' }));
 
-  it('offers Message and Open orchestration page on an agent, from the "..." button and a right-click', () => {
+  it('offers Message, Mention and Open orchestration page on an agent, from the "..." button and a right-click', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
     openMenu('a:e2e-s-invoice').should('have.attr', 'aria-label', 'Actions for invoice-v2');
-    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Open orchestration page']));
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Mention invoice-v2', 'Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').should('have.attr', 'href', '#/?open=e2e-s-invoice');
     cy.focused().type('{esc}');
     cy.tid('chat-menu').should('not.exist');
     cy.chatRow('a:e2e-s-invoice').rightclick();
-    cy.tid('chat-menu').find('[role=menuitem]').should('have.length', 2);
+    cy.tid('chat-menu').find('[role=menuitem]').should('have.length', 3);
     cy.get('body').click(0, 0);
   });
 
   it('starts a Direct Message with an agent, which joins the list once the first message is sent', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('not.exist');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).should('not.exist');
     cy.chatRow('a:e2e-s-arm64-check').find('button.ch-row').should('have.attr', 'title', 'Message arm64-check').click();
     cy.get('#th-h').should('have.text', 'arm64-check');
     cy.get('label').contains('Message arm64-check');
-    cy.contains('No messages yet. Write the first one below.');
+    cy.tid('chat-intro').should('contain', 'This is the start of');
     cy.tid('chat-box').should('have.attr', 'placeholder', 'Write a message, or type / for a command.').type('Is the arm64 build ready?{enter}');
     cy.tid('chat-message').should('have.length', 1).first().should('contain.text', 'You').and('contain.text', 'Is the arm64 build ready?').and('contain.text', 'Waiting:');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).should('contain.text', 'arm64-check').and('contain.text', 'You and one agent');
     // A conversation with one agent has no link to pause: only Delete is offered.
-    openMenu('d:dm:e2e-s-arm64-check|person:ed').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
+    openMenu(personDmRow('e2e-s-arm64-check', 'Ed')).find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Delete conversation…']));
     cy.focused().type('{esc}');
   });
 
@@ -168,29 +179,44 @@ describe('chat: People and agents', () => {
     // Reads the message Ed sent to arm64-check in the test above. The agent answers through its reporter's route, as podium_send to the person does.
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('.unread').should('not.exist');
     cy.request({ method: 'POST', url: '/api/fleet/sessions/e2e-s-arm64-check/peers/messages', headers: { 'X-Podium-Token': seeded().people.Ed.token }, body: { to: 'person:ed', text: 'The arm64 build is ready.' }, log: false }).its('status', { log: false }).should('eq', 202);
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('button.ch-row').click();
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('.unread').should('have.text', '1').and('have.attr', 'aria-label', '1 new');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('button.ch-row').click();
     cy.tid('chat-message').should('have.length', 2).first().should('contain.text', 'Is the arm64 build ready?');
     cy.tid('chat-message').last().should('contain.text', 'arm64-check').and('contain.text', 'The arm64 build is ready.').and('not.contain.text', 'You');
-    cy.chatRow('d:dm:e2e-s-arm64-check|person:ed').find('.unread').should('not.exist');
+    cy.chatRow(personDmRow('e2e-s-arm64-check', 'Ed')).find('.unread').should('not.exist');
   });
 
-  it('opens an agent\'s orchestration page from its menu among the people in a thread', () => {
+  it('opens an agent\'s orchestration page from its row in the members panel of My group (#1236)', () => {
     cy.signIn('Ed');
     cy.openConsole('#/chat');
-    cy.chatRow(DM).find('button.ch-row').click();
-    cy.get('[aria-label="In this conversation"] button.m').first().click();
-    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Open orchestration page']));
+    cy.chatRow('c:group').find('button.ch-row').click();
+    cy.get('button[aria-controls="ch-members"]').click();
+    cy.tid('chat-members').should('be.visible').and('contain.text', 'invoice-v2').and('contain.text', 'Ed (you)');
+    cy.tid('chat-members').find('button[aria-label="Actions for invoice-v2"]').click();
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message invoice-v2', 'Mention invoice-v2', 'Open orchestration page']));
     cy.tid('chat-menu').contains('a[role=menuitem]', 'Open orchestration page').click();
-    cy.location('hash').should('match', /^#\/\?open=e2e-s-(invoice|tester)$/);
+    cy.location('hash').should('eq', '#/?open=e2e-s-invoice');
     cy.get('main#podium-main h1').should('have.text', 'invoice-v2');
+  });
+
+  it('searches the members panel, closes it on Escape and puts the focus back on the stack (#1236)', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow('c:group').find('button.ch-row').click();
+    cy.get('button[aria-controls="ch-members"]').click();
+    cy.get('input[aria-label="Find a member"]').type('tester');
+    cy.tid('chat-members').find('li').should('have.length', 1).and('contain.text', 'Tester');
+    cy.get('input[aria-label="Find a member"]').type('{esc}');
+    cy.tid('chat-members').should('not.exist');
+    cy.focused().should('have.attr', 'aria-controls', 'ch-members');
   });
 });
 
 describe('chat: a conversation whose agents have left', () => {
   // The seeded sessions go stale after two seconds and stay on the wall, so each can be removed with the card's own Remove button, which is how an agent leaves.
+  // That is a lost heartbeat, which is not final (#1283): the conversation is hidden and comes back when the agent reports again. A finished agent concludes it: chat-concluded.cy.js.
   before(() => cy.resetServer({ seedArgs: '--talk', env: ['STALE_AFTER_MS=2000', 'HOOK_STALE_AFTER_MS=2000', 'DROP_AFTER_MS=7200000', 'LINGER_MS=7200000'] }));
   const remove = (key) => {
     cy.openConsole('#/');
@@ -219,7 +245,7 @@ describe('chat: a conversation whose agents have left', () => {
     cy.chatRow(DM).should('not.exist');
     cy.chatRow(`a:${seeded().sessions.invoice}`).should('not.exist');
     cy.get('#th-h').should('have.text', 'General');
-    cy.contains('No conversations. Start one from People and agents.');
+    cy.contains('No conversations. Use + to start one.');
   });
 
   it('shows it again, with what it held, when one of its agents reports again', () => {
@@ -271,9 +297,116 @@ describe('chat: an agent launched and not yet used (#1112)', () => {
     cy.signIn('Ed');
     cy.task('fleet:launch', { id: ID, name: 'quiet-folder' }, { log: false });
     cy.openConsole('#/chat');
+    showRow(`a:${ID}`);
     cy.chatRow(`a:${ID}`).should('exist').and('contain.text', 'quiet-folder');
     cy.openConsole('#/');
     cy.card('invoice').should('exist');
     cy.get(`button.card.sc[data-session="${ID}"]`).should('not.exist');
+  });
+});
+
+describe('chat: the menu on a sender\'s avatar (#1235)', () => {
+  const ASK = 'Please run the unit tests on invoice-v2.';
+  // Alex's message in General is the one with another person's avatar; Ed reads it. Each test signs in again, so none depends on another.
+  before(() => {
+    cy.resetServer({ seedArgs: '--talk' });
+    cy.signIn('Alex');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
+    cy.tid('chat-box').type(`@invoice-v2@ed-mbp ${ASK}{enter}`);
+    cy.tid('chat-message').last().should('contain.text', ASK);
+  });
+  const asEd = () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(GENERAL).find('button.ch-row').click();
+    return cy.tid('chat-message').last().should('contain.text', ASK);
+  };
+
+  it('offers Message and Mention on a right-click of a person\'s avatar, and Message opens New direct message with that person ticked', () => {
+    asEd().find('.ch-gut').rightclick();
+    cy.tid('chat-menu').should('be.visible').and('have.class', 'at').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.textContent.trim())).to.deep.eq(['Message Alex', 'Mention Alex']));
+    cy.tid('chat-menu').contains('[role=menuitem]', 'Message Alex').click();
+    cy.get('[role=dialog]').should('contain.text', 'New direct message');
+    cy.tid('dm-form').find('input[type=checkbox]:checked').should('have.length', 1).and('have.value', 'p:Alex');
+  });
+
+  it('writes the address in the message box on Mention, and puts it at the caret', () => {
+    asEd().find('.ch-gut').rightclick();
+    cy.tid('chat-menu').contains('[role=menuitem]', 'Mention Alex').click();
+    cy.tid('chat-box').should('be.focused').and(($b) => expect($b.val()).to.match(/^@Alex@\S+ $/));
+  });
+
+  it('opens from the keyboard (Enter) on a focused message, moves, and closes on Escape with the focus back on the message', () => {
+    asEd().focus().type('{enter}');
+    cy.tid('chat-menu').should('be.visible');
+    cy.focused().should('have.attr', 'role', 'menuitem');
+    cy.focused().type('{downArrow}');
+    cy.focused().type('{esc}');
+    cy.tid('chat-menu').should('not.exist');
+    cy.focused().should('have.attr', 'data-testid', 'chat-message');
+  });
+
+  it('gives your own avatar no sender menu: a right-click there opens the menu of your own message (#1269), with no Message or Mention', () => {
+    asEd();
+    cy.tid('chat-box').type('A line of my own{enter}');
+    cy.tid('chat-message').last().should('contain.text', 'A line of my own').find('.ch-gut').rightclick();
+    cy.tid('chat-menu').should('have.attr', 'aria-label', 'Your message').and('not.contain.text', 'Mention').and('not.contain.text', 'Message the');
+    cy.tid('chat-menu').find('[role=menuitem]').should(($i) => expect([...$i].map((i) => i.dataset.act)).to.deep.eq(['edit-message', 'delete-message']));
+  });
+});
+
+describe('chat: People and agents is paged (#1272)', () => {
+  // Ten agents are launched on top of the seeded ones, so the list is longer than one page. The spec reads the total from the footer and does not depend on their order.
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  it('shows ten rows with the standard footer, pages with Previous and Next, and opens New direct message from its +', () => {
+    for (let i = 0; i < 10; i += 1) cy.task('fleet:launch', { id: `page-e2e-${String(i).padStart(2, '0')}`, name: `paged-${String(i).padStart(2, '0')}` }, { log: false });
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.get('#list-pe > li').should('have.length', 10);
+    cy.contains('#sec-pe', 'People and agents').closest('section').as('pe');
+    cy.get('@pe').contains(/^Showing 1–10 of \d+$/);
+    cy.get('@pe').find('nav[aria-label="People and agents pages"] button[aria-label="Previous page"]').should('be.disabled');
+    cy.get('@pe').contains(/^Showing 1–10 of \d+$/).invoke('text').then((t) => {
+      const total = Number(t.match(/of (\d+)$/)[1]);
+      const pages = Math.ceil(total / 10);
+      expect(total).to.be.greaterThan(10);
+      cy.get('@pe').find('nav[aria-label="People and agents pages"]').contains(`1 of ${pages}`);
+      for (let i = 1; i < pages; i += 1) cy.get('@pe').find('button[aria-label="Next page"]').click();
+      cy.get('@pe').contains(`Showing ${(pages - 1) * 10 + 1}–${total} of ${total}`);
+      cy.get('#list-pe > li').should('have.length', total - (pages - 1) * 10);
+      cy.get('@pe').find('button[aria-label="Next page"]').should('be.disabled');
+      for (let i = 1; i < pages; i += 1) cy.get('@pe').find('button[aria-label="Previous page"]').click();
+      cy.get('#list-pe > li').should('have.length', 10);
+    });
+    cy.get('@pe').find('h2 button[aria-label="New direct message"]').click();
+    cy.get('[role=dialog][aria-labelledby="dm-h"]').should('contain.text', 'New direct message');
+    cy.focused().type('{esc}');
+  });
+});
+
+describe('chat: two live agents never share a name (#1284)', () => {
+  const TWIN = 'twin-e2e0001';
+  const RESPOND = { 'X-Podium-Respond': '1' };
+  before(() => cy.resetServer({ seedArgs: '--talk' }));
+
+  it('lists the later of two same-named agents of one owner as "<name> 2", and leaves the first with its name', () => {
+    cy.signIn('Ed');
+    cy.openConsole('#/chat');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('exist').and('contain.text', 'invoice-v2').and('not.contain.text', 'invoice-v2 2');
+    cy.task('fleet:launch', { id: TWIN, name: 'invoice-v2' }, { log: false });
+    // The twin joins the open list, on its first page beside the first agent.
+    cy.chatRow(`a:${TWIN}`).should('exist').and('contain.text', 'invoice-v2 2');
+    cy.chatRow(`a:${seeded().sessions.invoice}`).should('not.contain.text', 'invoice-v2 2');
+  });
+
+  it('reaches the first agent by @name@machine and refuses nothing as ambiguous, because the second is not called by that name', () => {
+    cy.signIn('Ed');
+    cy.request({ method: 'POST', url: '/api/fleet/respond/chat/channels/general/messages', headers: RESPOND, body: { text: '@invoice-v2@ed-mbp are you there?' }, log: false }).then((r) => {
+      expect(r.status).to.eq(201);
+      expect(r.body.message.mentions).to.have.length(1);
+      expect(r.body.message.mentions[0].sessionId).to.eq(seeded().sessions.invoice);
+    });
   });
 });

@@ -7,7 +7,17 @@ export const seeded = () => {
   return manifest;
 };
 
-const H_ADMIN = { 'X-Podium-Admin': '1' };
+/** A seeded person's end of a conversation: `person:<people.id>` (#1284), never the name. Call it inside a test or hook, after cy.resetServer(). */
+export const personKey = (name) => {
+  const p = seeded().people[name];
+  if (!p) throw new Error(`no seeded person "${name}"`);
+  return `person:${p.id}`;
+};
+
+/** The sidebar key of a person's Direct Message with an agent's session (an agent's id sorts before `person:`), for cy.chatRow(). */
+export const personDmRow = (sessionId, name) => `d:dm:${sessionId}|${personKey(name)}`;
+
+const H_ADMIN ={ 'X-Podium-Admin': '1' };
 const H_RESPOND = { 'X-Podium-Respond': '1' };
 
 /** Restarts the server on a wiped database and reseeds it; yields the manifest. Options: env ['NAME=VALUE'], seedArgs, history, noSeed. */
@@ -109,6 +119,10 @@ Cypress.Commands.add('putSettings', (body) => {
 Cypress.Commands.add('setFlags', (flags) => cy.putSettings({ features: flags }));
 
 /** Reports a seeded session again as a reporter would: `over` merges into its session, `agents` maps an agent id to changed fields, `steps` maps a plan step id to its new state. */
+/** Ed, who owns the seeded ed-mbp reporter, allows an Admin to respond to his sessions on it, or takes that back (#1251): off by default. */
+Cypress.Commands.add('adminMayRespond', (allow) =>
+  cy.task('respond:as', { as: 'Ed', method: 'PUT', path: `/peers/reporters/${encodeURIComponent(seeded().machines.mbp.id)}/admin-respond`, body: { allow } }).its('status').should('eq', 200));
+
 Cypress.Commands.add('reportAgain', (key, over, agents, steps, v2) => cy.task('fleet:report', { key, over, agents, steps, v2 }, { log: false }));
 
 /**

@@ -7,7 +7,7 @@ order: 1
 
 # Reporters, identity and Admin
 
-Files: `server/src/fleet/tokens.ts`, `people.ts`, `server/src/admin/adminRouter.ts`. The reasoning is in
+Files: `server/src/fleet/tokens.ts`, `server/src/storage/sqlite/people.ts` (and the PostgreSQL and MariaDB siblings), `server/src/admin/adminRouter.ts`. The reasoning is in
 DECISIONS 20 and 30.
 
 **Who is reporting**
@@ -15,10 +15,10 @@ DECISIONS 20 and 30.
 - `routes.ts` turns the `X-Podium-Token` header into an identity before it reads a body. The identity is one of:
   a person's token (`pdm_<key id>_<secret>`, found by key id and checked against a stored SHA-256 in constant
   time), the admin secret (`PODIUM_TOKEN`), or open when auth is off.
-- The identity gives the session its `owner`, which `ingest.ts` writes into `sessions.owner`. For a person's
+- The identity gives the session its `owner` (the name, for display) and its `owner_id` (the person's `people.id`, null for the admin secret), which `ingest.ts` writes into `sessions.owner` and `sessions.owner_id`; who owns a session is the id, never the name (#1284, [DECISIONS 77](../../decisions/77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md)). For a person's
   token the report's `userName` must also match, so the token decides who and the name is only a consistency
   check.
-- `people.ts` owns the migration-6 tables (people, groups, person_machines, admin_log, settings) and every paged
+- `storage/sqlite/people.ts` owns the migration-6 tables (people, groups, person_machines, admin_log, settings) and every paged
   query.
 
 **The Admin API**

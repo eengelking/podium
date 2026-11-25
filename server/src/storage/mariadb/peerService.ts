@@ -3,14 +3,14 @@
 import { MariaPeerRights } from './peerRights.js';
 import { MariaPeerMessages } from './peerMessages.js';
 import { MariaPeerSettings } from './peerSettings.js';
-import { isIdle, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
+import { takesMessages, isPersonKey, type LinkPauser, type PersonLinkOp, type Actor, type MachineName, type RightRow, type AnswerOutcome, type MessageTrail, type OwnerRequestView, type PeerRequestRow, type Refusal, type RightsTrail } from '../../fleet/peerTypes.js';
 import { PEER_LIMITS, type PeerAnswer, type PeerRequest, type Report } from '../../fleet/protocol.js';
 import { LEVEL_WORDS, type PeerReply, type OwnerPeersView, type AdminPeersView } from '../rows.js';
 import type { AsyncPeerReporterLookup } from '../types.js';
 import type { MariaDbConn } from './conn.js';
 
 /** The keys of the reporters a trail names, so their machine names can be read before the handler runs. */
-export function trailKeys(t: object): string[] {
+function trailKeys(t: object): string[] {
   const keys = new Set<string>();
   const walk = (v: unknown): void => {
     if (typeof v !== 'object' || v === null) return;
@@ -46,7 +46,9 @@ export class MariaPeerService {
       db,
       {
         effective: (from, to) => this.rights.effective(from, to),
-        limits: async (owner) => this.rights.limits(owner, await this.settings.limits()),
+        effectiveMany: (links) => this.rights.effectiveMany(links),
+        limits: async (ownerId) => this.rights.limits(ownerId, await this.settings.limits()),
+        limitsMany: async (ownerIds) => this.rights.limitsMany(ownerIds, await this.settings.limits()),
         personLink: (k, t) => this.rights.personLink(k, t),
         openMessageRequest: (input) => this.rights.openMessageRequest(input),
         closeMessageRequest: (id, outcome) => this.rights.closeMessageRequest(id, outcome),
@@ -67,12 +69,13 @@ export class MariaPeerService {
   }
 
   /** After every accepted report from a reporter the server recorded (not the simulator, not settings hooks). */
-  note(sessionId: string, reporterKey: string, owner: string, report: Report): Promise<void> {
+  note(sessionId: string, reporterKey: string, owner: string, ownerId: number | null, report: Report): Promise<void> {
     const s = report.session;
     return this.messages.note({
       sessionId,
       reporterKey,
       owner,
+      ownerId,
       name: s.name,
       machine: report.machine?.name ?? reporterKey,
       os: report.machine?.os ?? null,
@@ -85,15 +88,15 @@ export class MariaPeerService {
 
   /**
    * The reply's messaging fields. `on` is the routes' gate (authentication, the flag, a person's session, the `peers`
-   * option); with it off nothing is handed over. Messages go only to an idle orchestrator; notices and requests always.
+   * option); with it off nothing is handed over. Messages go to a live orchestrator with no permission prompt open, running or not (#1252); notices and requests always.
    */
   async reply(sessionId: string, on: boolean): Promise<PeerReply> {
     const o = on ? this.messages.live(sessionId) : null;
     if (!o) return { peers: false, peerDeliveries: [], peerRequests: [] };
-    const requests = (await this.rights.openRequests(o.owner, o.reporterKey)).slice(0, PEER_LIMITS.requests);
+    const requests = (await this.rights.openRequests(o.ownerId, o.reporterKey)).slice(0, PEER_LIMITS.requests);
     const peerRequests: PeerRequest[] = [];
     for (const r of requests) peerRequests.push(await this.requestView(r));
-    return { peers: true, peerDeliveries: await this.messages.deliveriesFor(sessionId, isIdle(o)), peerRequests };
+    return { peers: true, peerDeliveries: await this.messages.deliveriesFor(sessionId, takesMessages(o)), peerRequests };
   }
 
   /**
@@ -130,16 +133,16 @@ export class MariaPeerService {
   }
 
   /** The owner's defaults, checked against the Admin's limits as they are in the same step, so a limit the Admin just lowered holds. */
-  async setDefaults(owner: string, patch: Record<string, unknown>, actor: Actor): ReturnType<MariaPeerRights['setDefaults']> {
-    return this.rights.setDefaults(owner, patch, await this.settings.limits(), actor);
+  async setDefaults(ownerId: number, patch: Record<string, unknown>, actor: Actor): ReturnType<MariaPeerRights['setDefaults']> {
+    return this.rights.setDefaults(ownerId, patch, await this.settings.limits(), actor);
   }
 
   /**
    * The owner answers a request, from the browser or a session. A message's answer delivers or declines it; an access
    * request's answer reaches the orchestrator that asked as a notice. Either way it closes everywhere at once.
    */
-  async answer(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal> {
-    const out = await this.rights.answer(id, owner, answer, actor);
+  async answer(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<AnswerOutcome | Refusal> {
+    const out = await this.rights.answer(id, ownerId, answer, actor);
     if (!out.ok) return out;
     if ('message' in out) {
       if (out.message.deliver) {
@@ -157,7 +160,7 @@ export class MariaPeerService {
       const words = level ? LEVEL_WORDS[level].toLowerCase() : 'access';
       this.messages.notice(
         r.fromSession,
-        r.outcome === 'allowed' ? `${owner} allowed your request for access to ${to}: ${words}. Run podium_peers to see what you can reach now.` : `${owner} declined your request for access to ${to}.`,
+        r.outcome === 'allowed' ? `${r.owner} allowed your request for access to ${to}: ${words}. Run podium_peers to see what you can reach now.` : `${r.owner} declined your request for access to ${to}.`,
       );
     }
     return out;
@@ -167,26 +170,26 @@ export class MariaPeerService {
    * `answer`, and for a delivered message whether its link is paused, read in the same step so the answer's `paused` flag
    * is the one the delivery was made under.
    */
-  answerPaused(id: string, owner: string, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }> {
+  answerPaused(id: string, ownerId: number, answer: PeerAnswer, actor: Actor): Promise<{ out: AnswerOutcome | Refusal; paused: boolean }> {
     return this.db.tx(async () => {
-      const out = await this.answer(id, owner, answer, actor);
+      const out = await this.answer(id, ownerId, answer, actor);
       const paused = out.ok && 'message' in out && out.message.deliver && (await this.rights.effective(out.request.fromKey, out.request.toKey)).paused;
       return { out, paused };
     });
   }
 
   /** What My reporters (GET /respond/peers) shows of one owner, read in one step. */
-  ownerView(owner: string, now: number): Promise<OwnerPeersView> {
+  ownerView(ownerId: number, now: number): Promise<OwnerPeersView> {
     return this.db.tx(async () => {
       const server = await this.settings.limits();
       const requests: OwnerRequestView[] = [];
-      for (const r of await this.rights.openRequests(owner)) requests.push(await this.ownerRequestView(r));
+      for (const r of await this.rights.openRequests(ownerId)) requests.push(await this.ownerRequestView(r));
       return {
         serverStartedAt: this.reporters.startedAt,
-        reporters: (await this.reporters.ofOwnerSeen(owner, now)).filter((r) => !r.adminSecret),
-        rights: await this.rights.rightsOf(owner),
-        defaults: await this.rights.defaults(owner),
-        limits: { server, effective: await this.rights.limits(owner, server) },
+        reporters: (await this.reporters.ofOwnerSeen(ownerId, now)).filter((r) => !r.adminSecret),
+        rights: await this.rights.rightsOf(ownerId),
+        defaults: await this.rights.defaults(ownerId),
+        limits: { server, effective: await this.rights.limits(ownerId, server) },
         requests,
       };
     });
@@ -202,8 +205,8 @@ export class MariaPeerService {
     return this.db.tx(async () => {
       const ref = await this.reporters.get(key);
       if (!ref) return null;
-      const owner = ref.owner;
-      const mine = owner && !ref.adminSecret ? (await this.reporters.ofOwner(owner)).filter((r) => !r.adminSecret) : [];
+      const owner = ref.ownerId;
+      const mine = owner !== null && !ref.adminSecret ? (await this.reporters.ofOwner(ref.ownerId)).filter((r) => !r.adminSecret) : [];
       const keys = new Set(mine.map((r) => r.key));
       const effective: AdminPeersView['effective'] = [];
       for (const o of mine) {
@@ -211,14 +214,14 @@ export class MariaPeerService {
         if (o.key !== ref.key) effective.push({ from: o.key, to: ref.key, ...(await this.rights.effective(o.key, ref.key)) });
       }
       const requests: OwnerRequestView[] = [];
-      if (mine.length && owner) {
+      if (mine.length && owner !== null) {
         for (const r of (await this.rights.openRequests(owner)).filter((x) => keys.has(x.fromKey) && keys.has(x.toKey))) requests.push(await this.ownerRequestView(r));
       }
-      const rights: RightRow[] = owner ? (await this.rights.rightsOf(owner)).filter((r) => keys.has(r.from) && keys.has(r.to)) : [];
+      const rights: RightRow[] = owner !== null ? (await this.rights.rightsOf(owner)).filter((r) => keys.has(r.from) && keys.has(r.to)) : [];
       return {
         reporter: ref,
         peers: mine,
-        trust: owner && mine.length ? (await this.rights.defaults(owner)).trust : false,
+        trust: owner !== null && mine.length ? (await this.rights.defaults(owner)).trust : false,
         rights,
         effective,
         requests,
@@ -227,8 +230,8 @@ export class MariaPeerService {
   }
 
   /** Removes a link, and drops what still waits on it. */
-  async removeLink(owner: string | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal> {
-    const out = await this.rights.removeLink(owner, a, b, actor);
+  async removeLink(ownerId: number | null, a: string, b: string, actor: Actor): Promise<{ ok: true } | Refusal> {
+    const out = await this.rights.removeLink(ownerId, a, b, actor);
     if (out.ok) await this.messages.linkRemoved(a, b);
     return out;
   }
