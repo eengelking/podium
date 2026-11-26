@@ -40,7 +40,10 @@ DOCS_FIRST_LINE=1.2 node site/scripts/build.mjs   # try the version menu before 
 
 Look at the result at 400 px and 1440 px, light and dark, with `scripts/page-shot.mjs` against that server (set
 `document.documentElement.dataset.theme` in `--eval` to pick the theme), and stop the server afterwards. The tests for the page
-preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
+preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`), and the front page's are `scripts/site-home.test.ts`.
+
+Chrome does not show Safari's drawing faults. `swift scripts/webkit-shot.swift --help` loads a page in the system WebKit through
+loads and resizes that have shown them (macOS only). Open every picture it saves: text that was not painted still measures as normal.
 
 ## Common changes
 
