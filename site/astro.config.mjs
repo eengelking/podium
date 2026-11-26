@@ -20,7 +20,7 @@ const sidebar = process.env.DOCS_SIDEBAR
   : GROUPS.map((g) => ({ label: g.label, items: g.items.map((i) => ({ label: i.label, slug: i.slug })) }));
 
 const description =
-  "Podium is a live fleet console for Claude Code. See every session's model, cost, context window, failures and git branch on one screen. It watches and never types into a terminal.";
+  "Podium is a live fleet console for AI coding agents. See every Claude Code and OpenCode session's model, cost, context window, failures and git branch on one screen. It watches and never types into a terminal.";
 
 export default defineConfig({
   site: SITE_ORIGIN,
@@ -55,7 +55,7 @@ export default defineConfig({
       head: [
         { tag: "meta", attrs: { property: "og:site_name", content: "Podium" } },
         { tag: "meta", attrs: { property: "og:image", content: `${SITE_ORIGIN}/og.png` } },
-        { tag: "meta", attrs: { property: "og:image:alt", content: "Podium: every Claude Code session on one screen" } },
+        { tag: "meta", attrs: { property: "og:image:alt", content: "Podium: every agent session on one screen" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
         { tag: "meta", attrs: { name: "twitter:image", content: `${SITE_ORIGIN}/og.png` } },
         ...(older ? [{ tag: "meta", attrs: { name: "robots", content: "noindex" } }] : []),
