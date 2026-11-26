@@ -53,7 +53,7 @@ or deleted it, never with the text. The line is shown with the memory's history.
 
 For an Admin. It shows:
 
-- the **settings**: the Brain flag, who approves a promotion and the fallback time, the weight amounts and half-life, the number
+- the **settings**: the Brain flag, who approves a promotion, the weight amounts, the cap on uses and the half-life, the number
   of flags that hide an `everyone` memory, the limits and the retention periods ([13.9](13-09-storage-limits-and-retention.md)), each with
   its default;
 - a banner while the brain is being re-indexed;
@@ -61,7 +61,8 @@ For an Admin. It shows:
 - a person's **project names**, to name and rename, which is a told read ([13.3](13-03-who-can-read-and-write.md));
 - the `everyone` memories, each with Open and Delete, and the flagged ones, each with Hide, Clear and Delete;
 - the requests to promote a memory, each with Open, Approve or Reject;
-- a list of people with their counts (memories, trashed, flagged) and nothing else. Choosing a person and opening their list
+- on a memory, **Purge: exposed secret**, which removes it at once and is logged and told in those words ([13.3](13-03-who-can-read-and-write.md));
+- a list of people with their counts (memories and trashed) and nothing else. Choosing a person and opening their list
   or one of their `person` memories is a read that tells that person ([13.3](13-03-who-can-read-and-write.md));
 - the log of Admin reads and deletes, with who, whose and when, never the text.
 

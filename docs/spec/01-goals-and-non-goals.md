@@ -43,7 +43,8 @@ what Podium shows and does is the same for any harness, within what the harness 
     owner both turn it on ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md), [7.7](07-server/07-07-hardening.md)).
 14. Keep a person's memories in one place on the server, the brain, so their agents on every machine and harness read and
     write the same notes, found by search and ranked by use ([section 13](13-the-brain/README.md), DECISIONS 79). Off
-    unless the Admin, the reporter's `brain` option and the owner's project grant all allow it.
+    unless the Admin, the reporter's `brain` option and the owner's switch for that reporter all allow it. A project grant then
+    narrows what is reachable.
 
 ## Non-goals (do NOT build these)
 
@@ -141,9 +142,10 @@ it as an estimate. Never present it as an invoice.
   it is kept for 6 hours unless the Admin sets longer (7 days at most), and only the session's owner and an Admin can
   read it. The session is marked as recorded on its card and its page for as long as it is, and the owner's terminal
   says so ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353), [7.7](07-server/07-07-hardening.md#session-recording-353)).
-- With the brain on (section 13, DECISIONS 79), whole memory notes of up to 8,000 characters go to the server and stay
-  until the person deletes them, with secrets refused on the machine and again on the server. A note is something an agent or a
-  person wrote on purpose, never a conversation. It needs the Admin flag and the reporter's Brain switch, both off by default.
+- With the brain on (section 13, DECISIONS 79), whole memory notes (a body of up to 8,000 characters and up to 10 resources of
+  8,000 each) go to the server and stay until the person deletes them, with secrets refused on the machine and again on the
+  server. A note is something an agent or a person wrote on purpose, never a conversation. It needs the Admin flag, the
+  reporter's `brain` option and the owner's switch for that reporter, all off by default.
   Only its owner can read a `person` memory, and an Admin who reads or deletes one tells the owner in the console and in the
   reporter.
 

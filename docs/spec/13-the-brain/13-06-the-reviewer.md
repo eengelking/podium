@@ -1,6 +1,6 @@
 ---
 title: "13.6 The reviewer"
-description: "A manual review an administrator starts, that flags problem memories and proposes changes. A person approves each one, and replaced text stays for 30 days."
+description: "A hand-run review that flags problem memories and proposes changes. An Admin reviews shared memories, a person their own, and a person approves each change."
 group: "Reference"
 section: "13.6"
 order: 6
@@ -16,9 +16,9 @@ to steer another agent. The reviewer looks for those and flags them. It never re
 Podium never starts or stops an agent (section 1). So the reviewer is not a service in Podium. It is an agent definition and two
 tools that ship with `podium-reporter`, run in a person's own harness on that person's model and tokens, and the console says so.
 
-**At first it is a manual process an administrator controls.** An Admin who is also a person starts a run from Admin > Memories
-and runs it in one of their own sessions. Later, Podium is expected to create orchestration agents of its own for this work, which
-is out of scope here ([section 11](../11-out-of-scope-and-deferred.md)). A person may also start a run over their own memories.
+**At first it is a manual process an administrator controls,** for the shared memories. Later, Podium is expected to create
+orchestration agents of its own for this work, which is out of scope here ([section 11](../11-out-of-scope-and-deferred.md)). A
+person may also run a review over their own memories.
 
 A run needs the Admin flag **Brain** on, the runner's reporter Brain switch at `readwrite`, and a run started in the console.
 
@@ -26,11 +26,11 @@ A run needs the Admin flag **Brain** on, the runner's reporter Brain switch at `
 
 | Run started by | May read |
 |---|---|
-| An Admin | The `everyone` scope, including flagged memories. A person's `person` memories **only** when that person has turned on **Reviewer** for them, and then every read is a told Admin read ([13.3](13-03-who-can-read-and-write.md)) |
-| A person | Their own memories for the projects they tick in the run's start dialog, and the `everyone` scope when they have **Read shared memories** on |
+| An Admin who is also a person | The `everyone` scope only, including flagged memories. **Never a person's `person` memories** |
+| A person | Their own memories for the projects they tick in the run's start dialog, when they turned on **Reviewer**, and the `everyone` scope when they have **Read shared memories** on |
 
-**Reviewer** is off by default, is the person's to turn on, and an Admin cannot turn it on. No run reads another person's
-memories without it.
+**No run reads another person's memories.** A review runs in the starter's own session, so what it reads is in that session's
+transcript, recording and answers, where no notice to an owner could follow it.
 
 ## 13.6 What it may do
 
@@ -45,9 +45,10 @@ memory, the version the proposal is against, the change, the reason and the time
 ## 13.6 A run belongs to one session
 
 The console asks which of the starter's live sessions will do the run, shows what it may read and an estimate of its size, and
-asks for confirmation. The server **binds the run to that one session id** and refuses every review call from any other session,
-so an ordinary agent cannot use the reviewer's wider read. Until a run is started the review tools answer `403`. A run ends when
-the reviewer says so, after 200 proposals or 2 hours, or when its session ends.
+asks for confirmation. The server **binds the run to that one session id** and refuses every review call from any other session.
+Until a run is started the review tools answer `403`. A run ends when the reviewer says so, when the starter ends it, after 200
+proposals or 2 hours, or when its session ends. A run reads at most 500 memories. Turning **Reviewer** or the Brain switch off
+ends the run at the next call.
 
 ## 13.6 How a proposal becomes a change
 
@@ -64,11 +65,9 @@ the reviewer says so, after 200 proposals or 2 hours, or when its session ends.
 | The memory | `edit` and `merge` | `flag` and `delete` |
 |---|---|---|
 | A `person` memory | The owner | The owner |
-| An `everyone` memory | The owner | The owner or an Admin |
+| An `everyone` memory | The owner, and the result then needs approval like any edit to a shared memory ([13.3](13-03-who-can-read-and-write.md)) | The owner or an Admin |
 
-An Admin never edits, so an `edit` is never theirs to approve. A memory whose owner is gone can only be flagged or deleted. A
-proposal about a person's `person` memory is shown to that person in My memories, whoever started the run, and an Admin cannot
-read it in the review log.
+An Admin never edits, so an `edit` is never theirs to make. A memory whose owner is gone can only be flagged or deleted.
 
 ## 13.6 Limits
 

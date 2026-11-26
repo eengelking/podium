@@ -22,10 +22,11 @@ the data the build needs. The column names are not fixed until the schema lands.
 | Versions | One row per version: its memory, parent (and a second parent for a merge), author, time, content hash, and the content. A conflict's local side is a version on a side branch. The content is what a purge removes |
 | Tags | One row per memory and tag |
 | Edges | `related` and `supersedes` between two memories |
-| Votes | One row per voter and memory: the voter's kind and id (neither nullable), the value, the reason and the time ([13.4](13-04-search-and-weight.md)) |
-| Uses | One row per person, memory and day, swept after two days |
-| Resources | Part of a version: name, description and content for each |
-| Weight history | Every vote event (memory, amount, reason, time) and a count of uses per memory per day, with no voter and no reader |
+| Votes | One row per person and memory: the person's id (not nullable), the agent that cast it, the value, the reason and the time ([13.4](13-04-search-and-weight.md)) |
+| Daily counts | One row per person, memory, day and kind (use or not relevant), swept after two days |
+| Resources | Part of a version: id, name, description and content for each |
+| Weight history | Every vote event (random vote id, cast, changed or withdrawn, amount, reason, time) and counts per memory per day, with no voter and no reader |
+| Released files and import uploads | What a reporter dropped, and the content a dry run uploaded, until approved or purged ([13.5](13-05-sync-with-local-memory-files.md)) |
 | Projects | A person's projects, their directory rules and their grants per reporter ([13.3](13-03-who-can-read-and-write.md)) |
 | Mirrors | One row per server-side reporter, harness, folder id and memory: the base version and the time of the last sync ([13.5](13-05-sync-with-local-memory-files.md)) |
 | Conflicts | An open conflict: the stored local version, the base, the folder, the time, and how it was resolved |
@@ -57,8 +58,11 @@ Three things are built first, because the rest rests on them:
   column or index that exists in one adapter and not another.
 - **A memory change and its change counter are written in one transaction** with `Storage.tx`, and nothing waits on a network
   call inside it. The index is updated after the commit, in the same request ([13.4](13-04-search-and-weight.md)).
-- **A person's memory id is never reused,** and no memory row has a foreign key to `people.id`, so a deleted person's `everyone`
-  memories keep their owner empty and the name as text (DECISIONS 77).
+- **Memory, version and resource ids are random,** so a restored database never gives one out again ([13.2](13-02-the-memory.md)).
+- **No memory row has a foreign key to `people.id`,** so a deleted person's `everyone` memories keep their owner empty and the
+  name as text (DECISIONS 77).
+- **Every change carries a random change id,** and the server keeps them for the tombstone retention, so that it can tell
+  whether it knows the last one a mirror saw ([13.5](13-05-sync-with-local-memory-files.md)).
 - **No nullable column is part of a unique key.** `NULL` counts as distinct in all three databases, so a nullable voter would let
   duplicates through.
 - **A contract case for every behavior:** the access rules (a reader never gets a memory the rules deny, and a denied id answers as
@@ -82,7 +86,9 @@ existing memory keeps working, and a new write over the limit is refused with th
 | Memory `body` | 8,000 characters |
 | Resources per memory / each resource | 10 / 8,000 characters |
 | Weight amounts | use +1, up +3, not relevant -1, wrong, outdated or unsafe -4 |
-| A promotion waits before the owner may approve | 7 days |
+| What uses alone can add to a weight | 10 |
+| A typed project name | 60 characters; one taken from git 100 |
+| Memories a review run reads | 500 |
 | `name` / `description` | 120 / 300 characters |
 | Tags per memory | 10 |
 | Memories per person | 5,000 |
@@ -126,6 +132,10 @@ and not only the brain.
 - **A backup records the server version** it was taken from.
 - **A restore into a different version is refused.** A server that starts on an older database migrates it and cannot tell that it
   was restored, so the check lives in a restore command in `podiumctl` that compares the recorded version with the installed one.
+  **A restore made with a database's own tools is not checked,** and the user guide says so. To restore an older backup after an
+  upgrade, install that version, restore, then upgrade.
+- A backup includes everything [SERVER.md](../../SERVER.md) lists as living outside the database, the Activity history file and the TLS
+  folder among them.
 - After a restore, mirrors reconcile in full ([13.5](13-05-sync-with-local-memory-files.md)), and the index is rebuilt with its banner
   ([13.4](13-04-search-and-weight.md)).
 

@@ -17,13 +17,13 @@ and a harness that cannot offer a tool says so in its live-test reference.
 
 | Tool | Does | Needs |
 |---|---|---|
-| `podium_brain_search` | Search with a query, and optionally a project, a type, a scope and required tags ([13.4](13-04-search-and-weight.md)). Returns up to 10 summaries, each with its resources' names and descriptions. It returns no `body` and no resource content | The reporter's Brain switch is `read` or `readwrite` |
+| `podium_brain_search` | Search with a query, and optionally a project, a type, a scope and required tags ([13.4](13-04-search-and-weight.md)). Returns up to 10 summaries, each with its resources' names and descriptions. It returns no `body` and no resource content | The machine's `brain` option and the console switch both give `read` or `readwrite` |
 | `podium_brain_tags` | Lists the tags the agent can search, with counts | Same |
 | `podium_brain_get` | Returns one memory's body and its resource list (name, description, size), and counts as a use | Same |
-| `podium_brain_resource` | Returns one resource's content, by memory id and resource name. Not a use | Same |
+| `podium_brain_resource` | Returns one resource's content, by memory id and resource id. Not a use | Same |
 | `podium_brain_save` | Makes a `person` memory in the project that applies ([13.3](13-03-who-can-read-and-write.md)), or changes one the agent's owner owns, including its resources. A change needs the `version` the agent read, and a mismatch is refused with the current version so the agent can read it first | `readwrite` |
 | `podium_brain_checked` | Records that the agent checked a memory of its owner and it is still true (`checked_at`). It changes nothing else | `readwrite` |
-| `podium_brain_vote` | Votes on a memory the agent has opened in this session: `up`, `not-relevant`, `outdated`, `wrong` or `unsafe` | `readwrite` |
+| `podium_brain_vote` | `not-relevant` on any memory a search returned, opened or not. `up`, `outdated`, `wrong` or `unsafe` only on one it opened in this session ([13.4](13-04-search-and-weight.md)) | `readwrite` |
 | `podium_brain_flag` | Marks a memory for review with a reason. The agent cannot remove, edit or promote another memory | `readwrite` |
 | `podium_brain_sync` | Runs a sync now ([13.5](13-05-sync-with-local-memory-files.md)) and returns the counts and any conflict | **Sync** is `pull` or `both` |
 | `podium_brain_review_queue`, `podium_brain_review_propose` | The reviewer's tools ([13.6](13-06-the-reviewer.md)) | `readwrite` and a run started for this session |
@@ -74,6 +74,8 @@ The reporter sends the tool call with its credential and the session's id. The s
   project it holds, and a name it does not hold is refused.
 - **A body is checked on the server too**: the length, the control characters, the secret patterns ([13.2](13-02-the-memory.md)) and the tag
   rules. The reporter's own check is a courtesy.
+- **The machine's options** `brain` and `brainSync` ([13.1](13-01-what-the-brain-is.md)) are sent in each report. The server applies the
+  lower of the option and the console switch.
 - **Rate limits** apply per session and per person: per session 60 calls a minute, 20 saves a minute and 200 saves an hour; per
   person 20 flags a day. The Admin can lower them. A call over a limit answers `429` with `Retry-After`.
 - **Every tool call is logged** as an event with the tool, the session, the memory id and the outcome, never the text and **never
@@ -82,10 +84,11 @@ The reporter sends the tool call with its credential and the session's id. The s
 ## 13.7 Versions
 
 **The brain's tools and sync protocol support three versions, counted by major and minor, never by patch.** The server accepts a
-reporter from its own minor release line and the two released before it. Releases 0.7, 1.0 and 1.1 are three, so a 1.1 server
-accepts 0.7.x, 1.0.x and 1.1.x. The order comes from the list of releases, not from arithmetic on the numbers. A reporter
-outside the window is refused for brain calls and sync, with a message that names the reporter to update. The rest of the
-reporter keeps the range of [6.8](../06-reporter-protocol/06-08-version-compatibility.md), which this does not change.
+reporter from its own minor release line and the two released before it, and nothing else. The order comes from a list of
+releases that ships in the server, not from arithmetic on the numbers, because a major release does not follow a fixed minor.
+A reporter outside the window is refused for brain calls and sync. An older one is told which reporter to update, and a newer
+one is told to upgrade the server. A development or nightly build counts as the release it precedes. This is the one exception
+to [6.8](../06-reporter-protocol/06-08-version-compatibility.md)'s rule that a mismatch only warns. The rest of the reporter keeps that range.
 
 ## 13.7 Notices the model never sees
 

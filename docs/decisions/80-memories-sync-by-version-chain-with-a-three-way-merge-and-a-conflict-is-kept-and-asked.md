@@ -27,7 +27,7 @@ A sync also deletes. A file missing from a folder may mean a person removed it, 
 - **An Admin's delete never removes a file on a person's machine.** A sync that finds a memory gone for that reason leaves the file, drops the entry and tells the person.
 - **Guards sit on both sides:** a missing folder is not a deleted folder, a sync that would write or delete many files stops and asks, and so does a reporter that trashed many memories in 24 hours. The first sync is a dry run that changes nothing until the person approves it, adopts a file that already matches a memory instead of making a copy, and a file that matches a secret pattern is never uploaded.
 - **Only memories the owner wrote or approved are mirrored,** and an `everyone` memory never is. A folder syncs all of its set, or only pinned memories, and the person is shown the size of the index first. A memory's resources are sibling files where the harness's format allows, and the whole memory is one mirror entry.
-- **After a restore every mirror reconciles in full,** because a restored database can be older than a mirror.
+- **After a restore every mirror reconciles in full,** because a restored database can be older than a mirror. A mirror knows by a random change id the server no longer has, and ids are random so none is given out twice.
 - **The server's clock, and never a machine's, puts a time on a version.**
 - **The shared rules (hashing, merge, conflict) live in `plugin/core/`,** and each harness supplies only its memory format.
 - **No sync issue is cut until a spike has recorded what each harness's engine can do:** replace and delete a file, links, the end-hook budget, resume and the folder layout.

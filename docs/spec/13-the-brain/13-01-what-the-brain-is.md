@@ -39,6 +39,9 @@ Everything is off until someone turns it on, as responding, messaging and the Ad
 3. **The person** also decides, each one off by default: **Read shared memories** (the `everyone` scope, [13.3](13-03-who-can-read-and-write.md)),
    **Reviewer** ([13.6](13-06-the-reviewer.md)), and for a reporter **Sync** (`brainSync`: `off`, `pull` or `both`,
    [13.5](13-05-sync-with-local-memory-files.md)), because sync writes files on the person's machine.
+   **The machine has the last word.** A reporter also has its own options, `brain` (`off` by default, `read` or
+   `readwrite`) and `brainSync` (`off`, `pull` or `both`), set on the machine as other reporter options are. What a session may
+   do is the lower of the machine's option and the console's switch, so a browser alone can never turn on the writing of files.
 4. **The scope** of what a reporter's agents reach is the projects the person granted to that reporter, or mapped to a working
    directory ([13.3](13-03-who-can-read-and-write.md)). A grant narrows what is reachable. It does not turn anything on.
 

@@ -12,7 +12,8 @@ The reasoning is in [DECISIONS 80](../../decisions/80-memories-sync-by-version-c
 This page is the rules.
 
 Sync writes and deletes files on the person's machine, which nothing in Podium did before. So it has its own switch per reporter,
-**Sync** (`brainSync`: `off`, `pull` or `both`, off by default), on top of the consent of [13.1](13-01-what-the-brain-is.md). `pull` writes local
+**Sync** (`off`, `pull` or `both`, off by default) in the console, under the machine's own `brainSync` option, which it
+cannot exceed, on top of the consent of [13.1](13-01-what-the-brain-is.md). `pull` writes local
 files from the brain and never uploads one. `both` also uploads. An Admin never causes a file on a person's machine to be
 written or deleted ([13.3](13-03-who-can-read-and-write.md)).
 
@@ -26,15 +27,16 @@ until a short spike has recorded, for each harness,** and the page then says wha
 2. whether a write follows a symbolic link, and how to refuse one;
 3. how long the end-of-session hook may run (Claude Code's is about 1.5 seconds for every hook together);
 4. how a resumed session is detected, since an OpenCode resume starts no new session;
-5. where each harness keeps its memory folder, including for a git worktree, what its index file does, and whether its
-   format can hold a memory's resources as sibling files;
+5. where each harness keeps its memory folder, what its index file does, and whether its format can hold a memory's resources
+   as files of their own without taking them for memories. Claude Code keeps one memory folder for a repository, and its git
+   worktrees use it (seen on one machine, 2026-11-25). OpenCode is not checked;
 6. whether the person's credential can be read by an agent with a shell on each harness (it can on OpenCode).
 
 Until then, the rules below say what must hold, and each says "by the means the spike found".
 
 ## 13.5 What is mirrored
 
-- A **folder** is one harness's memory folder for one working directory. The directory rule that gives the agent its project
+- A **folder** is one harness's memory folder, whatever working directories share it. The directory rule that gives the agent its project
   ([13.3](13-03-who-can-read-and-write.md)) maps the folder to the same project. Nothing in an unmapped folder is read.
 - A folder mirrors the owner's `person` memories of its project. It mirrors the owner's memories that have **no project** only when
   the person turned on **Include memories with no project** for that folder, which is off by default. It never mirrors an
@@ -43,16 +45,20 @@ Until then, the rules below say what must hold, and each says "by the means the 
 - **Only memories the owner wrote or approved are mirrored.** Every version in a mirror was written by the owner's own agent
   under their switch, or by the owner, or approved by the owner: an accepted share, an approved review change, a restore.
   Nothing an Admin did can reach a file, because an Admin never edits ([13.3](13-03-who-can-read-and-write.md)).
+- **What an agent writes on its own syncs too,** with no further step, because agents write local memories on the fly today.
+  The person's tools are the answer: see, review, change and remove them in the console. The risk is stated: text an agent
+  picked up from a shared or accepted memory and saved as its own reaches every machine that syncs.
 - **Everything by default, with a pinned-only choice.** A folder syncs every memory of its set, or only the ones the owner
   pinned. Claude Code loads its memory index into every session, so before the first sync the console shows how large the
   index would be and offers the pinned-only choice. Memories that are not on disk are still found by search.
-- **Resources.** A memory with resources is written as its main file with sibling resource files where the harness's format
-  allows, and the whole memory is one mirror entry: its files change, merge and delete together. Where the format cannot,
-  only the main file is written, and the agent reads resources with the tool.
+- **Resources.** A memory with resources is written as its main file with its resource files in a folder of their own beside it,
+  where the harness's format allows, and the whole memory is one mirror entry: its files change, merge and delete together. A
+  resource file's name comes from the resource's name, and the state file maps it to the resource's id. Where the format
+  cannot, only the main file is written, and the agent reads resources with the tool.
 - A **mirror entry** ties one memory to one local file. It holds the memory id, the **base version** (the version both sides
   last agreed on), the file's hash then, and the time of the last sync.
 - **A mirror is keyed by the server, the reporter's key, the harness and a folder id.** A reporter can talk to several
-  servers, a machine has one key for every harness, and one machine has many folders (a git worktree has its own). The
+  servers, a machine has one key for every harness, and one machine has many folders. The
   reporter makes the folder id when the folder is mapped and keeps it in its state file, so it survives a rename of the
   path. A folder that moved is re-linked to its id in My reporters, never guessed.
 - The server holds each mirror's base version ids, so it can keep the text of those versions. The reporter holds the paths,
@@ -113,7 +119,9 @@ L is the local file compared with the mirror entry, S is the server's current ve
 | Missing | Trashed or deleted | Drop the entry |
 | Not readable | Any | Skip, count and show it. Never treated as missing |
 | Any | The memory is no longer in this folder's set (its project moved, a rule or grant changed, the folder was unmapped, an Admin deleted it) | Leave the file where it is, drop the entry, tell the person, and never upload it again unless the person imports it |
-| A file with no entry | None | On the first sync, **match** it to a server memory by content, then by normalized name, and adopt it. If none matches, it is a new memory after the first-sync approval below |
+| A file with no entry, on the first sync | Any | **Match** it to a server memory by content, then by normalized name. The same content: adopt it. The same name with different content: a conflict. No match: a new memory after the first-sync approval below |
+| A new file with no entry, after the first sync | None | A new memory, uploaded in `both` mode, subject to the secret scan and the guards |
+| A released file (one this reporter dropped) | Any | Never uploaded again unless the person imports it. The state file keeps the list of released files |
 | None | A memory with no entry | Adopt a matching file as above. If none matches, write a new file and make the entry |
 | A new file | A new memory of the same normalized name | Two memories, both marked `possible duplicate` for the person. They are never merged unasked |
 
@@ -130,8 +138,8 @@ The base version's text is the common ancestor. The merge works field by field.
 - `tags`: the base's tags with each side's additions and removals applied. A tag one side added and the other removed is a conflict.
 - `body`: merged by lines against the base. Changes to lines that do not overlap are both applied. Changes to the same lines, or
   to lines next to each other, are a conflict.
-- `resources`: matched by name. Each resource's content merges as the body does and its description as a field. A resource one
-  side removed and the other changed is a conflict.
+- `resources`: matched by id. A name and a description merge as fields and content as the body does. A resource one side removed
+  and the other changed is a conflict, and so are two resources that would end with one name.
 
 A merge with no conflict makes a version with two parents, the local one and the server's, marked `merged`. The console shows it as
 **merged automatically**, with both sides, in the memory's history, and the memory carries a notice until the person looks at it,
@@ -152,9 +160,10 @@ adds nothing new.
 
 ## 13.5 Guards
 
-- **After a restore, every mirror reconciles in full.** A restored database can be older than a mirror, which then names a base
-  the server no longer has. Any base the server does not know is treated as an expired mirror, below, and never as a delete.
-
+- **After a restore, every mirror reconciles in full.** Each reply from the brain carries the id of the server's latest change, a
+  random id. A mirror sends the last one it saw, and a server that does not have it was restored (or is another server). So does
+  a base the server does not know. Either way the mirror is treated as expired, below: nothing is written or deleted unasked.
+  This works whether the restore used `podiumctl` or a database's own tools.
 - **A missing folder is not a deleted folder.** A sync trashes on the server only when the folder exists, is readable and holds at
   least one memory file the reporter manages. Otherwise it does nothing and says why.
 - **A mass change pauses.** A sync that would write or delete more than 20 local files, or trash more than 3 memories on the
@@ -179,10 +188,31 @@ change, or restored it). Because a harness may load its memory files and index i
 folder is set to sync, the console says so in plain words: what is written there, that the harness may load it into sessions, and
 how to stop it.
 
+## 13.5 The steps of a sync
+
+The routes are in [13.11](13-11-interfaces.md). A sync is these exchanges, in this order, and every one is safe to repeat.
+
+1. **Plan.** The reporter sends the folder id, the last change id it saw, and for each entry the memory id, the base version id
+   and the file's hash now (or "missing"), with the new files' hashes. The server answers one outcome for each:
+   `nothing`, `write`, `delete`, `push`, `merge`, `conflict`, `drop`, `import-needed`, or `paused` for the whole folder.
+2. **Base text.** For a `merge`, the reporter fetches the base version's content by id and merges, with the shared code in
+   `plugin/core/`.
+3. **Push.** The reporter sends the content with the base it was made from. The server accepts it only if that base is current,
+   and otherwise answers `version-mismatch`, and the memory is planned again.
+4. **Conflict.** The reporter uploads the local side with its base. The server stores it and opens the conflict.
+5. **Dry run and pause.** For a first sync or a paused one, the reporter uploads the list with each file's content, hash and
+   scan result, which is the owner's own data and is refused to an Admin. The person approves in the console, and the next plan
+   carries the approval out. Uploaded content that is not approved is purged after 7 days.
+6. **Confirm.** The reporter says which writes and deletes it did, and the server moves those mirrors' bases.
+
+The console's draft of a merge is made by the same shared code, on the server.
+
 ## 13.5 The model test
 
 A sync is hard to get right, so the build includes a model of it: a test that runs two mirrors and a server through random
-sequences of edits, deletes, conflicts, resolutions, restores and restarts, over every adapter, and checks these invariants.
+sequences of edits, deletes, conflicts, resolutions, memory restores, restarts and a database restore to an earlier point, over
+every adapter, and checks these invariants. Invariants 1 and 4 are about mirrors in `both` mode, because a `pull` mirror keeps
+local edits that it never uploads.
 
 1. **Nothing is lost inside the windows.** After any sequence, every text a person or an agent wrote in the last 30 days is in a
    current version, a conflict, a version in the history or the trash.

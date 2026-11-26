@@ -15,14 +15,14 @@ column names are the adapters' business.
 
 | Field | Rule |
 |---|---|
-| `id` | Server-given, never reused, never changed. A memory is found by id, never by name (DECISIONS 77). |
+| `id` | A random id (a UUID) the server gives, never changed and never given twice, even after a database is restored. A version and a resource have the same kind of id. A memory is found by id, never by name (DECISIONS 77). |
 | `owner` | The `people.id` of the person it belongs to. For an `everyone` memory, the person who made it public. |
 | `scope` | `person` or `everyone`. |
 | `project` | The id of one project, or none ([13.3](13-03-who-can-read-and-write.md)). It is not part of a version's content. Only the owner changes it, in the console, and the change is recorded in the memory's history. |
 | `type` | One of `user`, `feedback`, `project`, `reference`. A harness's format maps its own field to this one ([13.5](13-05-sync-with-local-memory-files.md)). Part of a version's content. |
 | `name` | One line, at most 120 characters. Display text, never a key. |
 | `description` | The summary: one line, at most 300 characters. It is what a search result shows, so it says when the memory applies. |
-| `resources` | At most 10 attached references, each a `name` (120), a one-line `description` (300) and `content` (8,000). They are read one at a time ([13.4](13-04-search-and-weight.md)). Part of a version's content. |
+| `resources` | At most 10 attached references, each an `id`, a `name` (120, unique within the memory), a one-line `description` (300) and `content` (8,000). Routes and merges use the id, so a rename is a change to one resource and not a delete and an add. They are read one at a time ([13.4](13-04-search-and-weight.md)). Part of a version's content. |
 | `checked_at`, `checked_by` | When someone last confirmed the memory is still true, and who. Set by the owner, or the owner's agent after it checked. It is not part of a version's content, and a change to the body does not set it. |
 | `pinned` | Set by the owner. A folder set to sync "pinned only" holds just these ([13.5](13-05-sync-with-local-memory-files.md)). |
 | `body` | The text, at most 8,000 characters, stripped of control characters on intake. Never interpreted: it is not HTML, a path or a command, and the console renders it as text nodes through the Markdown component. |
@@ -34,8 +34,9 @@ column names are the adapters' business.
 | `approved_by` | For an `everyone` memory, the person or Admin who approved it into that scope, and when. For a copy made by an accepted share, the recipient. Empty for a `person` memory the owner or their own agent wrote. |
 | `source` | For a copy made by an accepted share or a promotion, the id of the memory it came from, and for a share the version. |
 
-A body or a resource never holds a secret. The server and the reporter refuse one that matches a secret pattern and name the pattern, never
-the matched text. The reporter's `redactText` returns the redacted text and a count, and no pattern name, and it is not bounded for a long
+No part of a memory holds a secret. The `name`, `description`, `tags`, `body`, every resource's name, description and content,
+and a delete or flag reason are all scanned. The server and the reporter refuse one that matches a secret pattern and name the
+pattern, never the matched text. The reporter's `redactText` returns the redacted text and a count, and no pattern name, and it is not bounded for a long
 single line, so this needs a new function in `plugin/core/` that returns the names of the patterns that matched and is
 bounded, which the server then imports. That function is part of the first issue that writes a body.
 
@@ -59,11 +60,14 @@ still names as its base, every version of the last 30 days, and the 20 most rece
   people (an Admin setting) have flagged it. A flag on a `person` memory is seen by its owner only.
 - `trashed`: deleted by the owner, an agent of the owner, an Admin, or an approved review change, and **kept for 30 days with
   its text so that the owner can restore it**. A trashed memory is not searchable, is not returned by a tool, and counts as a
-  delete for sync. The owner sees it in **Recently deleted** and can restore it in one click. An Admin cannot restore one.
-- `deleted`: after the 30 days, or when a person is deleted, the body and every old version are purged and a **tombstone**
-  stays: the id, the owner, the scope, the project, the time, who deleted it and why. It is kept for the tombstone retention
-  ([13.9](13-09-storage-limits-and-retention.md)) so that a sync on another machine deletes its file and a restored database
-  never brings the memory back. A tombstone has no text and cannot be restored. The person can make a new memory.
+  delete for sync. The owner sees it in **Recently deleted** and can restore it in one click. An Admin cannot restore one. An
+  `everyone` memory that an Admin trashed is restored into its owner's `person` memories ([13.3](13-03-who-can-read-and-write.md)).
+- `deleted`: after the 30 days, when a person is deleted, or at once when an Admin purges an exposed secret, the content and
+  every old version are purged and a **tombstone** stays: the id, the owner, the scope, the project, the time, who deleted it and
+  the kind of reason (never free text). It is kept for the tombstone retention ([13.9](13-09-storage-limits-and-retention.md)) so that a sync
+  on another machine deletes its file. A tombstone has no text and cannot be restored. The person can make a new memory.
+  Restoring a database to a point before a delete brings the memory back on the server, which is why every mirror then
+  reconciles in full and asks the person ([13.5](13-05-sync-with-local-memory-files.md)).
 
 Removing a memory from search, tags, edges and the index happens in the same step as the state change ([13.4](13-04-search-and-weight.md)).
 

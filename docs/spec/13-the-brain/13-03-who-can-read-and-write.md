@@ -22,7 +22,7 @@ person's machine.
 | The owner's agent, through a tool | Reads and votes when its reporter holds the memory's project, or the memory has none. Writes only through `podium_brain_save` | Reads and votes, only when the person turned on **Read shared memories**. Cannot edit or delete |
 | Another person, or their agent | Never, except a copy the owner shared and the person accepted ([13.3 Sharing](#133-sharing)) | Reads and votes, only when that person turned on **Read shared memories** |
 | An Admin, in the console | Reads and deletes, and every one of those tells the owner ([13.3 An Admin](#133-an-admin)). Never edits | Reads, and deletes. The owner is told of a delete. Never edits |
-| A review run | Only what [13.6](13-06-the-reviewer.md) allows: for a person's memories, that person's own run, or an Admin's run after that person turned on **Reviewer** | Reads and flags |
+| A review run | Only in the person's own run ([13.6](13-06-the-reviewer.md)). An Admin's run never reads one | Reads and flags |
 
 An agent's tool call reaches only what its owner could reach. The server decides the reader from the credential and the agent id
 it gave the session, never from an argument the agent sends. A call that names a memory the reader may not read answers
@@ -34,9 +34,14 @@ from public places small and chosen, as DECISIONS 69 does for Chat, where an age
 
 ## 13.3 Projects and the grant
 
-A **project** has an id and a name. It belongs to the person, and two people's projects of one name are different projects.
-**By default a project is a git remote**, so the same repository is one project on every machine. A directory with no git
-remote is a project that is named by hand. The person names and renames their projects, and an Admin can name and rename them
+A **project** has an id and a name. It belongs to the person, and two people's projects of one name are different projects
+(whether a project should instead be shared between people is open, [13.10](13-10-open-questions.md)).
+**By default a project is a git remote**, read the way the reporter already reads it: the `owner/name` of the `origin` remote,
+such as `eengelking/podium`, so the same repository is one project on every machine. Two hosts with the same `owner/name` are one
+project, which is accepted. A directory with no git remote is a project that is named by hand.
+**A typed name is letters, digits and hyphens, at most 60 characters,** because a name is shown to agents and must not be a way
+to put words in front of them. A name taken from git keeps its `owner/name` form (letters, digits, `.`, `_`, `-` and one `/`,
+at most 100). The person names and renames their projects, and an Admin can name and rename them
 too. A person's project names are their content: **an Admin who lists, names or renames them is a told read**
 ([13.3 An Admin](#133-an-admin)). Nobody else sees them.
 
@@ -67,11 +72,15 @@ them to no project or move them to the trash.
   **promotion request**: a record of its own, readable by the owner and by the Admin who decides, and not in the `everyone`
   scope. Nobody else sees it, and it is not searchable, until it is approved. Approving makes a copy in the `everyone` scope
   with `source` set to the original, `written_by` the original's writer, and `approved_by` the approver. The original stays.
-- **The Admin approves, with the owner as the fallback.** The setting in Admin > Settings is `admin` (the default) or `owner`.
-  With `admin`, an Admin decides each request in Admin > Memories, and has to read the text to do it, so the owner is told.
-  The owner may approve only when the setting is `owner`, or when no Admin is available, which the draft reads as a request
-  that has waited longer than the fallback time (7 days by default) with no Admin decision ([13.10](13-10-open-questions.md)). With
-  `owner`, the person's own promotion is the approval.
+- **A request is bound to the version the owner chose,** with its resources. What is approved is what was read, and a later
+  edit to the original changes nothing in the request.
+- **The Admin approves, and silence never does.** The setting in Admin > Settings is `admin` (the default) or `owner`. With
+  `admin`, an Admin decides each request in Admin > Memories, and has to read the text to do it, so the owner is told. A request
+  waits for as long as no Admin decides. With `owner`, the person's own promotion is the approval.
+- **An edit to an `everyone` memory needs approval again.** The edit becomes a new request bound to the new version, and the
+  approved text stays live until it is decided.
+- **An `everyone` memory that an Admin trashed does not come back as one.** If its owner restores it, it lands in the owner's
+  `person` memories, and promoting it again is a new request.
 - An agent cannot make a promotion request. It can only say in its reply that a memory might be worth sharing, and the person
   decides. There is no tool for it.
 - Every `everyone` memory shows who wrote it, which agent, and who approved it and when.
@@ -117,10 +126,11 @@ time.
 | A promotion request | Reads the text to decide. The owner is told | `told` |
 | The list of one person's `person` memories (names, descriptions, tags, project names), after choosing the person | Reads. The owner is told that the list was opened | `told` |
 | One `person` memory: its text and versions | Reads. The owner is told | `told` |
-| Deleting a `person` memory, or an `everyone` memory | Moves it to the trash, with a reason the owner is shown. The owner is told, with who did it, and can recover it for 30 days. The Admin cannot restore or purge it early | `told` |
+| Deleting a `person` memory, or an `everyone` memory | Moves it to the trash, with a reason the owner is shown. The owner is told, with who did it, and can recover it for 30 days. The Admin cannot restore it | `told` |
+| Purging a memory at once because it holds an exposed secret | Purges its text and every version immediately, for that reason only. The owner is told those words | `told` |
 | A person's project names | Lists, names and renames them | `told` |
 | Offers, conflicts, import lists, mirror state, review logs of `person` memories, a person's access rules, votes and their reasons on `person` memories, search terms | Refused | `owner-only` |
-| A person's counts (memories, trashed, flagged) | Reads. A count is already on the wall for everyone | not content |
+| A person's counts (memories and trashed) | Reads. A count of what exists carries nothing a person wrote. There is no count of flags, because a flag is the person's own | not content |
 
 - **An Admin has no search, tag filter or sort over `person` memories.** Opening the list of one person is a told read, and so
   is each memory. Otherwise a filter would reveal content one question at a time.
@@ -135,9 +145,12 @@ time.
   file on a person's machine. A sync that finds the memory gone leaves the local file where it is, drops its entry, and tells the
   person ([13.5](13-05-sync-with-local-memory-files.md)).
 - **An Admin cannot turn the notice off,** and no read is quiet for being brief, automated or done with the admin secret.
-- **Reading another person's `person` memory through a tool is refused to an Admin,** with one exception: a review run the
-  Admin started, over a person who turned on **Reviewer**. Every such read is a told read, as in the console ([13.6](13-06-the-reviewer.md)).
-  Otherwise the tools answer the session's owner only.
+- **A purge for an exposed secret is logged as one.** The Admin log entry says who, whose, which memory, when, and "purged for
+  an exposed secret", never the text, and the tombstone records the same reason. The owner is told in the same words. A purge
+  does not reach files already on a person's machine or copies others accepted, and the notice says so, so the secret is also
+  rotated.
+- **Reading another person's `person` memory through a tool is refused to an Admin,** with no exception, a review run included
+  ([13.6](13-06-the-reviewer.md)). The tools answer the session's owner only.
 - **Search terms are never logged,** so log shipping cannot carry a person's queries to an Admin.
 
 Each route that returns memory content, a version, an offer, a proposal, a conflict or an import list has an entry in

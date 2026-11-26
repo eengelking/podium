@@ -37,7 +37,8 @@ Only `major.minor` is compared, so a mod-only patch fix never warns. `checkRepor
 | `newer` | Above `max`. | Upgrade the server. |
 | `unknown` | The version is not `X.Y.Z` (the simulator's `0.1.0-sim`, for one). | Nothing. No warning is shown. |
 
-A mismatch is a warning, never an error. The server still accepts and shows every report it can read.
+A mismatch is a warning, never an error. The server still accepts and shows every report it can read. (The one planned
+exception is the brain's tools and sync, which are not built: they accept three minor releases and refuse the rest, [13.7](../13-the-brain/13-07-the-reporters-tools.md#137-versions).)
 
 ## What the mod and the dashboard show
 
