@@ -48,7 +48,7 @@ preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
 |---|---|
 | Add a doc page | A page in a split topic's folder (`docs/spec/`, `docs/decisions/`, `docs/gotchas/`, `docs/architecture/`, `docs/user-guide/`) needs nothing here: copy its template, set `order` in the frontmatter, run `node scripts/build-doc-indexes.mjs`, and the build finds it. Any other page, and a new topic folder (`dir`, `legacy`, `slug`, `label`), is added to `GROUPS` in `site/docs-nav.mjs`, in the group it belongs to. A page that is not listed is not published. |
 | Move or rename a page | Change `docs-nav.mjs`, then run the build; the link check lists every link that no longer resolves. A slug is a public address, so keep it unless you must change it. |
-| Change the look | `site/src/styles/theme.css` maps the app's tokens (`frontend/src/fleet/tokens.css`) onto Starlight's variables. Add no color of your own. The site's look follows `mockup/podium-docs-site.html`; a change to it needs a new mockup. |
+| Change the look | `site/src/styles/theme.css` defines the marketing palette (the atlas's tokens, light and dark, with the people hues left to the demo pages) and maps it onto Starlight's variables. It does not read the app's `tokens.css`. A new color is a new token there, never a literal in a component. A change to the look needs a mockup first. |
 | Change the header, footer, banner, version menu, theme switch or the search dialog's empty state | The components in `site/src/components/` (the search hints are the script in `Header.astro`). They read the version list from `siteMeta.ts`. |
 | Change the homepage | `site/src/pages/index.astro`. Its commands are the ones in the README and `docs/user-guide/`; change them together. |
 | Change the social image | Edit `site/og/og.html` and regenerate `site/public/og.png` as its comment says. |
@@ -81,5 +81,5 @@ unchanged. Remove `fix` when #700 is fixed in the standards generator.
 
 - Do not edit anything under `docs/standards/` through the site: it is generated from the app (`/podium-standards-update`).
 - Do not copy docs into `site/`, or keep a second copy of a page.
-- Do not add a new color. Use a token.
+- Do not put a color literal in a component or a page. Use a token from `theme.css`.
 - Do not run the site's `npm install` from the repo root; `site/` has its own `package.json` and lockfile and is not an npm workspace.

@@ -157,10 +157,11 @@ THE SOFTWARE.
 
 ## Fonts on the docs site
 
-The docs site (`site/`) serves two fonts from the Fontsource packages `@fontsource/schibsted-grotesk` and `@fontsource/jetbrains-mono`,
-the latin subset only. Both are licensed under the SIL Open Font License, Version 1.1.
+The docs site (`site/`) serves three fonts from the Fontsource packages `@fontsource-variable/bricolage-grotesque`, `@fontsource/hanken-grotesk` and
+`@fontsource/jetbrains-mono`, the latin subset only. All three are licensed under the SIL Open Font License, Version 1.1.
 
-- Schibsted Grotesk: Copyright 2023 The Schibsted-Grotesk Project Authors (https://github.com/schibsted/schibsted-grotesk).
+- Bricolage Grotesque: Copyright 2022 The Bricolage Grotesque Project Authors (https://github.com/ateliertriay/bricolage).
+- Hanken Grotesk: Copyright 2021 The Hanken Grotesk Project Authors (https://github.com/marcologous/hanken-grotesk).
 - JetBrains Mono: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono).
 
 The license text is in each package's `LICENSE` file and at https://openfontlicense.org.
