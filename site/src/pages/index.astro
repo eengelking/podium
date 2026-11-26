@@ -211,18 +211,29 @@ podiumctl start</pre>
             <div class="txt">
               <div class="num">2</div>
               <h3>Install the reporter</h3>
-              <p>In Claude Code, from the eengelking marketplace. Using OpenCode? <a href={`${base}reporter/`}>The reporter page</a> has its steps.</p>
+              <p>One reporter for each harness. Claude Code installs it from the eengelking marketplace, and OpenCode from Git. <a href={`${base}reporter/`}>The reporter page</a> has every setting.</p>
             </div>
-            <pre>/plugin marketplace add eengelking/skills
+            <div class="codes">
+              <div>
+                <span class="tag">Claude Code</span>
+                <pre>/plugin marketplace add eengelking/skills
 /plugin install podium-reporter@eengelking-marketplace</pre>
+              </div>
+              <div>
+                <span class="tag">OpenCode</span>
+                <pre>opencode plugin add \
+  "git+https://github.com/eengelking/podium.git#main::path:dist/opencode"
+opencode service restart</pre>
+              </div>
+            </div>
           </div>
           <div class="step">
             <div class="txt">
               <div class="num">3</div>
               <h3>Open the console</h3>
-              <p>Start a session. It appears in the console within about two seconds, with no refresh.</p>
+              <p>Start a session, then open the console at the address of the machine that runs the server. On that machine it is <code>127.0.0.1</code>. The session appears within about two seconds, with no refresh.</p>
             </div>
-            <div class="addrbar"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5.5" width="7" height="5" rx="1"></rect><path d="M4 5.5V4a2 2 0 0 1 4 0v1.5"></path></svg>https://podium.engelking.dev:4317</div>
+            <div class="addrbar"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true"><circle cx="6" cy="6" r="4.6"></circle><path d="M1.4 6h9.2M6 1.4c-2.4 2.6-2.4 6.6 0 9.2M6 1.4c2.4 2.6 2.4 6.6 0 9.2"></path></svg>http://&lt;your-ip&gt;:4317</div>
           </div>
         </div>
       </div>
@@ -350,7 +361,7 @@ podiumctl start</pre>
   .cap { margin-top: 14px; color: var(--mute); font-size: 0.875rem; text-align: center; }
 
   .steps { display: grid; gap: 20px; margin: 44px auto 0; max-width: 1040px; }
-  .step { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px 40px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 28px 32px; box-shadow: var(--shadow); }
+  .step { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); gap: 20px 40px; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 28px 32px; box-shadow: var(--shadow); }
   .step .txt { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 18px; align-items: start; }
   .step .txt .num { grid-row: 1 / span 2; }
   .num { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font: 700 18px var(--display); color: var(--accent-ink); background: linear-gradient(135deg, var(--accent), var(--hot)); }
@@ -358,8 +369,11 @@ podiumctl start</pre>
   .step p { color: var(--ink2); font-size: 0.94rem; }
   .home .step p a { color: var(--accent-text); font-weight: 600; }
   .home pre { margin: 0; padding: 14px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--sunk); font: 400 13px/1.6 var(--font-mono); white-space: pre; overflow-x: auto; color: var(--ink); }
+  .codes { display: grid; gap: 14px; min-width: 0; }
+  .tag { display: block; margin: 0 0 6px 2px; font: 600 0.78rem var(--sans); color: var(--mute); }
+  .codes :global(pre) { font-size: 12.5px; }
   .addrbar { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-radius: 999px; background: var(--sunk); border: 1px solid var(--line); font: 500 14px var(--font-mono); color: var(--ink); }
-  .addrbar svg { width: 15px; height: 15px; color: var(--ok); flex: none; }
+  .addrbar svg { width: 15px; height: 15px; color: var(--mute); flex: none; }
 
   .comm { position: relative; color: var(--hero-ink); background: linear-gradient(135deg, var(--hero-a), var(--hero-b)); border-radius: 28px; padding: 56px; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 48px; align-items: center; overflow: hidden; }
   .comm::before { content: ""; position: absolute; width: 420px; height: 420px; right: -120px; top: -180px; border-radius: 50%; background: color-mix(in srgb, var(--hero-ink) 7%, transparent); }
