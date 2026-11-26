@@ -41,6 +41,20 @@ let web = WKWebView(frame: NSRect(origin: .zero, size: scenario == "zero" ? .zer
 if scenario != "zero" { web.autoresizingMask = [.width, .height] }
 window.contentView = NSView(frame: NSRect(origin: .zero, size: start.size))
 window.contentView!.addSubview(web)
+
+// The page may move only within the address it was given: a link or a redirect to anywhere else is refused.
+final class SameSite: NSObject, WKNavigationDelegate {
+  let given: URL
+  init(_ given: URL) { self.given = given }
+  func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void) {
+    let next = action.request.url
+    let same = next?.scheme == given.scheme && next?.host == given.host && next?.port == given.port
+    if !same { print("refused to leave for \(next?.absoluteString ?? "an unknown address")") }
+    decisionHandler(same ? .allow : .cancel)
+  }
+}
+let sameSite = SameSite(url) // the web view holds its delegate weakly
+web.navigationDelegate = sameSite
 if scenario != "hidden" { window.orderFrontRegardless() }
 
 func after(_ seconds: Double, _ work: @escaping () -> Void) { DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work) }
