@@ -1,0 +1,1 @@
+The docs site's front page has a new design: a gradient hero with an illustration of the console, the four things Podium shows for every session, the real console in a browser frame, stacked setup steps and the community section. The site's header sits on the hero.
