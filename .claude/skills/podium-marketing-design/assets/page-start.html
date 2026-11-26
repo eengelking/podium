@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>REPLACE: a short noun phrase, two to four words</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Marketing standard (.claude/skills/podium-marketing-design): the atlas palette, the chat explainer's layout, type and components.
+   Layout: brand, hero, scene tabs, one note, a stage (people, Podium hub, agents) beside a synced conversation, controls at the bottom. */
+:root {
+  --bg: #F3F5F9; --surface: #FFFFFF; --sunk: #E9EDF4; --ink: #0D1424; --ink2: #46506A; --mute: #6B7690; --line: #D8DEEA;
+  --accent: #2F4BFF; --accent-ink: #FFFFFF; --hot: #D61F69; --ok: #14804A; --bad: #C0262D; --warn: #9A5B00;
+  --p-ed: #9A6200; --p-maya: #087A70; --p-raj: #B42A5F;
+  --mark: #9A6200;
+  --shadow: 0 1px 2px rgba(13,20,36,.06), 0 8px 24px -12px rgba(13,20,36,.18);
+  --band-top: color-mix(in srgb, var(--accent) 14%, var(--surface)); --band-bottom: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  --display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #090E1B; --surface: #121A2E; --sunk: #0E1526; --ink: #E8ECF6; --ink2: #A5AFC6; --mute: #8791AB; --line: #25304A;
+  --accent: #8CA0FF; --accent-ink: #0A1030; --hot: #FF5C9A; --ok: #4CC38A; --bad: #FF7A80; --warn: #E8B64A;
+  --p-ed: #F2B544; --p-maya: #3AD6C5; --p-raj: #FF7FA5;
+  --mark: #F2B544;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #090E1B; --surface: #121A2E; --sunk: #0E1526; --ink: #E8ECF6; --ink2: #A5AFC6; --mute: #8791AB; --line: #25304A;
+  --accent: #8CA0FF; --accent-ink: #0A1030; --hot: #FF5C9A; --ok: #4CC38A; --bad: #FF7A80; --warn: #E8B64A;
+  --p-ed: #F2B544; --p-maya: #3AD6C5; --p-raj: #FF7FA5;
+  --mark: #F2B544;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6); color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); }
+body { font-family: var(--sans); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[data-owner="ed"] { --c: var(--p-ed); }
+[data-owner="maya"] { --c: var(--p-maya); }
+[data-owner="raj"]  { --c: var(--p-raj); }
+
+.page { max-width: 1480px; margin: 0 auto; padding: 22px 28px 28px; }
+
+/* top bar */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: -0.01em; }
+.brand svg { color: var(--mark); }
+.top p { margin: 0; color: var(--ink2); font-size: 13px; }
+
+/* hero */
+.hero { padding: 22px 0 18px; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 28px; align-items: end; }
+h1 { margin: 0; font-family: var(--display); font-weight: 700; font-stretch: 85%; font-size: clamp(34px, 4.6vw, 62px); line-height: 1; letter-spacing: -0.025em; text-wrap: balance; }
+.hero p { margin: 0; color: var(--ink2); font-size: 16px; max-width: 46ch; text-align: right; justify-self: end; }
+.hero p b { color: var(--ink); font-weight: 600; }
+
+/* controls */
+.controls { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.btn { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; font-size: 13px; font-weight: 600; transition: background .2s; }
+.btn:hover { background: var(--sunk); }
+.switch { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink2); cursor: pointer; user-select: none; }
+.switch input { appearance: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line); position: relative; margin: 0; cursor: pointer; transition: background .2s; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform .2s; }
+.switch input:checked { background: var(--accent); }
+.switch input:checked::after { transform: translateX(14px); }
+.controls.bottom { margin: 16px 0 0; }
+
+.note { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--mute); background: var(--surface); border-radius: 0 8px 8px 0; color: var(--ink2); font-size: 14px; }
+.note b { color: var(--ink); font-weight: 600; }
+
+footer { margin-top: 16px; color: var(--ink2); font-size: 12.5px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.themebtn { margin-left: auto; }
+
+@media (max-width: 1100px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+.themebtn { margin-left: auto; }
+</style>
+</head>
+<body>
+<!-- Start from this page. Keep the token block above exactly as it is: scripts/marketing-pages.test.ts compares it with the atlas and the other pages. Replace every REPLACE. -->
+<div class="page">
+  <div class="top">
+    <div class="brand">
+      <svg width="26" height="26" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>
+      Podium
+    </div>
+  </div>
+
+  <section class="hero">
+    <h1>REPLACE: the headline, one or two lines</h1>
+    <p>REPLACE: the lede, two or three sentences. It sits on the right and is right-aligned.</p>
+  </section>
+
+  <p class="note" id="note">REPLACE: one sentence about what is on screen, short enough for one line at desktop width.</p>
+
+  <main>
+    <!-- REPLACE: the page's one memorable object, built from tokens and the page's own classes. -->
+  </main>
+
+  <div class="controls bottom">
+    <button class="btn themebtn" id="themebtn" type="button">Theme: system</button>
+  </div>
+
+  <footer>
+    <span>REPLACE: say the content is illustrative if it is, and what the page does not show.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var theme = "system";
+  try { theme = localStorage.getItem("podium-marketing-theme") || "system"; } catch (e) { /* storage may be blocked */ }
+  function applyTheme() { var r = document.documentElement; if (theme === "system") r.removeAttribute("data-theme"); else r.setAttribute("data-theme", theme); document.querySelector("#themebtn").textContent = "Theme: " + theme; }
+  document.querySelector("#themebtn").addEventListener("click", function () {
+    theme = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
+    try { localStorage.setItem("podium-marketing-theme", theme); } catch (e) { /* storage may be blocked */ }
+    applyTheme();
+  });
+  applyTheme();
+})();
+</script>
+</body>
+</html>
