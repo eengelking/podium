@@ -40,20 +40,21 @@ On responding's browser router, `/api/fleet/respond/brain`, with its sign-in and
 | Route | Does |
 |---|---|
 | `GET /memories`, `GET /memories/:id`, `PUT /memories/:id`, `DELETE /memories/:id` | List, read, edit, trash |
-| `POST /memories/:id/restore`, `/checked`, `/pin`, `/vote`, `/promote`, `/share` | The actions of 13.8 |
+| `POST /memories/:id/restore`, `/checked`, `/pin`, `/vote`, `/share`, `/copy` | The actions of 13.8. `/share` shares with the memory's project |
+| `GET /waiting`, `POST /memories/:id/approve`, `/reject` | Changes to shared memories that wait for the owner |
+| `POST /memories/:id/offers` | Offer a memory to one member |
 | `GET /trash` | Recently deleted |
 | `GET /memories/:id/versions`, `GET /memories/:id/versions/:versionId` | The history and one version |
 | `POST /memories/:id/flag`, `DELETE /memories/:id/flag`, `DELETE /memories/:id/vote`, `POST /memories/:id/seen-merge` | Flag, clear a flag, withdraw a vote, dismiss a merge notice |
 | `POST /edges`, `DELETE /edges/:id` | `supersedes` and `related` |
-| `POST /memories/:id/promotion`, `DELETE /promotions/:id`, `DELETE /public/:id` | Ask for a promotion, withdraw the request, withdraw a shared memory of one's own |
 | `GET /offers`, `GET /offers/sent`, `POST /offers/:id/accept`, `/decline`, `/block`, `DELETE /offers/:id`, `DELETE /blocks/:personId` | The inbox, what was sent, withdrawal and unblocking |
 | `GET /conflicts`, `POST /conflicts/:id/resolve`, `POST /duplicates/:id/resolve` | Conflicts and possible duplicates |
 | `GET /imports`, `POST /imports/:id/approve`, `POST /pauses/:id/approve` | A dry run, a paused sync and their approval |
 | `POST /folders/:id/relink` | A folder that moved |
-| `GET /projects`, `POST /projects`, `PUT /projects/:id`, `DELETE /projects/:id?memories=none\|trash` | Projects |
+| `GET /projects`, `PUT /projects/:id` | The person's projects, and a rename by a member |
 | `DELETE /review/runs/:id` | End a run |
-| `GET /access`, `PUT /access/:reporterKey` | The Brain switch, Sync, folders and grants |
-| `PUT /settings` | Read shared memories and Reviewer |
+| `GET /access`, `PUT /access/:reporterKey` | The Brain switch, Sync, folders and directory rules |
+| `PUT /settings` | Reviewer |
 | `POST /review/runs`, `GET /review/proposals`, `POST /review/proposals/:id` | A review |
 
 ## 13.11 Admin routes
@@ -64,17 +65,18 @@ is recorded with `audit()`, and each read of a person's content is in the Admin 
 | Route | Does |
 |---|---|
 | `GET /settings`, `PUT /settings` | The settings of 13.8 |
-| `GET /public`, `GET /public/:id`, `DELETE /public/:id`, `POST /public/:id/hide`, `/clear` | The `everyone` memories and flags |
+| `GET /projects`, `POST /projects`, `PUT /projects/:id`, `DELETE /projects/:id` | Projects: names and counts. A project with memories is not deleted |
+| `PUT /projects/:id/groups` | The groups assigned to a project |
+| `GET /projects/:id/shared`, `GET /memories/:id`, `DELETE /memories/:id` | A told read, a told read, a told delete |
+| `POST /memories/:id/hide`, `/clear` | Flags on shared memories |
 | `POST /purge/:id` | Purge an exposed secret at once, logged and told as that |
-| `GET /promotions`, `POST /promotions/:id/approve`, `/reject` | Promotion requests |
 | `GET /people` | Counts only |
-| `GET /people/:personId/memories`, `GET /people/:personId/memories/:id`, `DELETE /people/:personId/memories/:id` | A told read, a told read, a told delete |
-| `GET /people/:personId/projects`, `POST`, `PUT /people/:personId/projects/:id` | Told reads and writes of project names |
-| `POST /review/runs`, `GET /review/proposals`, `POST /review/proposals/:id` | A review the Admin starts |
+| `GET /people/:personId/memories` | A told read |
+| `GET /proposals`, `POST /proposals/:id` | A member's review proposals an Admin may approve: `flag` and `delete`. Told reads |
 
 ## 13.11 The live event
 
-`brain`, with `{ rev, scope: 'person' | 'everyone' }` and nothing else ([13.8](13-08-the-console.md)).
+`brain`, with `{ rev, scope: 'personal' | 'shared' }` and nothing else ([13.8](13-08-the-console.md)).
 
 ## 13.11 Codes
 
@@ -83,7 +85,8 @@ The `code` of a refusal, with its status:
 | `code` | Status | When |
 |---|---|---|
 | `brain-off` | 403 | The Admin flag, the machine's option or the console switch is off |
-| `project-not-held` | 403 | A save or search names a project the agent does not hold |
+| `no-project` | 422 | A save that needs a project, from a directory that has none |
+| `not-a-member` | 403 | Sharing or offering in a project the person is not a member of |
 | `invalid` | 400 | A field or tag breaks its rule |
 | `stale-proposal` | 409 | A proposal against a version that has changed |
 | `conflict-open` | 409 | An action that an open conflict blocks |

@@ -54,5 +54,5 @@ Under the rule as written the change is "one adapter and not the others" and the
 <!-- nav:start -->
 ---
 
-Previous: [77. Data binds to a person's id or an agent's id, never to a name (#1284, #1289)](77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md) · Up: [Decisions](README.md) · Next: [79. The brain keeps a person's memories on the server in two scopes, and every Admin read of one is told](79-the-brain-keeps-a-persons-memories-on-the-server-in-two-scopes-and-every-admin-read-of-one-is-told.md)
+Previous: [77. Data binds to a person's id or an agent's id, never to a name (#1284, #1289)](77-data-binds-to-a-persons-or-an-agents-id-never-to-a-name.md) · Up: [Decisions](README.md) · Next: [79. The brain keeps every memory in a project, personal or shared, and every Admin read of one is told](79-the-brain-keeps-every-memory-in-a-project-personal-or-shared-and-every-admin-read-of-one-is-told.md)
 <!-- nav:end -->

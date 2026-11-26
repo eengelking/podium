@@ -42,7 +42,9 @@ can be rebuilt at any time from `Storage`.
   once. Replacing the library means writing one implementation that passes that test.
 - **What it holds** for each memory is its `name`, `description`, `tags`, `body`, and the names, descriptions and **content** of
   its resources for matching, and its `owner`, `scope`, `project`, `state`, `type`, `weight` and `weight_at` for filtering and
-  ranking. A fact written only inside a resource is found, and the result still carries only the summary.
+  ranking. A fact written only inside a resource is found, and the result still carries only the summary. A shared memory with
+  a change waiting has two entries: the shared version, which members' searches match, and the current version, which the
+  owner's searches match.
 - **Every write that changes what is matched, filtered or ranked updates it,** in the request that wrote, after the transaction
   commits and before the reply: a new version, a state change (flag, hide, trash, restore, purge), a project change, a vote or a
   use, an edge, a half-life or cap change, and the deletion of a person or a project. So there is no drift by design and an agent
@@ -60,8 +62,9 @@ can be rebuilt at any time from `Storage`.
 
 ## 13.4 A search
 
-A search is the query's terms (at most 12), the reader, and optionally a project, a type, a scope and **required tags**. A memory
-is returned only if it carries every required tag, so a person or an agent can keep unrelated memories out. `podium_brain_tags`
+A search is the query's terms (at most 12), the reader, and optionally a type, a scope (`personal`, `shared` or `global`) and
+**required tags**. **A search takes no project.** It covers the project the session works in and the person's Global memories,
+and nothing else ([13.3](13-03-who-can-read-and-write.md)). A memory is returned only if it carries every required tag, so a person or an agent can keep unrelated memories out. `podium_brain_tags`
 lists the tags the reader can see, with counts, so an agent chooses real ones instead of guessing. The list and its counts come
 from a store method under the access rules, never from the index. Tags are the only categories; `type` is the one fixed one.
 
@@ -137,7 +140,8 @@ store removes the vote's faded remainder and adds the new amount, so voting, wai
 - A voter votes only on a memory they may read. An agent votes up, or down as wrong, outdated or unsafe, only after it has opened
   the memory in the same session.
 - A person's vote and an agent's vote carry the same amount, and each records which it was. This is revisited if it becomes a problem.
-- A vote on a `person` memory is the owner's. Its reason is visible to the owner only.
+- A vote on a personal or Global memory is the owner's. Members vote on a shared memory. A reason is visible to the memory's
+  owner only.
 
 ## 13.4 What the server holds
 

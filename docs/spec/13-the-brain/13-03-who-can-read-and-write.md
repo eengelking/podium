@@ -1,6 +1,6 @@
 ---
 title: "13.3 Who can read and write"
-description: "Scopes, projects and grants, promotion, sharing one memory with another person, and what an Admin may read and delete and how the person is told."
+description: "Projects and membership through groups, personal and shared memories, sharing and approval of changes, and what an Admin may read and delete."
 group: "Reference"
 section: "13.3"
 order: 3
@@ -8,154 +8,184 @@ order: 3
 
 # 13.3 Who can read and write
 
-The rule that governs this page is PROJECT.md's "An Admin never reads in silence": whenever an Admin sees a person's
-non-public content, that person is told, in the console and in `podium-reporter`, and the Admin log records who, whose and
-when, never the text. A memory in the `person` scope is non-public content. A memory in the `everyone` scope is public to the
-server, and an Admin's read of it is not told. An Admin reads and deletes. An Admin never edits a memory and never touches a
-person's machine.
+Two rules govern this page.
 
-## 13.3 Who reads what
+1. **Every memory belongs to a project,** and a person or an agent is shown only the memories of the project it is working on.
+   The one exception is a **Global** memory, which belongs to no project and holds a person's own preferences.
+2. **An Admin never reads in silence** (PROJECT.md). Whenever an Admin sees a memory of a person, personal or shared, that
+   person is told in the console and in `podium-reporter`, and the Admin log records who, whose and when, never the text. An
+   Admin reads and deletes. An Admin never edits a memory and never touches a person's machine.
 
-| Reader | `person` memory | `everyone` memory |
-|---|---|---|
-| The owner, in the console | Reads, edits, votes, deletes, restores, shares, promotes | Reads and votes. Edits and deletes only a memory they made |
-| The owner's agent, through a tool | Reads and votes when its reporter holds the memory's project, or the memory has none. Writes only through `podium_brain_save` | Reads and votes, only when the person turned on **Read shared memories**. Cannot edit or delete |
-| Another person, or their agent | Never, except a copy the owner shared and the person accepted ([13.3 Sharing](#133-sharing)) | Reads and votes, only when that person turned on **Read shared memories** |
-| An Admin, in the console | Reads and deletes, and every one of those tells the owner ([13.3 An Admin](#133-an-admin)). Never edits | Reads, and deletes. The owner is told of a delete. Never edits |
-| A review run | Only in the person's own run ([13.6](13-06-the-reviewer.md)). An Admin's run never reads one | Reads and flags |
+## 13.3 Projects
 
-An agent's tool call reaches only what its owner could reach. The server decides the reader from the credential and the agent id
-it gave the session, never from an argument the agent sends. A call that names a memory the reader may not read answers
-`404`, the same as one that does not exist, so the id of a private memory is not confirmed to anyone.
+A **project** is anything one or more people work on. Today that is often one person with many agents, and later many people
+with many agents. A project belongs to nobody: there is **one project per name on the server**, used by everyone who works in it.
 
-**Read shared memories is off by default and is the person's choice.** With it off, `search` and `get` never return an
-`everyone` memory to that person's agents, and the person's own console still shows the scope. This keeps what agents take in
-from public places small and chosen, as DECISIONS 69 does for Chat, where an agent reads only when it is called in.
+- **A project is identified by the repository's name alone.** For `git@github.com:eengelking/podium.git` the project is
+  `podium`. A fork (`foobar/podium`) is the same project, so a fork keeps access. Names are compared ignoring case. Two
+  unrelated repositories with one name are one project too, which is accepted. What that cannot do is open another person's
+  memories to a stranger: shared memories need membership.
+- **An agent holds the project of the repository it works in, automatically,** the way Claude Code keeps a memory folder for a
+  repository. Move to another repository and the project and its memories change with it. Nobody grants it, and an agent holds
+  one project at a time.
+- **A directory with no git remote has a project only when a person names it.** In **My reporters** the person maps a working
+  directory to a project name ([13.8](13-08-the-console.md)). An Admin can name projects too. This includes a git repository
+  with no remote. Until it is named, an agent there reads and writes only Global memories.
+- **A name that someone types is letters, digits and hyphens, at most 60 characters,** because a name is shown to agents and
+  must not be a way to put words in front of them. A name taken from git is letters, digits, `.`, `_` and `-`, at most 100.
+- **Renaming a project changes the name shown to everyone,** like renaming a channel in Slack, with no notice. The repository
+  name still finds it. A member of the project or an Admin renames it.
+- **A project's name is not private content.** An Admin lists projects without a notice. A person sees the projects they are a
+  member of and the ones they have memories in.
+- **A project that holds memories cannot be deleted.**
 
-## 13.3 Projects and the grant
+The server takes a session's project from what the session's reporter reports about its directory, **never from a tool's
+argument**. The reporter sends the repository name from the `origin` remote as its own field, or nothing, so the server never
+mistakes a folder's name for a repository's.
 
-A **project** has an id and a name. It belongs to the person, and two people's projects of one name are different projects
-(whether a project should instead be shared between people is open, [13.10](13-10-open-questions.md)).
-**By default a project is a git remote**, read the way the reporter already reads it: the `owner/name` of the `origin` remote,
-such as `eengelking/podium`, so the same repository is one project on every machine. Two hosts with the same `owner/name` are one
-project, which is accepted. A directory with no git remote is a project that is named by hand.
-**A typed name is letters, digits and hyphens, at most 60 characters,** because a name is shown to agents and must not be a way
-to put words in front of them. A name taken from git keeps its `owner/name` form (letters, digits, `.`, `_`, `-` and one `/`,
-at most 100). The person names and renames their projects, and an Admin can name and rename them
-too. A person's project names are their content: **an Admin who lists, names or renames them is a told read**
-([13.3 An Admin](#133-an-admin)). Nobody else sees them.
+## 13.3 Members and groups
 
-A person manages a reporter's access in **My reporters** ([13.8](13-08-the-console.md)), next to its Brain switch:
+**An Admin decides who is a member of a project, by assigning the project to groups.** A person's projects are everything
+their groups are assigned. There is no separate adding of single people, and a person never joins by having a folder of the
+right name.
 
-- **A directory rule.** The person maps a working directory, or a git remote, to a project. A reporter's agent that starts in that
-  directory holds that project. **The same rule decides which memory folder the harness uses for that directory** ([13.5](13-05-sync-with-local-memory-files.md)), so an
-  agent's project and its folder's project can never differ. A rule matches by the longest path prefix, and two rules that
-  match equally are refused when they are saved.
-- **A grant.** The person grants a reporter one or more further projects, which every agent of that reporter holds, whatever its
-  directory.
+**A person can be in as many groups as needed.** Today a person is in at most one (`people.group_id`), so this is a change to
+Podium itself and not only to the brain. It is built and released as its own change, before shared memories, with the schema
+change in every adapter. Where one group is expected today:
 
-An agent that holds no project reads and writes only the owner's memories that have no project. A memory with no project is for
-every brain-enabled agent of the person, and is where a `user` or `feedback` memory that applies everywhere belongs. The
-person chooses a project for each memory when it is made, and `podium_brain_save` takes the project from the rule or grant
-that applies, never from the agent's own claim. When an agent holds several projects, the tool names which one, and a name the
-agent does not hold is refused. Only the owner edits Access.
+- a person has a **My group** chat for each group they are in;
+- a person appears under each of their groups in the console;
+- a person is in Administrators, with what that gives, when any of their groups is Administrators.
 
-When a grant is revoked or a rule changes, the agent stops reading the project at its next call and the files already written
-stay on the machine, as [13.5](13-05-sync-with-local-memory-files.md) describes. Deleting a project asks the person what to do with its memories: move
-them to no project or move them to the trash.
+**A person who is not a member still has their own memories there.** In a repository whose project no one is assigned to yet,
+personal memories work. Sharing starts when an Admin assigns the project.
 
-## 13.3 Writing, promotion and approval
+**A person who stops being a member** no longer reads the project's shared memories. What they shared stays shared. They can
+still see and delete their own, and can no longer change what members see.
 
-- An agent writes only `person` memories, only into a project it holds or none, and only when its reporter's Brain switch is
-  `readwrite`.
-- Nobody writes an `everyone` memory directly. A person **promotes** one of their own `person` memories. That makes a
-  **promotion request**: a record of its own, readable by the owner and by the Admin who decides, and not in the `everyone`
-  scope. Nobody else sees it, and it is not searchable, until it is approved. Approving makes a copy in the `everyone` scope
-  with `source` set to the original, `written_by` the original's writer, and `approved_by` the approver. The original stays.
-- **A request is bound to the version the owner chose,** with its resources. What is approved is what was read, and a later
-  edit to the original changes nothing in the request.
-- **The Admin approves, and silence never does.** The setting in Admin > Settings is `admin` (the default) or `owner`. With
-  `admin`, an Admin decides each request in Admin > Memories, and has to read the text to do it, so the owner is told. A request
-  waits for as long as no Admin decides. With `owner`, the person's own promotion is the approval.
-- **An edit to an `everyone` memory needs approval again.** The edit becomes a new request bound to the new version, and the
-  approved text stays live until it is decided.
-- **An `everyone` memory that an Admin trashed does not come back as one.** If its owner restores it, it lands in the owner's
-  `person` memories, and promoting it again is a new request.
-- An agent cannot make a promotion request. It can only say in its reply that a memory might be worth sharing, and the person
-  decides. There is no tool for it.
-- Every `everyone` memory shows who wrote it, which agent, and who approved it and when.
-- A promoted memory is a copy. A later edit to the original does not change it, and the owner can withdraw it at any time, which
-  trashes it.
+## 13.3 Personal and shared
 
-**A share or a promotion warns about addresses and paths.** When the text holds a network address or a home folder path, the
-console says so before the person sends the offer or the request. It is a warning and does not block.
+A memory is **personal** (only its owner and the owner's agents) or **shared** (the members of its project). There is no scope
+that reaches everyone on the server. If everyone works on one project, that project's members are everyone.
 
-## 13.3 Sharing
+A **Global** memory belongs to no project. It is personal only, of the type `user` or `feedback`, and is returned in every
+project, because it is about the person. It cannot be shared or offered.
 
-A person shares one of their memories with one other person. It is an **offer**, not a copy.
+| Reader | Personal memory | Shared memory | Global memory |
+|---|---|---|---|
+| The owner, in the console | Reads, edits, votes, deletes, restores, shares | Reads, edits, votes, deletes, restores, approves changes | Reads, edits, votes, deletes, restores |
+| The owner's agent, through a tool, in that project | Reads and votes. Writes | Reads and votes. Writes, and the owner approves the change | Reads and votes. Writes |
+| The owner's agent, in another project | Never | Never | Reads and votes. Writes |
+| Another member, or their agent | Never, except a copy offered and accepted | Reads the approved text, votes and flags. Never edits | Never |
+| A person who is not a member | Never | Never | Never |
+| An Admin, in the console | Reads and deletes, and the owner is told | Reads and deletes, and the owner is told | Reads and deletes, and the owner is told |
+
+The server decides the reader from the credential and the agent id it gave the session, never from an argument the agent
+sends. A call that names a memory the reader may not read answers `404`, the same as one that does not exist, so the id of a
+private memory is not confirmed to anyone.
+
+## 13.3 Writing and sharing
+
+- **An agent writes personal memories.** A new memory goes into the project the agent works in, unless the agent asks for a
+  Global one and its type allows it. In a directory with no project, only a Global memory can be saved. It needs the
+  reporter's Brain switch at `readwrite`.
+- **A person shares a memory with its project in one action,** in the console. There is no request to approve and no copy: the
+  same memory becomes shared. The person must be a member. An agent cannot share. It can only say in its reply that a memory
+  might be worth sharing.
+- **A shared memory stays shared.** It never has to be shared again, and members get each approved change. There is no
+  unshare, and a shared memory is not moved to another project. Its owner can delete it, and a restore by the owner brings
+  it back shared.
+- **An agent changes only its own owner's memories.** Another member's agent votes or flags.
+
+### Changes to a shared memory
+
+**When an agent changes a shared memory, the owner approves the change.** Members see the previous version until then. A
+change the owner makes themselves in the console takes effect at once.
+
+- A shared memory has a **current version**, which its owner and the owner's agents see and sync, and a **shared version**,
+  which members see. They differ only while a change waits.
+- **Anything that arrives through the reporter counts as an agent's change,** whether a tool call or a synced file, because
+  the server cannot tell a person's edit of a local file from an agent's. Only an act in the console is the owner's own.
+- The owner sees the change as a diff under **Waiting for you** in My memories and gets a person-only callout. **Approve**
+  makes the current version the shared one. **Reject** makes a new version with the shared version's content, which a sync
+  writes back to the owner's file.
+- **An agent's delete of a shared memory waits the same way.** Members keep it until the owner approves.
+- An owner who saves an edit in the console while a change waits sees both and publishes the text they see.
+- A change to a personal or Global memory takes effect without approval.
+
+Every shared memory shows who wrote it, which agent, who shared it, and when its shared version was approved.
+
+**Sharing warns about addresses and paths.** When the text holds a network address or a home folder path, the console says so
+before the person shares or offers it. It is a warning and does not block.
+
+## 13.3 Offering a memory to one person
+
+A person can give one of their project memories to one other **member of the same project**, without sharing it with the whole
+project. It is an **offer**, not a copy.
 
 1. The sender picks a memory and a recipient, from the memory's menu or its right-click menu ([13.8](13-08-the-console.md)). Only
    a person starts an offer. An agent cannot.
 2. **The offer is bound to the version the sender picked.** It holds a copy of that version's text for the offer's life, so what
-   the recipient reads and accepts is what the sender chose, and a later edit by the sender changes nothing in the offer.
-3. The offer is visible to the recipient in the console only, in their inbox. It is not visible to the recipient's agents, it
-   is not searchable, and no tool returns it, until the recipient accepts.
+   the recipient reads and accepts is what the sender chose.
+3. The offer is visible to the recipient in the console only, in their inbox. No tool returns it and it is not searchable
+   until the recipient accepts.
 4. The recipient reads the whole text under a warning that the text comes from another person and may try to steer an agent
    (a prompt injection), and then accepts, declines or ignores it.
-5. **Accepting asks for a project** (or none) and says in plain words that the memory will be saved with the recipient's
-   memories, may be written into their local memory files, and may be loaded by the harness into their sessions. Accepting makes
-   a copy: a new `person` memory owned by the recipient, with `source` set to the original and its version, the sender recorded as
-   the author, and the recipient recorded as the approver. The sender's later edits or deletes do not reach the copy.
-6. The sender can withdraw an offer until it is accepted. An offer that is not answered in 30 days expires. An offer to a person
-   who is then deleted is voided.
+5. **Accepting** says in plain words that the memory will be saved with the recipient's memories, may be written into their
+   local memory files and may be loaded by the harness into their sessions. It makes a copy: a new personal memory of the same
+   project, owned by the recipient, with `source` set to the original and its version, the sender as author and the recipient
+   as approver. The sender's later edits or deletes do not reach the copy.
+6. The sender can withdraw an offer until it is accepted. An offer that is not answered in 30 days expires. It is voided if the
+   recipient is deleted or stops being a member.
 
-Limits: a sender holds at most 20 open offers, and a recipient can block a sender, after which the sender's offers to them
-are refused without saying why. The text of an offer is never visible to an Admin.
+A sender holds at most 20 open offers, and a recipient can block a sender, after which the sender's offers to them are
+accepted by the route and go nowhere. The text of an offer is never visible to an Admin.
 
 ## 13.3 An Admin
 
 An Admin needs to be able to read and delete memories for security reasons, and the guardrail is that the person is told every
 time.
 
-**What an Admin can reach**
-
 | Surface | An Admin | Registry entry |
 |---|---|---|
-| An `everyone` memory: its record and versions, and a review proposal against it | Reads, no notice | `open`, for the reason in DECISIONS 69 |
-| The `everyone` memories flagged for review | Reads, and may hide or clear | `open` |
-| A promotion request | Reads the text to decide. The owner is told | `told` |
-| The list of one person's `person` memories (names, descriptions, tags, project names), after choosing the person | Reads. The owner is told that the list was opened | `told` |
-| One `person` memory: its text and versions | Reads. The owner is told | `told` |
-| Deleting a `person` memory, or an `everyone` memory | Moves it to the trash, with a reason the owner is shown. The owner is told, with who did it, and can recover it for 30 days. The Admin cannot restore it | `told` |
+| The list of projects, their names and the groups assigned to them | Lists, names, renames, assigns | not content |
+| The list of one person's memories (names, descriptions, tags), after choosing the person | Reads. The owner is told that the list was opened | `told` |
+| The shared memories of one project (names, descriptions, tags) | Reads. Every author whose memory is listed is told | `told` |
+| One memory, personal, shared or Global: its text, versions and any waiting change | Reads. The owner is told | `told` |
+| Deleting a memory | Moves it to the trash, with a reason the owner is shown. The owner is told, with who did it, and can recover it for 30 days. The Admin cannot restore it | `told` |
 | Purging a memory at once because it holds an exposed secret | Purges its text and every version immediately, for that reason only. The owner is told those words | `told` |
-| A person's project names | Lists, names and renames them | `told` |
-| Offers, conflicts, import lists, mirror state, review logs of `person` memories, a person's access rules, votes and their reasons on `person` memories, search terms | Refused | `owner-only` |
-| A person's counts (memories and trashed) | Reads. A count of what exists carries nothing a person wrote. There is no count of flags, because a flag is the person's own | not content |
+| Offers, conflicts, import lists, mirror state, a person's directory rules, votes and their reasons, review logs of personal memories, search terms | Refused | `owner-only` |
+| A person's counts (memories and trashed) | Reads. A count carries nothing a person wrote. There is no count of flags | not content |
 
-- **An Admin has no search, tag filter or sort over `person` memories.** Opening the list of one person is a told read, and so
-  is each memory. Otherwise a filter would reveal content one question at a time.
-- **A flag on a `person` memory goes to its owner only,** and never to an Admin queue, so an agent that flags many of its
-  owner's memories cannot fill an Admin's queue with another person's content.
+- **An Admin has no search, tag filter or sort over memories.** Opening a list is a told read, and so is each memory.
+  Otherwise a filter would reveal content one question at a time.
+- **An Admin who is a member of a project reads its shared memories like any member, and each author is still told,** whether
+  the Admin read in the console or the Admin's agent was shown it by a tool. The rule has no exception. Callouts may group
+  several reads into one, and the record lists each.
+- **An Admin who reads a session sees what its agent was shown.** The server records which shared memories of other people a
+  session was shown by a search or opened, and when an Admin reads that session's conversation, recording or answers, those
+  authors are told too.
+- **A flag on a personal memory goes to its owner only,** and never to an Admin queue.
 - **How the person is told.** In the console a red notice on the memory names the Admin while the read is live, and a permanent
   record line, never holding the text, stays with the memory's history. `podium-reporter` shows the person an obvious callout in
   the session, built as the other person-only notices are, and it is never sent to the model. A person with no live session is
   told the way DECISIONS 69 closed that gap (#1328): the act is kept on the person's own `act:` thread with its words, owed
-  until they have seen it, and shown in the reporter of their next session on any reporter. The Admin log records who, whose and when.
-- **An Admin's delete trashes the memory** ([13.2](13-02-the-memory.md)) and the owner can restore it for 30 days. It never deletes a
-  file on a person's machine. A sync that finds the memory gone leaves the local file where it is, drops its entry, and tells the
-  person ([13.5](13-05-sync-with-local-memory-files.md)).
+  until they have seen it, and shown in the reporter of their next session on any reporter.
+- **An Admin's delete trashes the memory** ([13.2](13-02-the-memory.md)). It never deletes a file on a person's machine. A sync
+  that finds the memory gone leaves the local file where it is, drops its entry, and tells the person
+  ([13.5](13-05-sync-with-local-memory-files.md)). A shared memory an Admin trashed comes back **personal** when its owner
+  restores it, and sharing it again is the owner's act.
 - **An Admin cannot turn the notice off,** and no read is quiet for being brief, automated or done with the admin secret.
 - **A purge for an exposed secret is logged as one.** The Admin log entry says who, whose, which memory, when, and "purged for
   an exposed secret", never the text, and the tombstone records the same reason. The owner is told in the same words. A purge
   does not reach files already on a person's machine or copies others accepted, and the notice says so, so the secret is also
   rotated.
-- **Reading another person's `person` memory through a tool is refused to an Admin,** with no exception, a review run included
-  ([13.6](13-06-the-reviewer.md)). The tools answer the session's owner only.
 - **Search terms are never logged,** so log shipping cannot carry a person's queries to an Admin.
 
-Each route that returns memory content, a version, an offer, a proposal, a conflict or an import list has an entry in
+Each route that returns memory content, a version, an offer, a conflict, a proposal or an import list has an entry in
 `adminReads.registry.ts` ([DECISIONS 63](../../decisions/63-a-route-that-returns-a-persons-content-must-be-listed-in-a-registry-or-the-build-fails.md)).
-That check does not see memory fields today, so extending it is the first issue and ships before any route ([13.9](13-09-storage-limits-and-retention.md)).
+A route a member calls that returns another person's shared memory is `told` when the caller is an Admin. The registry check
+does not see memory fields today, so extending it is the first issue and ships before any route ([13.9](13-09-storage-limits-and-retention.md)).
 
 ## Related
 

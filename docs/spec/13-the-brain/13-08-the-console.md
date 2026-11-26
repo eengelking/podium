@@ -19,32 +19,38 @@ and `/podium-standards-update`, never invented inside this feature.
 For each reporter, beside the switches it already has, a person sets:
 
 - **Brain**: `off` (the default), `read` or `readwrite`. Only the reporter's owner can.
-- **Sync**: `off` (the default), `pull` or `both`, and for each of its folders the project it maps to, **Include memories with no
-  project** (off by default), and a way to re-link a folder that moved ([13.5](13-05-sync-with-local-memory-files.md)).
-- **Access**: the projects granted to the reporter and the directory rules ([13.3](13-03-who-can-read-and-write.md)).
+- **Sync**: `off` (the default), `pull` or `both`, and for each of its folders the project it maps to, **Include Global
+  memories** (off by default), and a way to re-link a folder that moved ([13.5](13-05-sync-with-local-memory-files.md)).
+- **Directory rules**: which project a directory with no git remote belongs to ([13.3](13-03-who-can-read-and-write.md)).
 
 Turning a switch on for a reporter says in plain words what it allows. The first sync of a folder says that the harness may load
 the files into sessions ([13.5](13-05-sync-with-local-memory-files.md)).
 
 ## 13.8 My memories
 
-For the signed-in person. It shows, for every memory their agents wrote and every memory they made:
+For the signed-in person. **Projects come first:** the page opens on the person's projects and **Global**, and every list is
+the list of one of them. It shows the person's own memories there and, for a project they are a member of, its shared memories:
 
-- a list with search, filters (project, type, tag, state, scope) and a sort (weight, newest, last used), paged;
-- a memory's page: name, description, body, resources, tags, type, project, scope, who wrote it and who approved it, weight,
+- a list with search, filters (type, tag, state, personal or shared, mine or others') and a sort (weight, newest, last used),
+  paged;
+- a memory's page: name, description, body, resources, tags, type, project, scope, who wrote it, who shared it, weight,
   votes, when it was last checked, the history of versions (with **merged automatically** marked) and edges;
-- the person's **projects**, to name and rename;
-- actions on a memory: edit, vote, delete, promote, share, mark as checked, pin, and change its project. Each is a visible control, and the right-click
-  menu on a row is a shortcut to the same actions, never the only way to reach one (keyboard and touch);
+- a **project**'s name, which a member can change;
+- actions on the person's own memory: edit, vote, delete, share, offer, mark as checked, pin, and, while it is personal, change
+  its project. On another member's shared memory: vote, flag and copy. Each is a visible control, and the right-click menu on a
+  row is a shortcut to the same actions, never the only way to reach one (keyboard and touch);
+- **Waiting for you**: each change an agent made to one of the person's shared memories, as a diff against what members see,
+  with **Approve** and **Reject**;
 - **Recently deleted**: every memory trashed in the last 30 days, with who deleted it (the person, their agent, an Admin or an
   approved review), why, the days left, and **Restore**;
-- **Inbox**: share offers, each readable in full under the prompt-injection warning of [13.3](13-03-who-can-read-and-write.md), with Accept
-  (which asks for a project), Decline and Block sender;
+- **Inbox**: offers, each readable in full under the prompt-injection warning of [13.3](13-03-who-can-read-and-write.md), with
+  Accept, Decline and Block sender;
 - **Conflicts** ([13.5](13-05-sync-with-local-memory-files.md)): the two texts side by side, a draft of the merge, and the choices;
 - **Import**: a first sync's dry run (files to upload with their secret-scan results, files to write, and the index size), to
   approve one by one or all, and the pauses for a mass change;
-- **Settings**: **Read shared memories** and **Reviewer**, each off by default;
-- **Reviewer**: what a run may read, its estimate, who it runs on, and the proposals to approve or reject ([13.6](13-06-the-reviewer.md)).
+- **Settings**: **Reviewer**, off by default;
+- **Reviewer**: start a run for one project, with what it may read, its estimate and who it runs on, and the proposals to
+  approve or reject ([13.6](13-06-the-reviewer.md)).
 
 A red notice on a memory says an Admin is reading it now, names the Admin, and the page keeps a permanent line that an Admin read
 or deleted it, never with the text. The line is shown with the memory's history.
@@ -53,21 +59,20 @@ or deleted it, never with the text. The line is shown with the memory's history.
 
 For an Admin. It shows:
 
-- the **settings**: the Brain flag, who approves a promotion, the weight amounts, the cap on uses and the half-life, the number
-  of flags that hide an `everyone` memory, the limits and the retention periods ([13.9](13-09-storage-limits-and-retention.md)), each with
-  its default;
+- the **settings**: the Brain flag, the weight amounts, the cap on uses and the half-life, the number of flags that hide a
+  shared memory, the limits and the retention periods ([13.9](13-09-storage-limits-and-retention.md)), each with its default;
 - a banner while the brain is being re-indexed;
-- **Review**: start a run ([13.6](13-06-the-reviewer.md)) and approve or reject its proposals against `everyone` memories;
-- a person's **project names**, to name and rename, which is a told read ([13.3](13-03-who-can-read-and-write.md));
-- the `everyone` memories, each with Open and Delete, and the flagged ones, each with Hide, Clear and Delete;
-- the requests to promote a memory, each with Open, Approve or Reject;
+- **Projects** first: each with its name, its repository name, the **groups** assigned to it and its counts, to name, rename
+  and assign;
+- in a project, its shared memories, each with Open and Delete, and the flagged ones, each with Hide, Clear and Delete. Opening
+  the list tells the authors in it;
 - on a memory, **Purge: exposed secret**, which removes it at once and is logged and told in those words ([13.3](13-03-who-can-read-and-write.md));
 - a list of people with their counts (memories and trashed) and nothing else. Choosing a person and opening their list
-  or one of their `person` memories is a read that tells that person ([13.3](13-03-who-can-read-and-write.md));
+  or one of their memories is a read that tells that person ([13.3](13-03-who-can-read-and-write.md));
 - the log of Admin reads and deletes, with who, whose and when, never the text.
 
-There is no search or tag filter over `person` memories, and no edit anywhere. Opening a `person` memory's text shows a
-confirmation that names the owner and says the owner will be told, and the read is told and logged. A delete asks for a reason,
+There is no search or tag filter over memories, and no edit anywhere. Opening a memory's list or text shows a confirmation that
+names who will be told, and the read is told and logged. A delete asks for a reason,
 which the owner is shown.
 
 ## 13.8 Notices and the banner
@@ -79,7 +84,7 @@ every brain page shows that the brain is being re-indexed and that search will b
 
 The pages follow the wall's rules, and they follow how Chat does it, because the stream is open to every console.
 
-- **A `brain` event carries nothing about a memory.** It is `{ rev, scope: 'person' | 'everyone' }`, where `rev` is a change
+- **A `brain` event carries nothing about a memory.** It is `{ rev, scope: 'personal' | 'shared' }`, where `rev` is a change
   counter and `scope` says which kind of change, with no id, no name, no person and no count, because every open console receives
   it, as the `chat` event does ([7.6](../07-server/07-06-sse-stream.md)). One action sends one event for each scope it changed,
   when it is done. A console that gets one asks the gated brain routes, which check who is asking, for its own person's changes. An

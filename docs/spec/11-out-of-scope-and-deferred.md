@@ -15,7 +15,7 @@ The design must not preclude these.
 - Alerts and notifications (a blowout at level 2 pushes a desktop notification): `session.blowouts.level` and `$.ui.notify` are the hooks for it.
 - Budgets, comparisons between runs, cost per plan step. (A spend projection for the period shipped in #483.)
 - A scheduled-agent view (`CronCreate` tasks, `session_crons` on the Stop hook). A session waiting on a wake-up is only worded as such (#119); no list of schedules is shown.
-- For the brain ([section 13](13-the-brain/README.md)): orchestration agents of Podium's own that run reviews, languages other than English, more than one Podium server, search by meaning (an embedding column and a store method that joins it to the terms, which would change the order inside one step of 13.4 and nothing else), a file watcher that syncs on every change, a memory limited to one agent, a group of people as a scope, and recalled memories placed in a prompt automatically. The design must not preclude the first two. The last three are out unless the maintainer asks for them.
+- For the brain ([section 13](13-the-brain/README.md)): orchestration agents of Podium's own that run reviews, languages other than English, more than one Podium server, search by meaning (an embedding column and a store method that joins it to the terms, which would change the order inside one step of 13.4 and nothing else), a file watcher that syncs on every change, a memory limited to one agent, a scope that reaches everyone on the server, and recalled memories placed in a prompt automatically. The design must not preclude the first two. The last three are out unless the maintainer asks for them.
 
 <!-- nav:start -->
 ---

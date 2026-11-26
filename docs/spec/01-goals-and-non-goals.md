@@ -41,10 +41,10 @@ what Podium shows and does is the same for any harness, within what the harness 
     names them; another harness offers its own equivalent of each). The terminal
     keeps working the whole time, and whichever answers first wins. Off unless the Admin and the session's
     owner both turn it on ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md), [7.7](07-server/07-07-hardening.md)).
-14. Keep a person's memories in one place on the server, the brain, so their agents on every machine and harness read and
-    write the same notes, found by search and ranked by use ([section 13](13-the-brain/README.md), DECISIONS 79). Off
-    unless the Admin, the reporter's `brain` option and the owner's switch for that reporter all allow it. A project grant then
-    narrows what is reachable.
+14. Keep memories in one place on the server, the brain, each in a project, so agents on every machine and harness, and the
+    people working on one project, read the same notes, found by search and ranked by use ([section 13](13-the-brain/README.md),
+    DECISIONS 79). Off unless the Admin, the reporter's `brain` option and the owner's switch for that reporter all allow it. An
+    agent reaches only the project it is working in.
 
 ## Non-goals (do NOT build these)
 
@@ -81,11 +81,12 @@ at both machines, and the owner gave that pair of reporters the right
 
 The brain ([section 13](13-the-brain/README.md), DECISIONS 79, 80 and 81) is a store of notes that agents and people write on
 purpose. It is the sixth opt-in exception to the conversation-content rule below, and it is not a conversation. Memory
-text reaches another person only by an offer the owner starts and the recipient accepts, or by the `everyone` scope, which each
-person turns on for themselves (DECISIONS 37 and 69), so it is not the carrying of a message between two people's sessions. It adds
+text reaches another person only when its owner shares it with a project both are members of, or offers it and the other
+person accepts. A member's agent then finds a shared memory by searching, and nothing is sent to a session, so it is not the
+carrying of a message between two people's sessions (DECISIONS 37). It adds
 one thing Podium has never done: with the reporter's `brainSync` option on, the reporter writes and deletes the harness's own
-memory files on the person's machine, inside the folder the person mapped, and nowhere else, and only for memories the
-person wrote or approved. An Admin never causes a file on a person's machine to change. It still never types into a terminal, and
+memory files on the person's machine, inside a project's memory folder and nowhere else, and only for the person's own
+memories. An Admin never causes a file on a person's machine to change. It still never types into a terminal, and
 the brain starts no agent. It is not cloud sync: one server you run yourself is the brain.
 
 Podium never:
@@ -146,8 +147,8 @@ it as an estimate. Never present it as an invoice.
   8,000 each) go to the server and stay until the person deletes them, with secrets refused on the machine and again on the
   server. A note is something an agent or a person wrote on purpose, never a conversation. It needs the Admin flag, the
   reporter's `brain` option and the owner's switch for that reporter, all off by default.
-  Only its owner can read a `person` memory, and an Admin who reads or deletes one tells the owner in the console and in the
-  reporter.
+  Only its owner can read a personal memory, and a shared one only the members of its project. An Admin who reads or deletes
+  either tells the owner in the console and in the reporter.
 
 The model's thinking text is never sent. A recording marks where the model thought and says that the text is not
 available ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)).

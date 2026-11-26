@@ -26,7 +26,7 @@ small search server. An adversarial review compared three options.
 - **Search is served by an index inside the server process, behind an interface (`MemoryIndex`).** The database stays the only durable
   store. The index is built from `Storage` at start, is updated in the request that wrote (after the commit, before the reply), and is checked
   against the store every 10 minutes.
-- **The index never decides access.** It returns ranked candidates narrowed by owner, scope, project and state, and each page is
+- **The index never decides access.** It returns ranked candidates narrowed by owner, project, scope and state, and each page is
   then re-checked through `Storage` with the real access rules. A stale or wrong index can miss a memory and cannot show one the
   reader may not read.
 - **It lives outside the adapters, imports no driver and reads memories only through store methods,** so one engine serves every adapter and

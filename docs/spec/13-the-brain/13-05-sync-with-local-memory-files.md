@@ -36,18 +36,23 @@ Until then, the rules below say what must hold, and each says "by the means the 
 
 ## 13.5 What is mirrored
 
-- A **folder** is one harness's memory folder, whatever working directories share it. The directory rule that gives the agent its project
-  ([13.3](13-03-who-can-read-and-write.md)) maps the folder to the same project. Nothing in an unmapped folder is read.
-- A folder mirrors the owner's `person` memories of its project. It mirrors the owner's memories that have **no project** only when
-  the person turned on **Include memories with no project** for that folder, which is off by default. It never mirrors an
-  `everyone` memory. Those are found by search. To have one as a file the person copies it into their own memories, which is
-  a memory they chose.
-- **Only memories the owner wrote or approved are mirrored.** Every version in a mirror was written by the owner's own agent
-  under their switch, or by the owner, or approved by the owner: an accepted share, an approved review change, a restore.
-  Nothing an Admin did can reach a file, because an Admin never edits ([13.3](13-03-who-can-read-and-write.md)).
+- A **folder** is one harness's memory folder, whatever working directories share it. It maps to the project of its repository
+  ([13.3](13-03-who-can-read-and-write.md)), the same one its agents hold, so an agent's project and its folder's project can
+  never differ. A folder with no git remote syncs only once the person has named its project. Nothing in any other folder is read.
+- A folder mirrors the **owner's own** memories of its project, personal and shared, at their current version. It mirrors the
+  owner's **Global** memories only when the person turned on **Include Global memories** for that folder, which is off by
+  default.
+- **Another member's shared memory is never written to disk.** It is found by search, so nobody else's change ever changes a
+  file on a person's machine. To have one as a file the person copies it into their own memories.
+- **Only the owner's side writes what is mirrored.** Every version in a mirror was written by the owner's own agent under their
+  switch, or by the owner, or approved by the owner: an accepted offer, an approved review change, a restore. Nothing an Admin
+  did can reach a file, because an Admin never edits.
 - **What an agent writes on its own syncs too,** with no further step, because agents write local memories on the fly today.
   The person's tools are the answer: see, review, change and remove them in the console. The risk is stated: text an agent
-  picked up from a shared or accepted memory and saved as its own reaches every machine that syncs.
+  picked up from a shared or offered memory and saved as its own reaches every machine that syncs.
+- **A change to a shared memory that arrives by sync waits for the owner's approval** before members see it
+  ([13.3](13-03-who-can-read-and-write.md)). The owner's other machines get it at once. So does a removed file: it asks to
+  delete the shared memory, and a rejected delete writes the file back.
 - **Everything by default, with a pinned-only choice.** A folder syncs every memory of its set, or only the ones the owner
   pinned. Claude Code loads its memory index into every session, so before the first sync the console shows how large the
   index would be and offers the pinned-only choice. Memories that are not on disk are still found by search.
@@ -80,7 +85,7 @@ harness supplies only the format ([PATTERNS](../../PATTERNS.md), "A shared rule 
 - The reporter derives a file's name itself, in the characters `a-z`, `0-9` and `-`, and **adopts the name of a file that
   already exists**. It never takes a path from the server.
 - A write goes by the means the spike found, then reads the file back and checks its hash. It refuses to write through a symbolic
-  link or to a real path outside the mapped folder, keeps the file's permission bits, and leaves a file that changed since it was read for the
+  link or to a real path outside the memory folder, keeps the file's permission bits, and leaves a file that changed since it was read for the
   next sync.
 - An index file that the harness keeps is edited only on the lines whose link is a file the reporter manages.
 - A file that cannot be parsed, or whose body would shrink to less than half of the base's, is not uploaded without the person
@@ -98,7 +103,7 @@ A sync runs when a session starts (pull, then push), and when the agent calls `p
 A sync also tries at the end of a session, but only within what the harness allows there, so **the next start is the guarantee,
 and an end-of-session push is a courtesy**. There is no file watcher in the first version. A memory an agent saves with
 `podium_brain_save` is written to the local file of its project's folder straight away, because the server's reply carries it,
-and is not written when that project has no mapped folder.
+and is not written when the session's folder does not sync.
 
 ## 13.5 The rules for one memory
 
@@ -112,13 +117,13 @@ L is the local file compared with the mirror entry, S is the server's current ve
 | Changed | Same as base | **Push**: a new version whose parent is the base. The base becomes it. In `pull` mode: keep the local edit, upload nothing, and show "not uploaded" |
 | Changed | Changed to the same content | Converge: the base becomes the server's version, and no new version is made |
 | Changed | Changed, different content | **Three-way merge** (below). In `pull` mode: a conflict, because nothing may be uploaded |
-| Missing | Same as base | **Trash** the memory on the server, if the guards allow it. In `pull` mode: mark the entry "deleted here", do not recreate the file, send nothing |
+| Missing | Same as base | **Trash** the memory on the server, if the guards allow it. A shared memory waits for the owner's approval. In `pull` mode: mark the entry "deleted here", do not recreate the file, send nothing |
 | Missing | Changed | **Conflict** (an edit against a delete) |
 | Same as base | Trashed or deleted | Delete the file, if the guards allow it, by the means the spike found |
 | Changed | Trashed or deleted | **Conflict** (a delete against an edit). The file is left as it is |
 | Missing | Trashed or deleted | Drop the entry |
 | Not readable | Any | Skip, count and show it. Never treated as missing |
-| Any | The memory is no longer in this folder's set (its project moved, a rule or grant changed, the folder was unmapped, an Admin deleted it) | Leave the file where it is, drop the entry, tell the person, and never upload it again unless the person imports it |
+| Any | The memory is no longer in this folder's set (its project moved, a directory rule changed, Include Global was turned off, an Admin deleted it) | Leave the file where it is, drop the entry, tell the person, and never upload it again unless the person imports it |
 | A file with no entry, on the first sync | Any | **Match** it to a server memory by content, then by normalized name. The same content: adopt it. The same name with different content: a conflict. No match: a new memory after the first-sync approval below |
 | A new file with no entry, after the first sync | None | A new memory, uploaded in `both` mode, subject to the secret scan and the guards |
 | A released file (one this reporter dropped) | Any | Never uploaded again unless the person imports it. The state file keeps the list of released files |
@@ -183,8 +188,8 @@ adds nothing new.
 
 ## 13.5 What the person is told
 
-When a memory is written into a folder, the person has already accepted it (they wrote it, approved a share, approved a review
-change, or restored it). Because a harness may load its memory files and index into every session's context, the first time a
+When a memory is written into a folder, it is the person's own: their agent or they wrote it, they accepted an offer, approved a
+review change, or restored it. Because a harness may load its memory files and index into every session's context, the first time a
 folder is set to sync, the console says so in plain words: what is written there, that the harness may load it into sessions, and
 how to stop it.
 
@@ -222,6 +227,8 @@ local edits that it never uploads.
 4. **Two mirrors converge.** Two mirrors that have synced, with no edits since, in either order, hold the same files for the
    memories they share.
 5. **A resolved conflict does not reopen.**
+6. **Members never see an unapproved change.** No sequence puts into a shared version a text that arrived by sync and that the
+   owner did not approve in the console.
 
 ## Related
 
