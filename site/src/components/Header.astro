@@ -14,7 +14,7 @@ const nav = [
 ];
 ---
 
-<div class="top">
+<div class:list={["top", { "on-hero": onHome }]}>
   <a class="brand" href={base}>
     <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false">
       <circle cx="10" cy="4" r="2"></circle><circle cx="4" cy="15" r="2"></circle><circle cx="10" cy="15" r="2"></circle><circle cx="16" cy="15" r="2"></circle>
@@ -38,8 +38,8 @@ const nav = [
 
 <style>
   .top { display: flex; align-items: center; gap: 16px; height: 100%; }
-  .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }
-  .brand svg { width: 20px; height: 20px; }
+  .brand { display: inline-flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: -0.01em; text-decoration: none; color: var(--ink); }
+  .brand svg { width: 22px; height: 22px; color: var(--mark); }
   .nav { display: flex; gap: 4px; margin-left: 8px; align-self: stretch; align-items: stretch; }
   .nav a { display: inline-flex; align-items: center; padding: 0 10px; border-radius: 6px 6px 0 0; text-decoration: none; color: var(--ink2); font-size: 0.8125rem; font-weight: 500; }
   .nav a:hover { background: var(--hover); color: var(--ink); }
@@ -50,6 +50,30 @@ const nav = [
   .gh.disc { color: var(--accent-text); }
   .srch { display: flex; }
   .theme { display: flex; }
+  /* On the homepage the header sits on the hero, so its controls take the hero's ink. The names below are the ones the parts of the bar
+     were written with, so they follow without being touched. */
+  .top.on-hero {
+    --ink: var(--hero-ink);
+    --ink2: color-mix(in srgb, var(--hero-ink) 86%, transparent);
+    --muted: color-mix(in srgb, var(--hero-ink) 70%, transparent);
+    --axis: color-mix(in srgb, var(--hero-ink) 38%, transparent);
+    --surface: color-mix(in srgb, var(--hero-ink) 10%, transparent);
+    --raised: var(--hero-b);
+    --tint: color-mix(in srgb, var(--hero-ink) 18%, transparent);
+    --accent: var(--hero-ink);
+    --accent-text: var(--hero-ink);
+    --hover: color-mix(in srgb, var(--hero-ink) 14%, transparent);
+    --border: color-mix(in srgb, var(--hero-ink) 30%, transparent);
+  }
+  .top.on-hero .brand svg { color: var(--hero-mark); }
+  .top.on-hero { max-width: 1180px; margin-inline: auto; padding-inline: 32px; }
+  .top.on-hero .gh { border-radius: 999px; }
+  .top.on-hero :global(button[data-open-modal]) { border-radius: 999px; border-color: var(--axis); background: var(--surface); color: var(--ink); }
+  .top.on-hero :global(button[data-open-modal] kbd) { background: color-mix(in srgb, var(--hero-ink) 16%, transparent); color: var(--ink); }
+  .top.on-hero :global(starlight-theme-select) { --sl-color-gray-1: var(--hero-ink); --sl-color-gray-2: var(--hero-ink); --sl-color-gray-3: var(--hero-ink); --sl-color-white: var(--hero-ink); --sl-color-text: var(--hero-ink); color: var(--hero-ink); }
+  .top.on-hero :global(starlight-theme-select select) { color: var(--hero-ink); }
+  .top.on-hero :global(starlight-theme-select option) { color: CanvasText; background: Canvas; }
+  @media (max-width: 40rem) { .top.on-hero { padding-inline: 18px; } }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   @media (max-width: 50rem) {
     .nav, .gh, .theme { display: none; }

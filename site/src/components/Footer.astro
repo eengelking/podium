@@ -32,7 +32,7 @@ const links = [
   )
 }
 <Default {...Astro.props}><slot /></Default>
-<div class="foot">
+<div class:list={["foot", { home: onHome }]}>
   <span>Podium {current?.label} &middot; &copy; 2026 Ed Engelking</span>
   <span class="sp"></span>
   {links.map((l) => <a href={l.href}>{l.label}</a>)}
@@ -41,6 +41,8 @@ const links = [
 <style>
   .foot { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 2rem; padding: 14px 0 0; border-top: 1px solid var(--axis); color: var(--ink2); font-size: 0.75rem; }
   .foot a { color: var(--accent-text); }
+  .foot.home { max-width: 1180px; margin-inline: auto; padding: 22px 32px 32px; }
+  @media (max-width: 40rem) { .foot.home { padding-inline: 18px; } }
   .sp { flex: 1; }
   .ask { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; margin: 2.5rem 0 1.5rem; padding: 14px 16px; border: 1px solid var(--axis); border-left: 3px solid var(--accent); border-radius: 0 6px 6px 0; background: var(--surface); }
   .ask { --ico: 22px; color: var(--accent-text); }

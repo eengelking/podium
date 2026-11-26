@@ -3,8 +3,8 @@ name: Docs site
 # Builds the docs site (site/, built from docs/ by site/scripts/build.mjs) and publishes it to GitHub Pages at podium.engelking.dev.
 #   - A push to main (a release or a hotfix) builds the site and deploys it.
 #   - A PR into main (the release PR) builds it without deploying, so a broken link or a page that will not build fails the PR.
-#   - A PR into development builds it too, without deploying, when the PR changes something the site is made from: docs/, site/, the
-#     app's tokens or this workflow. Any other PR skips the build.
+#   - A PR into development builds it too, without deploying, when the PR changes something the site is made from: docs/, site/ or this
+#     workflow. Any other PR skips the build.
 # Nothing runs on pushes to development or to feature branches. The build fails on a broken internal link.
 on:
   push:
@@ -42,7 +42,7 @@ jobs:
           BASE: ${{ github.base_ref }}
         run: |
           if [ "$EVENT" = "pull_request" ] && [ "$BASE" = "development" ]; then
-            if git diff --name-only "origin/$BASE...HEAD" | grep -Eq '^(docs/|site/|frontend/src/fleet/tokens\.css$|\.github/workflows/docs-site\.yml$|package\.json$)'; then
+            if git diff --name-only "origin/$BASE...HEAD" | grep -Eq '^(docs/|site/|\.github/workflows/docs-site\.yml$|package\.json$)'; then
               echo "build=true" >> "$GITHUB_OUTPUT"
             else
               echo "build=false" >> "$GITHUB_OUTPUT"
