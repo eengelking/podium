@@ -14,6 +14,7 @@ A page that explains Podium is often the first thing a person sees, so it has to
 | Explainer and demo pages | `demo/*.html` | One self-contained file each. `demo/podium-chat-explained.html` is the worked example. |
 | The architecture atlas | `docs/atlas/podium-atlas.html` | Also has `/podium-atlas-update`, which owns its facts. This skill owns its look. |
 | The docs site | `site/src/styles/theme.css`, `site/src/pages/index.astro`, `site/src/components/` | `/podium-docs-site` owns how it is built. |
+| The link preview image | `site/og/og.html`, drawn into `site/public/og.png` | The front page's hero in dark mode, held still, with `theme.css`'s dark values. A change to that hero is a reason to look at the image. No test compares them. |
 
 The console and the design system in `docs/standards/` are not covered. They have their own palette, and `/podium-standards-check` wins there. Marketing pages do not read `frontend/src/fleet/tokens.css`.
 

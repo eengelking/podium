@@ -2,26 +2,149 @@
 <meta charset="utf-8">
 <title>Podium social card</title>
 <meta name="viewport" content="width=1200">
-<link rel="stylesheet" href="../../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
-/* The 1200 x 630 image that link previews show for the docs site (site/public/og.png). Colors and fonts come from tokens.css.
-   To regenerate it: serve the repo root, open this file, and save a 1200 x 630 screenshot (node scripts/page-shot.mjs --width 1200
-   --height 630 --url http://127.0.0.1:<port>/site/og/og.html --out site/public/og.png). */
-html, body { margin: 0; width: 1200px; height: 630px; overflow: hidden; background: var(--bg); color: var(--ink); font: 16px/1.4 var(--font-ui); }
-.card { position: relative; width: 1200px; height: 630px; padding: 64px; box-sizing: border-box; background: linear-gradient(135deg, color-mix(in srgb, var(--sonnet) 22%, var(--bg)) 0%, var(--bg) 62%); }
-.brand { display: flex; align-items: center; gap: 12px; font-size: 28px; font-weight: 700; letter-spacing: -0.01em; }
-.brand svg { width: 36px; height: 36px; }
-h1 { margin: 56px 0 0; width: 470px; font-size: 54px; line-height: 1.12; font-weight: 700; }
-p { margin: 24px 0 0; width: 440px; font-size: 22px; color: var(--ink2); }
-/* The screenshot is cropped to its left part and top rows: the right-hand card and the rows below show a machine path that does not belong on a link preview. */
-.shot { position: absolute; left: 600px; top: 96px; width: 740px; height: 440px; border: 1px solid var(--axis); border-radius: 10px; overflow: hidden; }
-.shot img { display: block; width: 1345px; max-width: none; }
-.url { position: absolute; left: 64px; bottom: 56px; font-family: var(--font-mono); font-size: 20px; color: var(--ink2); }
+/* The 1200 x 630 image that link previews show for the docs site (site/public/og.png): the front page's hero (site/src/pages/index.astro)
+   in dark mode, held still. The colors are the marketing palette's dark values, as site/src/styles/theme.css declares them. The accepted
+   mockup is mockup/podium-link-preview.html (B2). To regenerate it: serve the repo root, open this file, and save a 1200 x 630 screenshot
+   (node scripts/page-shot.mjs --width 1200 --height 630 --wait 2500 --url http://127.0.0.1:<port>/site/og/og.html --out site/public/og.png).
+   The fonts come from Google Fonts, so look at the result before committing it: a screenshot taken without them uses other type. */
+:root {
+  --bg: #090E1B; --surface: #121A2E; --sunk: #0E1526; --ink: #E8ECF6; --mute: #8791AB; --ink2: #A5AFC6; --line: #25304A;
+  --accent: #8CA0FF; --accent-ink: #0A1030; --hot: #FF5C9A; --ok: #4CC38A; --bad: #FF7A80; --warn: #E8B64A;
+  --hero-a: #26399B; --hero-b: #0A1030; --hero-ink: #E8ECF6; --hero-mark: #F2B544;
+  --display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif;
+  --sans: "Hanken Grotesk", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color-scheme: dark;
+}
+/* body is the frame: positioned, so what runs past an edge is clipped and the screenshot stays 630 tall. */
+html, body { margin: 0; position: relative; width: 1200px; height: 630px; overflow: hidden; background: var(--bg); color: var(--hero-ink); font-family: var(--sans); }
+.back { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 16%, var(--bg)); clip-path: polygon(0 0, 100% 0, 100% 548px, 0 100%); }
+.hero { position: absolute; inset: 0; background: linear-gradient(135deg, var(--hero-a), var(--hero-b)); clip-path: polygon(0 0, 100% 0, 100% 520px, 0 602px); }
+.hero::before { content: ""; position: absolute; width: 760px; height: 760px; left: -280px; top: -340px; border-radius: 50%; background: color-mix(in srgb, var(--hero-ink) 7%, transparent); }
+.hero::after { content: ""; position: absolute; width: 520px; height: 520px; right: -140px; bottom: -60px; border-radius: 50%; background: color-mix(in srgb, var(--hero-ink) 6%, transparent); }
+.copy { position: absolute; left: 64px; top: 44px; width: 500px; }
+.brand { display: flex; align-items: center; gap: 12px; font: 700 32px var(--display); letter-spacing: -0.01em; }
+.brand svg { width: 38px; height: 38px; color: var(--hero-mark); }
+h1 { margin: 34px 0 0; font: 700 70px/1 var(--display); font-stretch: 85%; letter-spacing: -0.028em; text-wrap: balance; }
+.lede { margin: 22px 0 0; font-size: 25px; line-height: 1.4; width: 460px; color: color-mix(in srgb, var(--hero-ink) 90%, transparent); }
+.url { position: absolute; left: 64px; top: 544px; font: 500 20px var(--mono); }
+.art-wrap { position: absolute; left: 546px; top: 28px; width: 620px; height: 496px; container-type: inline-size; }
+.sky, .art { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.sky .glow { fill: var(--hero-ink); opacity: .08; }
+.sky .orbit { fill: none; stroke: var(--hero-ink); stroke-dasharray: 3 7; opacity: .32; }
+.sky .ring { fill: none; stroke: var(--hero-ink); stroke-width: 2.2; opacity: .8; }
+.sky .moon { fill: var(--hero-ink); opacity: .55; }
+.sky .stars { fill: var(--hero-ink); opacity: .75; }
+stop.hot { --p: var(--hot); }
+stop.gold { --p: var(--hero-mark); }
+stop.green { --p: var(--ok); }
+stop.s0 { stop-color: color-mix(in srgb, var(--hero-ink) 55%, var(--p)); }
+stop.s1 { stop-color: var(--p); }
+stop.s2 { stop-color: color-mix(in srgb, var(--hero-b) 50%, var(--p)); }
+.art .card { fill: var(--surface); stroke: var(--line); }
+.art .sunk { fill: var(--sunk); }
+.art .ln { fill: none; stroke: var(--mute); stroke-width: 1.6; opacity: .7; }
+.art .mono { font: 500 11px var(--mono); fill: var(--ink); }
+.art .mono2 { font: 500 10px var(--mono); fill: var(--mute); }
+.art .big { font: 700 16px var(--sans); fill: var(--ink); }
+.art .lab { font: 500 10.5px var(--sans); fill: var(--mute); }
+.art .st { font: 600 10.5px var(--sans); fill: var(--ink2); }
+.art .track { fill: var(--line); }
+.art .shadowed { filter: drop-shadow(0 18px 22px color-mix(in srgb, var(--hero-b) 45%, transparent)); }
+.chip { --u: calc(100cqw / 600); position: absolute; box-sizing: border-box; left: calc(var(--x) * var(--u)); top: calc(var(--y) * var(--u)); width: calc(var(--w) * var(--u)); height: calc(var(--h) * var(--u)); display: flex; align-items: center; gap: calc(var(--u) * 10); padding: 0 calc(var(--u) * 12); border-radius: calc(var(--u) * 14); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 calc(var(--u) * 12) calc(var(--u) * 20) calc(var(--u) * -6) color-mix(in srgb, var(--hero-b) 55%, transparent); color: var(--ink); }
+.chip svg { flex: none; width: calc(var(--u) * 30); height: calc(var(--u) * 30); }
+.chip .lbl { display: block; font: 500 calc(var(--u) * 10.5) / 1.2 var(--sans); color: var(--mute); }
+.chip .val { display: block; font: 700 calc(var(--u) * 16) / 1.2 var(--sans); color: var(--ink); }
+.chip .val.small { font-size: calc(var(--u) * 13); }
+.chip .mono { display: block; font: 500 calc(var(--u) * 11.5) / 1.3 var(--mono); color: var(--ink); }
+.chip .mono2 { display: block; font: 500 calc(var(--u) * 10) / 1.3 var(--mono); color: var(--mute); }
+.chip.bad { border: 1.6px solid var(--bad); }
 </style>
-<div class="card">
-  <div class="brand"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>Podium</div>
-  <h1>Every agent session on one screen.</h1>
-  <p>Model, cost, context and branch for each session. It watches and never types into a terminal.</p>
-  <div class="shot"><img src="../../docs/images/podium-chaos.png" alt=""></div>
-  <div class="url">podium.engelking.dev</div>
+<div class="back"></div>
+<div class="hero"></div>
+<div class="copy">
+  <div class="brand"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>Podium</div>
+  <h1>See every agent session on one screen.</h1>
+  <p class="lede">Model, cost, context and branch, and why anything failed. It watches and never types into a terminal.</p>
 </div>
+<div class="art-wrap">
+  <!-- The front page's sky, held still, with each planet placed clear of the words and the chips. -->
+  <svg class="sky" viewBox="0 0 600 480" aria-hidden="true">
+    <defs>
+      <radialGradient id="pl-hot" cx=".35" cy=".3" r=".85"><stop offset="0" class="s0 hot"/><stop offset=".55" class="s1 hot"/><stop offset="1" class="s2 hot"/></radialGradient>
+      <radialGradient id="pl-gold" cx=".35" cy=".3" r=".85"><stop offset="0" class="s0 gold"/><stop offset=".55" class="s1 gold"/><stop offset="1" class="s2 gold"/></radialGradient>
+      <radialGradient id="pl-green" cx=".35" cy=".3" r=".85"><stop offset="0" class="s0 green"/><stop offset=".55" class="s1 green"/><stop offset="1" class="s2 green"/></radialGradient>
+    </defs>
+    <circle class="glow" cx="300" cy="252" r="250"/>
+    <g class="stars">
+      <path transform="translate(70 168)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/>
+      <path transform="translate(560 190) scale(0.8)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/>
+      <path transform="translate(520 448) scale(1.1)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/>
+      <path transform="translate(222 40) scale(0.7)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/>
+      <path transform="translate(36 392) scale(0.6)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/>
+      <path transform="translate(330 22) scale(0.5)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/>
+      <circle cx="168" cy="456" r="3"/><circle cx="578" cy="130" r="3"/><circle cx="36" cy="300" r="2.5"/><circle cx="110" cy="30" r="2"/><circle cx="470" cy="20" r="1.8"/>
+    </g>
+    <circle class="orbit" cx="300" cy="252" r="285"/><circle class="orbit" cx="300" cy="252" r="232"/><circle class="orbit" cx="300" cy="252" r="176"/>
+    <g transform="translate(572 338)"><ellipse class="ring" rx="42" ry="11.5" transform="rotate(-24)"/><circle r="21" fill="url(#pl-hot)"/><path class="ring" d="M-42 0A42 11.5 0 0 0 42 0" transform="rotate(-24)"/></g>
+    <circle cx="244" cy="76" r="11" fill="url(#pl-green)"/><circle cx="398" cy="76" r="16" fill="url(#pl-gold)"/><circle class="moon" cx="424" cy="60" r="4"/>
+  </svg>
+  <svg class="art" viewBox="0 0 600 480" role="img" aria-label="An illustration of the Podium console: one orchestrator above three sessions, one running, one waiting on a person and one failed.">
+    <g class="shadowed">
+      <rect class="card" x="90" y="110" width="420" height="300" rx="18"/>
+      <rect class="sunk" x="90" y="110" width="420" height="36" rx="18"/>
+      <rect class="sunk" x="90" y="128" width="420" height="18"/>
+      <circle cx="112" cy="128" r="5" style="fill:var(--bad)"/><circle cx="128" cy="128" r="5" style="fill:var(--warn)"/><circle cx="144" cy="128" r="5" style="fill:var(--ok)"/>
+      <rect class="card" x="200" y="119" width="200" height="18" rx="9"/>
+      <text class="mono2" x="300" y="131.5" text-anchor="middle">podium.engelking.dev:4317</text>
+
+      <circle cx="300" cy="178" r="13" style="fill:var(--accent)"/>
+      <circle cx="300" cy="178" r="5" style="fill:var(--accent-ink)"/>
+      <text class="st" x="322" y="182">orchestrator, 3 agents</text>
+      <path class="ln" d="M300 191V206H169V224M300 191V224M300 191V206H431V224"/>
+
+      <rect class="sunk" x="108" y="224" width="122" height="170" rx="12"/>
+      <text class="mono" x="120" y="248">feat/chat</text>
+      <circle cx="124" cy="266" r="4.5" style="fill:var(--ok)"/><text class="st" x="134" y="270">running</text>
+      <text class="lab" x="120" y="296">context</text><text class="lab" x="206" y="296" text-anchor="end">62%</text>
+      <rect class="track" x="120" y="302" width="98" height="6" rx="3"/><rect x="120" y="302" width="61" height="6" rx="3" style="fill:var(--accent)"/>
+      <text class="big" x="120" y="338">$4.18</text><text class="lab" x="120" y="354">estimated</text>
+      <circle cx="124" cy="376" r="5" style="fill:var(--accent)"/><circle cx="142" cy="376" r="5" style="fill:var(--ok)"/><circle cx="160" cy="376" r="5" style="fill:var(--mute)"/>
+
+      <rect class="sunk" x="239" y="224" width="122" height="170" rx="12" style="stroke:var(--warn);stroke-width:1.6"/>
+      <text class="mono" x="251" y="248">fix/login</text>
+      <path d="M255 261.5l4.5 4.5-4.5 4.5-4.5-4.5z" style="fill:var(--warn)"/><text class="st" x="265" y="270">waiting on you</text>
+      <text class="lab" x="251" y="296">context</text><text class="lab" x="337" y="296" text-anchor="end">88%</text>
+      <rect class="track" x="251" y="302" width="98" height="6" rx="3"/><rect x="251" y="302" width="86" height="6" rx="3" style="fill:var(--warn)"/>
+      <text class="big" x="251" y="338">$2.07</text><text class="lab" x="251" y="354">estimated</text>
+      <circle cx="255" cy="376" r="5" style="fill:var(--accent)"/><circle cx="273" cy="376" r="5" style="fill:var(--warn)"/>
+
+      <rect class="sunk" x="370" y="224" width="122" height="170" rx="12" style="stroke:var(--bad);stroke-width:1.6"/>
+      <text class="mono" x="382" y="248">docs-site</text>
+      <path d="M382 262l8 8m0-8l-8 8" style="stroke:var(--bad);stroke-width:2;stroke-linecap:round;fill:none"/><text class="st" x="396" y="270">failed</text>
+      <text class="lab" x="382" y="296">context</text><text class="lab" x="468" y="296" text-anchor="end">31%</text>
+      <rect class="track" x="382" y="302" width="98" height="6" rx="3"/><rect x="382" y="302" width="30" height="6" rx="3" style="fill:var(--accent)"/>
+      <text class="big" x="382" y="338">$0.64</text><text class="lab" x="382" y="354">estimated</text>
+      <circle cx="386" cy="376" r="5" style="fill:var(--bad)"/>
+    </g>
+  </svg>
+  <div class="chip" style="--x:14;--y:56;--w:150;--h:50">
+    <svg viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" style="fill:var(--hot)"/><text x="15" y="20" text-anchor="middle" style="font:700 15px var(--sans);fill:var(--accent-ink)">$</text></svg>
+    <span><span class="lbl">Fleet cost</span><span class="val">$6.89</span></span>
+  </div>
+  <div class="chip" style="--x:436;--y:44;--w:152;--h:56">
+    <svg viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--line);stroke-width:4.5"/><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--warn);stroke-width:4.5;stroke-linecap:round;stroke-dasharray:66 10;transform:rotate(-90deg);transform-origin:15px 15px"/><text x="15" y="18" text-anchor="middle" style="font:700 8px var(--sans);fill:var(--ink)">88%</text></svg>
+    <span><span class="lbl">Context window</span><span class="val small">almost full</span></span>
+  </div>
+  <div class="chip" style="--x:8;--y:360;--w:178;--h:44">
+    <svg viewBox="0 0 30 30" fill="none" stroke-width="1.8" stroke-linecap="round" style="stroke:var(--accent)"><circle cx="9" cy="7" r="3"/><circle cx="9" cy="23" r="3"/><circle cx="21" cy="11" r="3"/><path d="M9 10v10M21 14c0 6-12 3-12 6"/></svg>
+    <span class="mono">feat/chat ↑2 ~5</span>
+  </div>
+  <div class="chip bad" style="--x:412;--y:396;--w:180;--h:50">
+    <svg viewBox="0 0 30 30" fill="none" stroke-width="2.4" stroke-linecap="round" style="stroke:var(--bad)"><path d="M8 8l14 14M22 8L8 22"/></svg>
+    <span><span class="mono">npm test</span><span class="mono2">exit 1, 3 failed</span></span>
+  </div>
+</div>
+<div class="url">podium.engelking.dev</div>
