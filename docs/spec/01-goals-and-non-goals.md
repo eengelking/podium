@@ -41,6 +41,9 @@ what Podium shows and does is the same for any harness, within what the harness 
     names them; another harness offers its own equivalent of each). The terminal
     keeps working the whole time, and whichever answers first wins. Off unless the Admin and the session's
     owner both turn it on ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md), [7.7](07-server/07-07-hardening.md)).
+14. Keep a person's memories in one place on the server, the brain, so their agents on every machine and harness read and
+    write the same notes, found by search and ranked by use ([section 13](13-the-brain/README.md), DECISIONS 79). Off
+    unless the Admin, the reporter's `brain` option and the owner's project grant all allow it.
 
 ## Non-goals (do NOT build these)
 
@@ -75,6 +78,15 @@ orchestrator. It is off unless the Admin turns on **Orchestrator messaging**, th
 at both machines, and the owner gave that pair of reporters the right
 ([5.3](05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347), [7.7](07-server/07-07-hardening.md#orchestrator-messaging-347)).
 
+The brain ([section 13](13-the-brain/README.md), DECISIONS 79, 80 and 81) is a store of notes that agents and people write on
+purpose. It is the sixth opt-in exception to the conversation-content rule below, and it is not a conversation. Memory
+text reaches another person only by an offer the owner starts and the recipient accepts, or by the `everyone` scope, which each
+person turns on for themselves (DECISIONS 37 and 69), so it is not the carrying of a message between two people's sessions. It adds
+one thing Podium has never done: with the reporter's `brainSync` option on, the reporter writes and deletes the harness's own
+memory files on the person's machine, inside the folder the person mapped, and nowhere else, and only for memories the
+person wrote or approved. An Admin never causes a file on a person's machine to change. It still never types into a terminal, and
+the brain starts no agent. It is not cloud sync: one server you run yourself is the brain.
+
 Podium never:
 
 - types into a terminal or opens one (the web terminal of #21 was not built);
@@ -104,7 +116,7 @@ view early ([7.5](07-server/07-05-lifecycle-timers.md)). Neither sends anything 
 it as an estimate. Never present it as an invoice.
 
 **Conversation content.** No reading of conversation transcripts. Podium sends short excerpts only
-([section 6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), never whole messages or files. There are five opt-in exceptions:
+([section 6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), never whole messages or files. There are six opt-in exceptions:
 
 - With the `fullPrompts` option on, an agent's own task prompt and final answer go out whole (up to 20,000
   characters each, [6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md)), never the conversation around them.
@@ -129,6 +141,11 @@ it as an estimate. Never present it as an invoice.
   it is kept for 6 hours unless the Admin sets longer (7 days at most), and only the session's owner and an Admin can
   read it. The session is marked as recorded on its card and its page for as long as it is, and the owner's terminal
   says so ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353), [7.7](07-server/07-07-hardening.md#session-recording-353)).
+- With the brain on (section 13, DECISIONS 79), whole memory notes of up to 8,000 characters go to the server and stay
+  until the person deletes them, with secrets refused on the machine and again on the server. A note is something an agent or a
+  person wrote on purpose, never a conversation. It needs the Admin flag and the reporter's Brain switch, both off by default.
+  Only its owner can read a `person` memory, and an Admin who reads or deletes one tells the owner in the console and in the
+  reporter.
 
 The model's thinking text is never sent. A recording marks where the model thought and says that the text is not
 available ([6.4](06-reporter-protocol/06-04-failure-and-excerpt-rules.md#session-recording-opt-in-353)).

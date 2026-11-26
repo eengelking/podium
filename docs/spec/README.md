@@ -65,4 +65,5 @@ This is the source of truth for intended behavior. `docs/architecture/` records 
 - [10. Rules for the implementing agent](10-rules-for-the-implementing-agent.md): The repository rules, quality bar, order of work and report an implementing agent follows.
 - [11. Explicitly out of scope / deferred](11-out-of-scope-and-deferred.md): What is out of scope or deferred, and what the design must not preclude.
 - [12. Open questions and flagged assumptions](12-open-questions.md): The open questions and flagged assumptions an implementer verifies, with where each answer is recorded.
+- [13. The brain](13-the-brain/README.md): Shared, weighted, searchable memories for a person's agents: what they are, who may read them, how they sync with local memory files, and how they are reviewed.
 <!-- entries:end -->

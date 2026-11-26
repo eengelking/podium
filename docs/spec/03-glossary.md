@@ -27,6 +27,12 @@ order: 3
 | Mod / plugin | The Claude Code extension mechanism. This spec uses "mod" for the reporter. |
 | Ask | One thing a session waits on its person for, that Podium can answer (#206): an AskUserQuestion form, a plan (ExitPlanMode), or a tool's permission prompt. Its id is the tool call's `tool_use_id`. |
 | Delivery | One answer or message sent from the browser, held by the server until the mod fetches it and says whether the session took it (6.2, 7.1). |
+| Brain | The server's store of a person's memories, shared by their agents and found by search (13). |
+| Memory | One note in the brain: a name, a description, a body, resources, tags, a type and an optional project, kept as a chain of versions (13.2). |
+| Resource | A reference attached to a memory, read on its own after the body (13.2, 13.4). |
+| Scope | Who may read a memory: `person` (the owner and the agents they allow) or `everyone` (13.3). |
+| Mirror | One reporter's copy of a harness's memory folder, with the version of each memory both sides last agreed on (13.5). |
+| Tombstone | What stays when a memory is deleted: its id, owner and the time, and no text, so the delete reaches other machines (13.2). |
 
 ---
 
