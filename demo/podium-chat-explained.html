@@ -35,9 +35,6 @@
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6); color-scheme: dark;
 }
 
-/* Plan: one committed dark world, the console. Ink background, three people hues (amber, teal, rose).
-   Layout: hero + tabs on top; left a stage (people / Podium hub / agents) with live packets; right the synced chat. */
-
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--ink); }
 body { font-family: var(--sans); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
@@ -82,15 +79,15 @@ h1 { margin: 0; font-family: var(--display); font-weight: 700; font-stretch: 85%
 .switch input:checked::after { transform: translateX(14px); }
 .controls.bottom { margin: 16px 0 0; }
 
-.needs { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--mute); background: var(--surface); border-radius: 0 8px 8px 0; color: var(--ink2); font-size: 14px; }
-.needs b { color: var(--ink); font-weight: 600; }
+.note { margin: 0 0 14px; padding: 8px 12px; border-left: 3px solid var(--mute); background: var(--surface); border-radius: 0 8px 8px 0; color: var(--ink2); font-size: 14px; }
+.note b { color: var(--ink); font-weight: 600; }
 
 /* main grid */
 .main { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; align-items: stretch; }
 .stage-scroll { overflow-x: auto; border-radius: 18px; }
 .stage { position: relative; min-width: 700px; background: var(--sunk); border: 1px solid var(--line); border-radius: 18px; padding: 22px 22px 26px;
   background-image: radial-gradient(circle, var(--line) 1px, transparent 1.4px); background-size: 22px 22px; }
-.wall-label { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--ink2); }
+.stage-label { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-size: 12px; color: var(--ink2); }
 .row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; position: relative; z-index: 2; }
 .row.people { margin-top: 12px; }
 .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -210,12 +207,12 @@ footer { margin-top: 16px; color: var(--ink2); font-size: 12.5px; display: flex;
 
   <div class="tabs" role="tablist" aria-label="Scenarios" id="tabs"></div>
 
-  <p class="needs" id="caption" aria-live="polite"></p>
+  <p class="note" id="caption" aria-live="polite"></p>
 
   <div class="main">
     <div class="stage-scroll">
       <figure class="stage" id="stage" style="margin:0" aria-label="Three people and their agents connected through Podium">
-        <div class="wall-label">Chat</div>
+        <div class="stage-label">Chat</div>
         <div class="row people" id="people"></div>
         <div class="band" id="band">
           <svg width="30" height="30" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>
