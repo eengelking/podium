@@ -3,11 +3,13 @@
 //   DOCS_OUT       the folder it writes to
 //   DOCS_CURRENT   this build's version line, and DOCS_VERSIONS the list the version menu shows (JSON)
 //   DOCS_REF       the git tag older versions are built from (empty for the newest)
+import fs from "node:fs";
 import path from "node:path";
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import starlightLinksValidator from "starlight-links-validator";
 import { GROUPS, SITE_ORIGIN, REPO } from "./docs-nav.mjs";
+import { previewImageTags } from "./scripts/lib.mjs";
 
 const base = process.env.DOCS_BASE || "/";
 const outDir = process.env.DOCS_OUT ? path.resolve(process.env.DOCS_OUT) : undefined;
@@ -18,6 +20,8 @@ const older = process.env.DOCS_REF ? true : false;
 const sidebar = process.env.DOCS_SIDEBAR
   ? JSON.parse(process.env.DOCS_SIDEBAR)
   : GROUPS.map((g) => ({ label: g.label, items: g.items.map((i) => ({ label: i.label, slug: i.slug })) }));
+
+const [ogImage, twitterImage] = previewImageTags(SITE_ORIGIN, fs.readFileSync(new URL("./public/og.png", import.meta.url)));
 
 const description =
   "Podium is a live fleet console for AI coding agents. See every Claude Code and OpenCode session's model, cost, context window, failures and git branch on one screen. It watches and never types into a terminal.";
@@ -54,10 +58,10 @@ export default defineConfig({
       ],
       head: [
         { tag: "meta", attrs: { property: "og:site_name", content: "Podium" } },
-        { tag: "meta", attrs: { property: "og:image", content: `${SITE_ORIGIN}/og.png` } },
+        ogImage,
         { tag: "meta", attrs: { property: "og:image:alt", content: "Podium: every agent session on one screen" } },
         { tag: "meta", attrs: { name: "twitter:card", content: "summary_large_image" } },
-        { tag: "meta", attrs: { name: "twitter:image", content: `${SITE_ORIGIN}/og.png` } },
+        twitterImage,
         ...(older ? [{ tag: "meta", attrs: { name: "robots", content: "noindex" } }] : []),
         { tag: "link", attrs: { rel: "me", href: `https://github.com/${REPO}` } },
       ],
