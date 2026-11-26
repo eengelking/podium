@@ -92,9 +92,9 @@ lockfile, outside the npm workspaces, so the server and UI builds never install 
   are shown in a frame inside a page of the site; the standards load the app's stylesheets by a `../../frontend/src/fleet/` path, so
   the build serves them at `/docs/standards/` and copies those stylesheets from the same version to `/frontend/src/fleet/`.
 - `site/docs-nav.mjs` is the menu: which docs are published, in which group, at which address.
-- `site/src/styles/theme.css` maps the console's tokens onto Starlight's variables. `site/src/components/` overrides the header,
+- `site/src/styles/theme.css` defines the marketing palette (the atlas's tokens, light and dark) and maps it onto Starlight's variables. The site does not read the console's `tokens.css`. `site/src/components/` overrides the header,
   footer, banner (older versions) and page title, and holds the version menu. The header carries Starlight's theme switch, and a page that shows a static page in a frame gives that page the site's theme. `site/src/pages/index.astro` is the homepage.
-- `.github/workflows/docs-site.yml` builds every version on a PR into `main`, and on a PR into `development` that changes `docs/`, `site/`, the tokens or the workflow, and deploys to GitHub Pages on a push to `main`.
+- `.github/workflows/docs-site.yml` builds every version on a PR into `main`, and on a PR into `development` that changes `docs/`, `site/`, the root `package.json` or the workflow, and deploys to GitHub Pages on a push to `main`.
 - The address is `podium.engelking.dev`, a DNS-only `CNAME` to `eengelking.github.io` set in the repository's Pages settings. `site/public/CNAME` keeps the domain in every build. DECISIONS 44 has the reasons and `docs/COMMUNITY.md` lists the record and the renewal notes.
   `scripts/site-lib.test.ts` tests the preparation and the version choice. The `/podium-docs-site` skill is the procedure.
 

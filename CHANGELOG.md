@@ -14,6 +14,17 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-11-25
+
+### Changed
+
+- The docs site's front page has a new design: a gradient hero with an illustration of the console, the four things Podium shows for every session, the real console in a browser frame, stacked setup steps and the community section. The site's header sits on the hero. The page description and the link-preview image now name Claude Code and OpenCode, not Claude Code alone.
+- The docs site and the architecture atlas use a new palette in light and dark, with Bricolage Grotesque for headings and Hanken Grotesk for text, and the atlas shows the Podium logo.
+
+### Fixed
+
+- The nightly prerelease publishes again (#1381). Its release notes came from `git log | head -n 50`, which ends the step with exit 141 under `pipefail` once `development` is far enough past the last nightly, so no nightly could be published after the 2026-11-02 one. `git log` now limits itself, and a test runs the publish step against a long history.
+
 ## [1.7.0] - 2026-11-23
 
 ### Added
@@ -152,6 +163,7 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 - The standards pages no longer depend on the machine's time zone. The Chat samples built their clock from local-time parts, so `docs/standards/components.html` came out one way on a Mac in Pacific time and another on the CI runner in UTC, and `npm run standards:parity` failed on the release PR. The clock is now built in UTC, the pages are regenerated, and a test fails if a screen builds a date from local-time parts.
 - A message to a Claude Code session that was working in auto mode is handed over within seconds again, and `podium_send` says `Sent to`. The reporter had taken a call that auto mode approved for an open permission prompt, so the card showed a permission wait and the message was held until the subagent or the turn finished (#1351).
 - An OpenCode session that is resumed (`opencode -s <id>`) keeps the title OpenCode gave it on the wall, and a session with no title shows its id, where it showed `[redacted]` (#1352).
+- The end-to-end suite no longer reaches the Google Fonts hosts when a spec opens the console in a `before()` hook (#1363). The route that answers those hosts was made only in `beforeEach`, which Cypress clears before every test, so a page opened in a hook went to the real hosts, and on a runner with no outside network that request can hold the page's `load` event past the 30 s page-load limit. The release PR's E2E run failed three times that way in `chat/chat-direct.cy.js`. The route is now made just before every `cy.visit`, and `e2e/cypress/e2e/shell/no-outside-network.cy.js` fails when a page in a hook or a test reaches the hosts.
 
 ## [1.6.0] - 2026-11-11
 
@@ -1385,7 +1397,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/eengelking/podium/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/eengelking/podium/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/eengelking/podium/compare/v1.5.1...v1.6.0
 [1.5.1]: https://github.com/eengelking/podium/compare/v1.5.0...v1.5.1

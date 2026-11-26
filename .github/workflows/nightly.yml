@@ -100,7 +100,7 @@ jobs:
           echo "Building development at $sha"
           # Two statements, so a failing `gh` fails the step instead of leaving `current` empty behind a pipe.
           releases="$(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("nightly-")) | .tagName')"
-          current="$(printf '%s\n' "$releases" | head -n 1)"
+          current="${releases%%$'\n'*}"
           tagged=""
           if [ -n "$current" ]; then
             refs="$(git ls-remote origin "refs/tags/${current}^{}" "refs/tags/${current}")"
@@ -178,12 +178,13 @@ jobs:
           tag="nightly-${day}"
           echo "NIGHTLY_TAG=${tag}" >> "$GITHUB_ENV"
           releases="$(gh release list --limit 100 --json tagName --jq '.[] | select(.tagName | startswith("nightly-")) | .tagName')"
-          previous="$(printf '%s\n' "$releases" | head -n 1)"
+          previous="${releases%%$'\n'*}"
 
           if [ -n "$previous" ]; then
             since="$(git rev-list -n 1 "refs/tags/${previous}" 2>/dev/null || true)"
             range="${since:+${since}..}${SHA}"
-            commits="$(git log --format='- %h %s' "$range" | head -n 50)"
+            # git limits itself: `git log | head` ends the step with 141 (SIGPIPE) under pipefail once the range is long (#1381).
+            commits="$(git log -n 50 --format='- %h %s' "$range")"
             changes="Commits since \`${previous}\`:"
           else
             commits="$(git log --format='- %h %s' -n 20 "$SHA")"

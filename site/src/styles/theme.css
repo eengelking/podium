@@ -1,26 +1,67 @@
-/* The docs site's look, from the accepted mockup (mockup/podium-docs-site.html, #688). Every color is a token from the app's
-   tokens.css, so the site and the console change together. This file maps those tokens onto Starlight's variables and adds the one
-   accent the site uses; it defines no color of its own. The accent is the console's blue (--sonnet), used for what is selected and
-   what can be clicked, and the maintainer approved it for the site. */
-@import "../../../frontend/src/fleet/tokens.css";
-/* The two fonts the tokens name, served from this site (Fontsource, SIL OFL, latin subset) so a visitor's browser contacts no one else. */
-@import "@fontsource/schibsted-grotesk/latin-400.css";
-@import "@fontsource/schibsted-grotesk/latin-500.css";
-@import "@fontsource/schibsted-grotesk/latin-600.css";
-@import "@fontsource/schibsted-grotesk/latin-700.css";
+/* The docs site's look: the marketing palette, shared with the atlas and the demo pages (the atlas's tokens, light and dark), Bricolage
+   Grotesque for display, Hanken Grotesk for text and JetBrains Mono for code. The site does not read the app's tokens.css: the console
+   and the marketing surfaces have palettes of their own. This file defines the palette once, keeps the old token names the components
+   use as aliases of it, and maps it onto Starlight's variables. A new color is a new token here, never a literal in a component. */
+/* The fonts are served from this site (Fontsource, SIL OFL, latin subset) so a visitor's browser contacts no one else. */
+@import "@fontsource-variable/bricolage-grotesque/wdth.css";
+@import "@fontsource/hanken-grotesk/latin-400.css";
+@import "@fontsource/hanken-grotesk/latin-500.css";
+@import "@fontsource/hanken-grotesk/latin-600.css";
+@import "@fontsource/hanken-grotesk/latin-700.css";
 @import "@fontsource/jetbrains-mono/latin-400.css";
 @import "@fontsource/jetbrains-mono/latin-500.css";
 @import "@fontsource/jetbrains-mono/latin-600.css";
 
+/* Dark is Starlight's default; its theme switch sets data-theme on the page to light or dark, following the system when on auto. */
+:root,
+:root[data-theme="dark"] {
+  --bg: #090E1B; --surface: #121A2E; --sunk: #0E1526; --ink: #E8ECF6; --ink2: #A5AFC6; --mute: #8791AB; --line: #25304A;
+  --accent: #8CA0FF; --accent-ink: #0A1030; --hot: #FF5C9A; --ok: #4CC38A; --bad: #FF7A80; --warn: #E8B64A; --serious: #E36F2E;
+  --mark: #F2B544;
+  --hero-a: #26399B; --hero-b: #0A1030; --hero-ink: #E8ECF6; --hero-mark: #F2B544;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 12px 28px -14px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  --bg: #F3F5F9; --surface: #FFFFFF; --sunk: #E9EDF4; --ink: #0D1424; --ink2: #46506A; --mute: #6B7690; --line: #D8DEEA;
+  --accent: #2F4BFF; --accent-ink: #FFFFFF; --hot: #D61F69; --ok: #14804A; --bad: #C0262D; --warn: #9A5B00; --serious: #C2410C;
+  --mark: #9A6200;
+  --hero-a: #2F4BFF; --hero-b: #16217A; --hero-ink: #FFFFFF; --hero-mark: #FFC857;
+  --shadow: 0 1px 2px rgba(13,20,36,.06), 0 8px 24px -12px rgba(13,20,36,.18);
+  color-scheme: light;
+}
+
 :root,
 :root[data-theme="light"],
 :root[data-theme="dark"] {
-  --accent: var(--sonnet);
-  --accent-text: color-mix(in srgb, var(--sonnet) 62%, var(--ink));
-  --tint: color-mix(in srgb, var(--sonnet) 16%, var(--bg));
-  --tint2: color-mix(in srgb, var(--sonnet) 9%, var(--bg));
+  /* The hub fade: a tint of the accent at the top, nearly the surface at the bottom. Used on the big panels. */
+  --band-top: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  --band-bottom: color-mix(in srgb, var(--accent) 3%, var(--surface));
+  --display: "Bricolage Grotesque Variable", "Helvetica Neue", Arial, sans-serif;
+  --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-ui: var(--sans);
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
-  --sl-font: var(--font-ui);
+  /* The names the components were written with, now aliases of the palette. */
+  --raised: var(--surface);
+  --axis: var(--line);
+  --grid: var(--sunk);
+  --muted: color-mix(in srgb, var(--mute) 80%, var(--ink));
+  --sonnet: var(--accent);
+  --good: var(--ok);
+  --good-text: var(--ok);
+  --crit: var(--bad);
+  --crit-text: var(--bad);
+  --border: color-mix(in srgb, var(--ink) 12%, transparent);
+  --hover: color-mix(in srgb, var(--ink) 5%, transparent);
+  --sel: color-mix(in srgb, var(--ink) 8%, transparent);
+
+  /* The accent is for what is selected and what can be clicked. It reads on both backgrounds (6.0:1 on light, 8:1 on dark). */
+  --accent-text: var(--accent);
+  --tint: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  --tint2: color-mix(in srgb, var(--accent) 8%, var(--bg));
+
+  --sl-font: var(--sans);
   --sl-font-mono: var(--font-mono);
   --sl-text-body: 0.9375rem;
   --sl-text-h1: 1.75rem;
@@ -42,8 +83,7 @@
   --sl-color-bg: var(--bg);
   --sl-color-bg-nav: var(--raised);
   --sl-color-bg-sidebar: var(--surface);
-  /* Inline code is orange so the page is not all blue. Contrast of its text on the pill: 7.3 (dark) and 6.3 (light); a link's code, in
-     --accent-text, 5.4 and 6.1. */
+  /* Inline code is orange so the page is not all blue. */
   --sl-color-bg-inline-code: color-mix(in srgb, var(--serious) 28%, var(--bg));
   --inline-code-text: color-mix(in srgb, var(--serious) 45%, var(--ink));
   --sl-color-text: var(--ink);
@@ -55,9 +95,9 @@
   --sl-color-accent: var(--accent);
   --sl-color-accent-high: var(--accent-text);
 
-  /* The callouts: a color, an icon and a word each. They use the app's status colors for the same meanings there. */
-  --sl-color-blue-low: color-mix(in srgb, var(--sonnet) 11%, var(--bg));
-  --sl-color-blue: var(--sonnet);
+  /* The callouts: a color, an icon and a word each. */
+  --sl-color-blue-low: color-mix(in srgb, var(--accent) 11%, var(--bg));
+  --sl-color-blue: var(--accent);
   --sl-color-blue-high: var(--accent-text);
   --sl-color-green-low: color-mix(in srgb, var(--good) 11%, var(--bg));
   --sl-color-green: var(--good);
@@ -68,6 +108,15 @@
   --sl-color-red-low: color-mix(in srgb, var(--crit) 11%, var(--bg));
   --sl-color-red: var(--crit);
   --sl-color-red-high: var(--crit-text);
+}
+
+/* Display type: Bricolage Grotesque for the brand and for headings, condensed a little as on the atlas and the demo pages. */
+.sl-markdown-content :is(h1, h2, h3, h4):not(:where(.not-content *)),
+.content-panel h1,
+#_top {
+  font-family: var(--display);
+  font-stretch: 88%;
+  letter-spacing: -0.02em;
 }
 
 /* Top bar */
@@ -97,8 +146,11 @@ mobile-starlight-toc a[aria-current="true"] {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* The homepage has no sidebar and fills the width; its empty title panel is hidden. */
-:root:not([data-has-sidebar]) { --sl-content-width: 80rem; }
+/* The homepage has no sidebar and fills the width, and its hero runs to the top of the page with the site's header on it; its empty
+   title panel is hidden. */
+:root:not([data-has-sidebar]) { --sl-content-width: 100%; }
+:root:not([data-has-sidebar]) .header { position: absolute; background: transparent; border-bottom-color: transparent; }
+:root:not([data-has-sidebar]) .main-frame { padding-top: 0; }
 :root:not([data-has-sidebar]) .content-panel { padding: 0; }
 :root:not([data-has-sidebar]) footer { padding-inline: 40px; padding-bottom: 1.5rem; }
 @media (max-width: 40rem) { :root:not([data-has-sidebar]) footer { padding-inline: 16px; } }
