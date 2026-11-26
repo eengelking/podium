@@ -13,6 +13,10 @@ sessions" shot. Everything the demo prompt does is read-only, so it is safe to r
 Do one dry run before you record, and fix the wording of the prompt if Claude takes a different route than the script
 expects.
 
+To explain Chat before or instead of a live demo, open `demo/podium-chat-explained.html` in a browser. It is one self-contained page
+that plays four scenes with invented people and agents, and it needs no server. It loads its fonts from Google Fonts, so
+it needs a network connection to look right.
+
 Contents:
 
 - [What the demo shows](#what-the-demo-shows)
