@@ -41,7 +41,7 @@ what Podium shows and does is the same for any harness, within what the harness 
     names them; another harness offers its own equivalent of each). The terminal
     keeps working the whole time, and whichever answers first wins. Off unless the Admin and the session's
     owner both turn it on ([5.9](05-mod-api/05-09-mod-configuration-userconfig.md), [7.7](07-server/07-07-hardening.md)).
-14. Keep memories in one place on the server, the brain, each in a project, so agents on every machine and harness, and the
+14. Not built yet. Keep memories in one place on the server, the brain, each in a project, so agents on every machine and harness, and the
     people working on one project, read the same notes, found by search and ranked by use ([section 13](13-the-brain/README.md),
     DECISIONS 79). Off unless the Admin, the reporter's `brain` option and the owner's switch for that reporter all allow it. An
     agent reaches only the project it is working in.
@@ -79,7 +79,7 @@ orchestrator. It is off unless the Admin turns on **Orchestrator messaging**, th
 at both machines, and the owner gave that pair of reporters the right
 ([5.3](05-mod-api/05-03-events-the-reporter-hooks.md#orchestrator-messaging-from-the-reporter-347), [7.7](07-server/07-07-hardening.md#orchestrator-messaging-347)).
 
-The brain ([section 13](13-the-brain/README.md), DECISIONS 79, 80 and 81) is a store of notes that agents and people write on
+Not built yet. The brain ([section 13](13-the-brain/README.md), DECISIONS 79, 80 and 81) is a store of notes that agents and people write on
 purpose. It is the sixth opt-in exception to the conversation-content rule below, and it is not a conversation. Memory
 text reaches another person only when its owner shares it with a project both are members of, or offers it and the other
 person accepts. A member's agent then finds a shared memory by searching, and nothing is sent to a session, so it is not the
