@@ -1,0 +1,1419 @@
+<!doctype html>
+<html lang="en" data-theme-name="podium">
+<meta charset="utf-8">
+<title>Podium Align Brain</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../frontend/src/fleet/fleet.css">
+<style>
+/* Podium alignment board for the brain. A working page that records how the design was agreed.
+   Colors and fonts come from tokens.css through fleet.css; this file has no :root block. The app's .btn, .seg, .search, .pill,
+   .kpi are used as they are. The page's own layout (contents, sheets, register, diagrams) has no app component, and every
+   class for it starts al- so that it cannot collide with fleet.css. */
+html, body { height: auto; }
+body { margin: 0; background: var(--bg); }
+.podium.al-root { height: auto; min-height: 100vh; line-height: 1.55; }
+.al-root h1, .al-root h2, .al-root h3 { line-height: 1.2; margin: 0; text-wrap: balance; }
+.al-root p { margin: 0 0 10px; max-width: 76ch; }
+.al-root code { font-family: var(--font-mono); font-size: 12px; }
+.al-demo { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding: 8px 16px; background: var(--raised); border-bottom: 1px solid var(--border); font-size: 12px; color: var(--ink2); }
+.al-wrap { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 20px; max-width: 1180px; margin: 0 auto; padding: 20px 16px 96px; }
+.al-toc { position: sticky; top: 16px; align-self: start; font-size: 12px; }
+.al-brand { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.al-sub { color: var(--muted); margin-bottom: 12px; }
+.al-toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.podium .al-toc a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--ink2); text-decoration: none; }
+.podium .al-toc a:hover { background: var(--hover); color: var(--ink); }
+@media (max-width: 900px) {
+  .al-wrap { grid-template-columns: minmax(0, 1fr); padding: 12px 12px 96px; }
+  .al-toc { position: static; }
+  .al-toc ol { display: flex; overflow-x: auto; gap: 6px; padding-bottom: 6px; }
+  .podium .al-toc a { white-space: nowrap; border: 1px solid var(--border); background: var(--surface); }
+}
+.al-root { scroll-behavior: smooth; }
+.al-sheet { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px 22px; margin-bottom: 14px; min-width: 0; scroll-margin-top: 12px; }
+@media (max-width: 600px) { .al-sheet { padding: 14px 12px; } }
+.al-sheet h2 { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.al-sheet h3 { font-size: 14px; font-weight: 600; margin: 18px 0 8px; }
+.al-head h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; margin-bottom: 8px; }
+.al-lede { color: var(--ink2); }
+.al-history { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; padding: 0; list-style: none; }
+.al-tallies { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.podium button.al-tally { flex: 1 1 130px; border: 1px solid var(--border); border-radius: 8px; background: var(--raised); }
+.podium button.al-tally:hover { border-color: var(--axis); background: var(--sel); }
+.podium .al-tally .k { display: flex; align-items: center; gap: 6px; }
+.al-behind { border: 1px solid var(--border); background: var(--raised); border-radius: 6px; padding: 8px 12px; margin: 14px 0 0; }
+.al-list { padding-left: 18px; margin: 0; max-width: 76ch; }
+.al-list li { margin-bottom: 5px; }
+.al-root .al-gap { margin-top: 10px; }
+.al-root .al-sr { position: absolute; left: -9999px; }
+
+.podium .pill.al-st svg { width: 12px; height: 12px; flex: none; }
+.podium .pill.al-assumed { border-style: dashed; }
+
+.al-root figure { margin: 12px 0 6px; min-width: 0; }
+.al-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.al-root figure svg { display: block; width: 100%; min-width: 760px; height: auto; color: var(--muted); }
+.al-root figcaption { color: var(--ink2); margin-top: 8px; max-width: 80ch; }
+.al-root svg text { fill: var(--ink); font-size: 12px; font-family: var(--font-ui); }
+.al-root svg text.sm { font-size: 11.5px; fill: var(--ink2); }
+.al-root svg text.hd { font-size: 13px; font-weight: 600; fill: var(--ink2); }
+.al-root svg .nd { fill: var(--surface); stroke: var(--muted); stroke-width: 1.2; }
+.al-root svg .nd.hi { stroke: var(--deleg); stroke-width: 2; }
+.al-root svg .nd.zone { fill: var(--raised); stroke: var(--axis); stroke-dasharray: 5 4; }
+.al-root svg .nd.bad { fill: color-mix(in srgb, var(--crit) 14%, var(--surface)); stroke: var(--crit); }
+.al-root svg .nd.good { fill: color-mix(in srgb, var(--good) 14%, var(--surface)); stroke: var(--good); }
+.al-root svg .nd.note { fill: color-mix(in srgb, var(--warn) 14%, var(--surface)); stroke: var(--warn); }
+.al-root svg .ed { fill: none; stroke: var(--muted); stroke-width: 1.4; }
+.al-root svg .ed.dash { stroke-dasharray: 6 4; }
+.al-root svg .ed.acc { stroke: var(--deleg); }
+.al-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+.al-legend i { display: inline-block; width: 22px; border-top: 2px solid var(--muted); vertical-align: middle; margin-right: 6px; }
+.al-legend i.al-dash { border-top-style: dashed; }
+
+.al-tbl { overflow-x: auto; margin: 8px 0 4px; border: 1px solid var(--border); border-radius: 8px; }
+.al-root table { border-collapse: collapse; width: 100%; min-width: 640px; }
+.al-root th, .al-root td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.al-root th { font-size: 12px; font-weight: 500; color: var(--muted); background: var(--raised); }
+.al-root tr:last-child td { border-bottom: 0; }
+.al-root td.al-k { font-weight: 600; }
+.al-root #files td.al-k { width: 34%; }
+
+.al-chart { position: relative; min-width: 0; }
+.al-keys { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink2); margin-bottom: 6px; }
+.al-keys .al-sw { display: inline-block; width: 22px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.al-tip { position: absolute; pointer-events: none; background: var(--raised); border: 1px solid var(--axis); border-radius: 6px; padding: 6px 9px; font-size: 12px; min-width: 170px; display: none; z-index: 3; }
+.al-root svg .axis text { font-size: 12px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+.al-root svg .grid line { stroke: var(--grid); stroke-width: 1; }
+
+.al-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 4px 0 12px; position: sticky; top: 0; background: var(--surface); padding: 8px 0; z-index: 2; border-bottom: 1px solid var(--border); }
+.al-group h3 { margin: 0 0 4px; padding-bottom: 6px; border-bottom: 1px solid var(--axis); }
+.al-item { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 4px 12px; padding: 10px 0; border-bottom: 1px solid var(--border); align-items: start; scroll-margin-top: 90px; }
+.al-item[hidden], .al-group[hidden] { display: none; }
+.podium a.al-id { font-family: var(--font-mono); font-weight: 600; font-size: 12px; color: var(--deleg-text); text-decoration: none; }
+.podium a.al-id:hover { text-decoration: underline; }
+.al-body { min-width: 0; overflow-wrap: anywhere; }
+.al-root p.al-t { margin: 0 0 4px; max-width: none; }
+.al-meta { font-size: 11.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.al-root p.al-note { color: var(--ink2); margin: 4px 0 0; max-width: none; }
+.podium .al-item .btn[aria-pressed="true"] { background: var(--sel); border-color: var(--axis); }
+.al-item.al-flagged { background: var(--hover); }
+@media (max-width: 600px) { .al-item { grid-template-columns: 40px minmax(0, 1fr); } .al-side { grid-column: 2; } }
+.al-empty { padding: 16px; color: var(--muted); }
+
+.al-bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--raised); border-top: 1px solid var(--axis); padding: 10px 16px; display: none; align-items: center; gap: 10px; z-index: 10; flex-wrap: wrap; }
+.al-bar.al-on { display: flex; }
+.al-bar textarea { flex: 1 1 260px; font: 12px/1.4 var(--font-mono); min-height: 54px; border-radius: 6px; border: 1px solid var(--border); padding: 6px 8px; background: var(--surface); color: var(--ink); display: none; }
+.al-bar textarea.al-on { display: block; }
+@media (prefers-reduced-motion: reduce) { .al-root { scroll-behavior: auto; } }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+</style>
+
+<div class="podium al-root">
+<div class="al-demo">
+  <span>Alignment board: the brain</span>
+  <span class="seg" role="group" aria-label="Theme"><button type="button" data-theme-pick="" aria-pressed="true">System</button><button type="button" data-theme-pick="light" aria-pressed="false">Light</button><button type="button" data-theme-pick="dark" aria-pressed="false">Dark</button></span>
+</div>
+<div class="al-wrap">
+  <nav class="al-toc" aria-label="Contents">
+    <div class="al-brand">Brain alignment</div>
+    <div class="al-sub">Round 18, 2026-11-25. For the two of us to agree on.</div>
+    <ol>
+      <li><a href="#top">Where we are</a></li>
+      <li><a href="#changed">What changed</a></li>
+      <li><a href="#projects">Projects and sharing</a></li>
+      <li><a href="#system">The system</a></li>
+      <li><a href="#access">Who can do what</a></li>
+      <li><a href="#lifecycle">Life of a memory</a></li>
+      <li><a href="#sync">Sync</a></li>
+      <li><a href="#admin">Admin reads</a></li>
+      <li><a href="#search">Search and weight</a></li>
+      <li><a href="#agent">What an agent sees</a></li>
+      <li><a href="#files">Your memory files</a></li>
+      <li><a href="#register">Register</a></li>
+      <li><a href="#coverage">Coverage check</a></li>
+      <li><a href="#use">How to use this</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <section class="al-sheet al-head" id="top" aria-labelledby="h-title">
+      <h1 id="h-title">Brain alignment board</h1>
+      <p>The brain keeps agent memories on the Podium server, each in a project, so every machine, harness and teammate on that project reads the same notes. Agents reach it through <span class="ui">podium-reporter</span>. This page holds what we decided, how it fits together, and what is still open.</p>
+      <ol class="al-history" aria-label="How we got here">
+        <li><span class="pill">Draft 1</span></li>
+        <li><span class="pill">Opus review: 39 findings</span></li>
+        <li><span class="pill">Your 5 answers</span></li>
+        <li><span class="pill">Spec draft 2</span></li>
+        <li><span class="pill">Your feedback</span></li>
+        <li><span class="pill">Your answers</span></li>
+        <li><span class="pill">Spec draft 3</span></li>
+        <li><span class="pill">Second review: 36 findings</span></li>
+        <li><span class="pill">Your answers</span></li>
+        <li><span class="pill">The project model</span></li>
+        <li><span class="pill soon">Spec draft 4</span></li>
+      </ol>
+      <div class="al-tallies" id="tallies" aria-label="Counts"></div>
+      <p class="al-behind">The spec in the draft pull request now follows the project model. No issues are filed.</p>
+    </section>
+
+    <section class="al-sheet" id="changed" aria-labelledby="h-changed">
+      <h2 id="h-changed">What changed in this round</h2>
+      <ul class="al-list">
+        <li><b>This page moved into the repository</b> and now uses the app’s colors, fonts and controls. The design is unchanged, so the items marked changed are still the last round’s:</li>
+        <li><b>A12 to A25 are new details I filled in</b> while writing. They stand unless you object.</li>
+        <li><b>Worth a look:</b> A16 (no unshare), A18 and A19 (what counts as an agent's change), A21 (an Admin reading a session) and A25 (section 1's wording).</li>
+        <li><b>Corrected on this board:</b> D16 still holds. I had marked it replaced.</li>
+        <li><b>P6 is new:</b> neither review saw the project model.</li>
+      </ul>
+      <p class="al-gap">In the register, press <b>Changed</b> to see only what moved.</p>
+    </section>
+
+    <section class="al-sheet" id="projects" aria-labelledby="h-projects">
+      <h2 id="h-projects">Projects and sharing</h2>
+      <p class="al-lede">A memory belongs to a project, and is personal (only you) or shared (that project's members). Global memories are your own preferences. Nothing crosses from one project to another.</p>
+      <figure id="fig-projects"></figure>
+      
+    </section>
+
+    <section class="al-sheet" id="system" aria-labelledby="h-system">
+      <h2 id="h-system">The system at a glance</h2>
+      <p class="al-lede">Who talks to what. The database stays the only durable store, and the search index is derived from it.</p>
+      <figure id="fig-system"></figure>
+      <div class="al-legend"><span><i></i>request or data</span><span><i class="al-dash"></i>notice to the person (never to the model)</span></div>
+    </section>
+
+    <section class="al-sheet" id="access" aria-labelledby="h-access">
+      <h2 id="h-access">Who can do what</h2>
+      <p class="al-lede">Everything is off until a person turns it on. A tool call passes three gates before it reads anything, and its project decides how much.</p>
+      <figure id="fig-gate"></figure>
+      <h3>Who reads which memory</h3>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Reader</th><th>Personal</th><th>Shared</th><th>Global</th></tr></thead>
+        <tbody>
+          <tr><td class="al-k">Owner, in the console</td><td>Reads, edits, deletes, restores, shares</td><td>Reads, edits, deletes, approves changes</td><td>Reads, edits, deletes, restores</td></tr>
+          <tr><td class="al-k">Owner's agent, in that project</td><td>Reads and writes</td><td>Reads and writes. The owner approves the change</td><td>Reads and writes</td></tr>
+          <tr><td class="al-k">Owner's agent, in another project</td><td>Never</td><td>Never</td><td>Reads and writes</td></tr>
+          <tr><td class="al-k">Another member or their agent</td><td>Never, except an accepted copy</td><td>Reads the approved text, votes, flags</td><td>Never</td></tr>
+          <tr><td class="al-k">Not a member</td><td>Never</td><td>Never</td><td>Never</td></tr>
+          <tr><td class="al-k">Admin, in the console</td><td>Reads and deletes. Owner told</td><td>Reads and deletes. Owner told</td><td>Reads and deletes. Owner told</td></tr>
+        </tbody>
+      </table></div>
+      <h3>Sharing and offering</h3>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Path</th><th>How it works</th><th>Who decides</th></tr></thead>
+        <tbody>
+          <tr><td class="al-k">Share with the project</td><td>One action. The same memory becomes shared and stays shared. No copy</td><td>The owner, who must be a member. Agents cannot</td></tr>
+          <tr><td class="al-k">An agent changes a shared memory</td><td>Members keep the previous version. The owner sees a diff</td><td>The owner approves or rejects</td></tr>
+          <tr><td class="al-k">Offer to one member</td><td>Bound to a version, read in full under a prompt-injection warning. Accepting makes a copy</td><td>Sender starts, recipient accepts. Agents cannot</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="al-sheet" id="lifecycle" aria-labelledby="h-life">
+      <h2 id="h-life">Life of a memory</h2>
+      <p class="al-lede">Every delete is kept for 30 days and can be restored by the owner. An Admin cannot restore one.</p>
+      <figure id="fig-life"></figure>
+    </section>
+
+    <section class="al-sheet" id="sync" aria-labelledby="h-sync">
+      <h2 id="h-sync">Sync with local memory files</h2>
+      <p class="al-lede">For each memory in a mirrored folder, the sync compares the local file and the server with the version both last agreed on (the base). Nothing is chosen silently when both changed.</p>
+      <figure id="fig-sync"></figure>
+      <h3>Guards that apply to every sync</h3>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Guard</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td class="al-k">Missing folder</td><td>A missing or unreadable folder is not a deleted folder. The sync does nothing and says why</td></tr>
+          <tr><td class="al-k">Mass change</td><td>More than 20 local files written or deleted, or more than 3 memories trashed, stops and asks. More than 10 trashed in 24 hours also pauses</td></tr>
+          <tr><td class="al-k">First sync</td><td>Uploads nothing unasked. The person approves each file. A file that already matches a server memory is adopted, not copied</td></tr>
+          <tr><td class="al-k">Secrets</td><td>A file that matches a secret pattern is never uploaded. The server scans again</td></tr>
+          <tr><td class="al-k">Away too long</td><td>A mirror not synced for the tombstone retention (180 days) expires. Its next sync lists every difference for the person</td></tr>
+          <tr><td class="al-k">What is mirrored</td><td>Only the owner's own memories of the folder's project. Never another member's. Global ones only into folders that opt in</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="al-sheet" id="admin" aria-labelledby="h-admin">
+      <h2 id="h-admin">An Admin never reads in silence</h2>
+      <p class="al-lede">The project rule, applied to memories: whenever an Admin sees a person's non-public content, the person is told in the console and in the reporter.</p>
+      <figure id="fig-admin"></figure>
+      <h3>What an Admin can reach</h3>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Surface</th><th>Admin</th><th>Owner told</th></tr></thead>
+        <tbody>
+          <tr><td class="al-k">Project names, and the groups assigned to them</td><td>Lists, names, renames, assigns</td><td>No, not content</td></tr>
+          <tr><td class="al-k">The list of one person's memories</td><td>Reads, after choosing the person</td><td>Yes</td></tr>
+          <tr><td class="al-k">The shared memories of one project</td><td>Reads</td><td>Yes, every author listed</td></tr>
+          <tr><td class="al-k">One memory, its versions and waiting change</td><td>Reads</td><td>Yes</td></tr>
+          <tr><td class="al-k">A session that was shown another person's shared memory</td><td>Reads the session</td><td>Yes, the memory's author too</td></tr>
+          <tr><td class="al-k">Deleting a memory</td><td>Moves it to the trash with a reason. The owner can recover it for 30 days. The Admin cannot restore it</td><td>Yes, with who did it</td></tr>
+          <tr><td class="al-k">Offers, conflicts, import lists, mirror state, directory rules, vote reasons, search terms</td><td>Refused</td><td>Not applicable</td></tr>
+          <tr><td class="al-k">A person's counts</td><td>Reads</td><td>No, counts are not content</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="al-sheet" id="search" aria-labelledby="h-search">
+      <h2 id="h-search">Search and weight</h2>
+      <p class="al-lede">Search runs from an index inside the server process. It never decides access: every page is re-checked through the storage layer.</p>
+      <figure id="fig-search"></figure>
+      <h3>How weight rises and falls</h3>
+      <p>Uses and votes each add an amount that halves every 90 days (the amounts are Admin settings: use +1, upvote +3, "not relevant" -1, and wrong, outdated or unsafe -4). A use is a person's agent opening a memory, counted once per person, memory and day. A search result alone is not a use. Weight multiplies the relevance score by at most half either way, so it orders results and never hides one.</p>
+      <div class="al-chart" id="chart"></div>
+      <p class="al-lede" id="chart-cap"></p>
+      <h3>Withdrawing a vote</h3>
+      <p>A changed or withdrawn vote takes back what is left of it, not what it was. An upvote of +3 given at day 0 has +1.5 left at day 90. Withdrawing then leaves 0. Taking back the full 3 would leave -1.5, and repeating the cycle would drive any memory down.</p>
+      <h3>Which index library (Q9, D39)</h3>
+      <p>Decided: <b>MiniSearch</b>. It is popular without being the most downloaded, has no dependencies, is MIT licensed, ranks by BM25, and can add and remove entries as memories change. It sits behind the MemoryIndex interface, with a contract test and a check that nothing else imports a search library, so changing it later means writing one new implementation.</p>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Library</th><th>Weekly npm downloads</th><th>Last publish</th><th>Fit for this</th></tr></thead>
+        <tbody>
+          <tr><td class="al-k">MiniSearch 7.2.0</td><td>6.7 million</td><td>Sep 2025</td><td>Chosen. BM25 ranking, field boosts, prefix and fuzzy, add and remove, custom tokenizer. MIT, no dependencies</td></tr>
+          <tr><td class="al-k">Fuse.js 7.5.0</td><td>20.9 million</td><td>Nov 2026</td><td>Fuzzy string matching, not relevance ranking. Apache-2.0</td></tr>
+          <tr><td class="al-k">Lunr 2.3.9</td><td>10.0 million</td><td>Jul 2023</td><td>Its index cannot be updated in place, so every change would rebuild it. MIT</td></tr>
+          <tr><td class="al-k">Orama 3.1.18</td><td>2.2 million</td><td>Jul 2026</td><td>Capable, larger, more than we need now. Apache-2.0</td></tr>
+          <tr><td class="al-k">FlexSearch 0.8</td><td>1.3 million</td><td>Sep 2025</td><td>Very fast, with a ranking model that differs from BM25. Apache-2.0</td></tr>
+        </tbody>
+      </table></div>
+      <p class="al-lede">Downloads are for 18 to 24 November 2026 from the npm registry and include installs pulled in by other packages. The versions and licences are from npm. The feature notes are from my own knowledge, so the build should confirm them.</p>
+    </section>
+
+    <section class="al-sheet" id="agent" aria-labelledby="h-agent">
+      <h2 id="h-agent">What an agent sees</h2>
+      <p class="al-lede">Like a skill: the context window gets a short summary first, and the rest only when the agent asks for it.</p>
+      <figure id="fig-disclose"></figure>
+      <h3>Why this matters at the limits</h3>
+      <div class="al-chart" id="chart-ctx"></div>
+      <p class="al-lede" id="ctx-cap"></p>
+    </section>
+
+    <section class="al-sheet" id="files" aria-labelledby="h-files">
+      <h2 id="h-files">What your memory files teach us</h2>
+      <p class="al-lede">I read the structure of this project's 22 Claude Code memory files (17 feedback, 4 project, 1 reference, no user memories). It is one project, so treat the patterns as a first sample.</p>
+      <div class="al-tbl"><table>
+        <thead><tr><th>What the files do</th><th>Does the brain cover it?</th><th>Proposal</th></tr></thead>
+        <tbody>
+          <tr><td class="al-k">The four types</td><td>Yes. Same four types</td><td>Nothing to change</td></tr>
+          <tr><td class="al-k">21 of 22 use "Why" and "How to apply" lines</td><td>No. The body is free text</td><td>A suggested outline per type, in the tool description and the console editor. Not enforced</td></tr>
+          <tr><td class="al-k">16 of 22 link to other memories as [[name]]</td><td>Partly. Edges exist, but only "supersedes" is written at first</td><td>Turn [[links]] into "related" edges on import and sync, and keep them working when a name changes</td></tr>
+          <tr><td class="al-k">All 22 carry a date, 14 name an issue or PR, 7 name a file or script</td><td>No. Nothing marks a fact as old</td><td>A "last checked" date shown in search results, and the reviewer queues old ones (Q21)</td></tr>
+          <tr><td class="al-k">An index line per memory, about 166 characters, loaded into every session</td><td>No. Sync writes this index too</td><td>Let a person choose pinned-only sync, and show the index size first (Q16)</td></tr>
+          <tr><td class="al-k">The harness's own rules: update rather than duplicate, delete what is wrong, skip what the repo already records, use real dates</td><td>Partly. Duplicates are only noticed at first sync</td><td>Put these rules in the tool descriptions, and have a save return similar memories before creating one</td></tr>
+          <tr><td class="al-k">Extra frontmatter the harness rewrites (session id, modified time)</td><td>Yes. Kept and never compared</td><td>Nothing to change</td></tr>
+          <tr><td class="al-k">One file holds a local network address</td><td>No. Secret patterns do not cover addresses or personal paths</td><td>Warn, without blocking, before a share or offer when the text has an address or a home folder path</td></tr>
+          <tr><td class="al-k">Average memory is about 1,850 characters, the largest about 6,300</td><td>Yes. Under the 8,000 limit</td><td>The long ones are the natural candidates to split into a body and resources</td></tr>
+        </tbody>
+      </table></div>
+    </section>
+
+    <section class="al-sheet" id="register" aria-labelledby="h-reg">
+      <h2 id="h-reg">Register</h2>
+      <p class="al-lede">Every decision, open question, thing to prove first, and gap, with an id. Flag the ones you want to change or discuss, then copy the list into chat.</p>
+      <div class="al-controls">
+        <span class="seg" id="filters" role="group" aria-label="Filter the register"><button type="button" data-f="all" aria-pressed="true">All</button><button type="button" data-f="ok" aria-pressed="false">Decided</button><button type="button" data-f="open" aria-pressed="false">Open</button><button type="button" data-f="assumed" aria-pressed="false">Assumed</button><button type="button" data-f="prove" aria-pressed="false">Prove first</button><button type="button" data-f="gap" aria-pressed="false">Gaps</button><button type="button" data-f="changed" aria-pressed="false">Changed</button><button type="button" data-f="flagged" aria-pressed="false">Flagged</button></span>
+        <label class="al-sr" for="q">Search the register</label>
+        <input id="q" class="search" type="search" placeholder="Search the register" autocomplete="off">
+      </div>
+      <div id="register-list"></div>
+    </section>
+
+    <section class="al-sheet" id="coverage" aria-labelledby="h-cov">
+      <h2 id="h-cov">Have we covered our bases?</h2>
+      <p class="al-lede">The adversarial review attacked the design from eleven angles. This is where each stands now, said plainly.</p>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Angle</th><th>Status</th><th>Where it is handled, and what is left</th></tr></thead>
+        <tbody id="cov-body"></tbody>
+      </table></div>
+      <h3>Process the project requires before a PR</h3>
+      <div class="al-tbl"><table>
+        <thead><tr><th>Step</th><th>Status</th></tr></thead>
+        <tbody id="proc-body"></tbody>
+      </table></div>
+    </section>
+
+    <section class="al-sheet" id="use" aria-labelledby="h-use">
+      <h2 id="h-use">How to use this page</h2>
+      <ol class="al-list">
+        <li>Read a diagram and say what is wrong with it, or flag an item in the register.</li>
+        <li>Use <b>Flag</b> on any item. The bar at the bottom collects them.</li>
+        <li>Press <b>Copy flagged</b> and paste the list into our chat. I will change the spec and this board together, and say what changed by id.</li>
+        <li>Your flags are kept in this browser only. They are not shared and not sent anywhere.</li>
+      </ol>
+      <p>This page is kept in the repository as <code>mockup/podium-align-brain.html</code>. It records how the design was agreed and is not the spec, which is <code>docs/spec/13-the-brain/</code>. No issues are filed.</p>
+    </section>
+  </main>
+</div>
+
+<div class="al-bar" id="bar" role="region" aria-label="Flagged items">
+  <span id="bar-count"></span>
+  <button type="button" class="btn pri" id="copy">Copy flagged</button>
+  <button type="button" class="btn" id="clear">Clear flags</button>
+  <textarea id="fallback" readonly aria-label="Flagged list, select and copy"></textarea>
+</div>
+</div>
+
+<script>
+"use strict";
+/* ---------- data ---------- */
+const ST = { ok: "Decided", open: "Open", prove: "Prove first", gap: "Gap" };
+const GROUPS = [
+  { title: "Scope and identity", items: [
+    ["D1", "ok", "Two scopes only: person and everyone. There is no memory per agent, team or group.", "SPEC 13.1, DECISIONS 79"],
+    ["D2", "ok", "A memory belongs to a person by id, never by name. A deleted person's everyone memories keep their name as text and nobody inherits them.", "SPEC 13.2, DECISIONS 77"],
+    ["D3", "ok", "Project is a first-class field. A person grants a reporter one or more projects in My reporters, or maps a directory to a project. One rule decides both the agent's project and its memory folder.", "SPEC 13.3"],
+    ["D4", "ok", "A memory with no project reaches every brain-enabled agent of that person.", "SPEC 13.3"],
+    ["D5", "ok", "A memory has a type (user, feedback, project, reference), up to 10 tags, a one-line description and a body of at most 8,000 characters. A body never holds a secret.", "SPEC 13.2"]
+  ]},
+  { title: "Consent and access", items: [
+    ["D6", "ok", "Everything ships off. Five switches, each the person's or the Admin's: Admin flag Brain, the reporter's Brain switch (off, read, readwrite), Read shared memories, Reviewer, and Sync.", "SPEC 13.1"],
+    ["D7", "ok", "Only a reporter's owner sets its Brain switch, as with the Admin's right to respond. A session with no person behind it never has the brain.", "SPEC 13.1, DECISIONS 72"],
+    ["D8", "ok", "The switches do not stop a hostile process that can read the person's token. That limit is accepted for the first version, as it is for chat.", "SPEC 13.1, DECISIONS 79"],
+    ["D9", "ok", "Acts that must come from a human (accept an offer, approve an import or promotion, start a review run, restore) are console acts, not reporter calls.", "SPEC 13.1"],
+    ["D10", "ok", "The everyone scope is opt-in per person (Read shared memories), off by default.", "SPEC 13.3"],
+    ["D11", "ok", "An agent writes only person memories. Promotion to everyone is a private request that a person or Admin approves. An agent cannot start a promotion or a share.", "SPEC 13.3"],
+    ["D12", "ok", "A share is an offer bound to the version the sender chose. The recipient reads it under an injection warning and picks a project on accept. Accepting makes a copy.", "SPEC 13.3"]
+  ]},
+  { title: "The Admin", items: [
+    ["D13", "ok", "An Admin reads and deletes. An Admin never edits a memory and never touches a person's machine.", "SPEC 13.3"],
+    ["D14", "ok", "Every Admin read or delete of a person memory tells the person in the console (red notice and a permanent record line) and in podium-reporter (a callout the model never receives). A person with no live session is told at their next session.", "SPEC 13.3, DECISIONS 69"],
+    ["D15", "ok", "An Admin has no search or tag filter over person memories. Opening one person's list is a told read, and so is each memory.", "SPEC 13.3"],
+    ["D16", "ok", "Offers, conflicts, import lists, mirror state, access rules and vote reasons are refused to an Admin. Search terms are never logged.", "SPEC 13.3, 13.7"],
+    ["D17", "ok", "An Admin's read of an everyone memory is not told, because that scope is public to the server.", "SPEC 13.3"],
+    ["D18", "ok", "An Admin's delete trashes the memory and never removes a file on a person's machine. A sync that finds it gone leaves the file and tells the person.", "SPEC 13.3, 13.5"]
+  ]},
+  { title: "Search and weight", items: [
+    ["D19", "ok", "Search is an in-process index behind an interface, updated in the request that wrote and re-checked through Storage. Not a table of terms, and not a separate search server for now.", "SPEC 13.4, DECISIONS 81"],
+    ["D20", "ok", "Relevance is BM25 per field (name 3, tags 3, description 2, body 1), multiplied by 1 + 0.5 x tanh(weight / 10). A superseded memory scores half.", "SPEC 13.4"],
+    ["D21", "ok", "Weight is uses and votes that fade with a 90-day half-life, computed lazily. A use counts once per person, memory and day. A withdrawn vote takes back only what is left of it.", "SPEC 13.4"],
+    ["D22", "ok", "Weight orders results and never hides one. Nothing is deleted for a low weight.", "SPEC 13.4"]
+  ]},
+  { title: "Lifecycle", items: [
+    ["D23", "ok", "Every delete goes to a 30-day trash with its text, and the owner can restore it. After that the text is purged and a tombstone stays for 180 days. An Admin cannot restore.", "SPEC 13.2, 13.9"],
+    ["D24", "ok", "States are active, flagged, trashed and deleted. A flag on a person memory is seen by its owner only. An everyone memory is hidden when an Admin confirms the flag or 3 different people flag it.", "SPEC 13.2"]
+  ]},
+  { title: "Sync", items: [
+    ["D25", "ok", "Versions form a chain. Both sides changed means a three-way merge by field and by line. A clean merge is marked, and an overlap is a conflict kept for the person to resolve.", "SPEC 13.5, DECISIONS 80"],
+    ["D26", "ok", "Resolving a conflict moves the conflicted mirror's base to the stored local side, so the same conflict does not reopen.", "SPEC 13.5"],
+    ["D27", "ok", "Only memories the owner wrote or approved are mirrored. An everyone memory never is. No-project memories sync only into folders that opt in.", "SPEC 13.5"],
+    ["D28", "ok", "A push is a compare-and-swap. A mirror is keyed by server, reporter key, harness and folder id.", "SPEC 13.5"],
+    ["D29", "ok", "Sync is off by default, then pull or both. The next session start is the guarantee. An end-of-session push is a courtesy.", "SPEC 13.5"],
+    ["D30", "ok", "A model test runs two mirrors and a server through random edits, deletes, conflicts and restores over every adapter and checks five invariants.", "SPEC 13.5"]
+  ]},
+  { title: "Reviewer", items: [
+    ["D31", "ok", "The reviewer is flag-only and is an agent the person starts, because Podium never starts an agent. A run is bound to one session. A person approves each change.", "SPEC 13.6"],
+    ["D32", "ok", "Proposals against an everyone memory are public. Edit and merge need the owner's approval, and delete and flag need the owner's or an Admin's.", "SPEC 13.6"]
+  ]},
+  { title: "Console, storage and limits", items: [
+    ["D33", "ok", "The live event carries no content: a change counter and a scope. Each console re-asks gated routes for its own person's changes.", "SPEC 13.8"],
+    ["D34", "ok", "Three places: My reporters (switches, grants, folders), My memories (with Recently deleted, Inbox, Conflicts, Import) and Admin > Memories. Right-click is a shortcut, never the only way.", "SPEC 13.8"],
+    ["D35", "ok", "Everything goes through Storage in all three adapters. Limits and retention have defaults the Admin can change, and a lowered limit grandfathers existing rows.", "SPEC 13.9"]
+  ]},
+  { title: "Open questions", items: [
+    ["Q1", "open", "Who approves a promotion to everyone?", "SPEC 13.10", "Draft assumes the Admin, with a setting to let the owner approve."],
+    ["Q2", "open", "Should \"include memories with no project\" be off by default for each folder?", "SPEC 13.10", "Draft assumes off. A global memory then reaches a second machine only after the person opts in."],
+    ["Q3", "open", "How does each harness start the reviewer, and can it ship an agent definition?", "SPEC 13.10", "Not known. Podium cannot start an agent."],
+    ["Q4", "open", "Is search without stemming good enough?", "SPEC 13.10", "Draft trades quality for simplicity. Embeddings are a later implementation of the same interface."],
+    ["Q5", "open", "Are the weight and ranking numbers right (+1, +3, -4, half-life 90 days, field weights)?", "SPEC 13.10", "They are guesses and are settings, to be tuned on real use."],
+    ["Q6", "open", "Is an agent's vote worth the same as a person's?", "SPEC 13.10", "Draft says yes and records which it was."],
+    ["Q7", "open", "Does a clean automatic merge need a lasting notice?", "SPEC 13.10", "Draft keeps one until the person looks. It may be noise."],
+    ["Q8", "open", "Should the first sync offer bulk approve with exceptions, or a count-only dry run?", "SPEC 13.10", "Draft is per file or all at once."],
+    ["Q9", "open", "Which index library, or a hand-built one, and what memory budget?", "SPEC 13.10", "Chosen in the build, on the measurement."],
+    ["Q10", "open", "How is a project identified across machines, by path or by git remote, and which wins?", "SPEC 13.10", "Draft allows both and does not say."],
+    ["Q11", "open", "The person token can also sign in to the console. Do human-only acts need a further step?", "SPEC 13.10", "Same limit chat has today."],
+    ["Q12", "open", "What if a deployment ever runs more than one server process on one database?", "SPEC 13.10", "The index would go stale. Unsupported today."],
+    ["Q13", "open", "Keep edges in the first schema if almost nothing reads them?", "SPEC 13.10", "They are cheap to add now and costly later."]
+  ]},
+  { title: "Prove first, before any issue is cut", items: [
+    ["P1", "prove", "Harness spike: how to replace and delete a file safely, whether a write follows a symbolic link, the end-of-session time budget, how a resumed session is detected, where each harness keeps its memory folder, and whether an agent can read the credential.", "SPEC 13.5", "The review says Claude Code's file API has no rename or delete and a 1.5 second end hook. I did not confirm it."],
+    ["P2", "prove", "Extend the Admin read registry check to memory fields (body, description, tags and the content of conflicts, offers and proposals), with a test that a body-bearing row fails the build without an entry.", "SPEC 13.9", "Confirmed: today it only looks for text, prompt, answer, input, question and plan."],
+    ["P3", "prove", "Measure at the limits on every adapter: index rebuild time and size, a 300-file first import, a session-start sync, and how long reporters wait.", "SPEC 13.9"],
+    ["P4", "prove", "A mockup of My reporters, My memories and Admin > Memories, made with the three skills, shown light, dark and narrow, and accepted before any console code.", "SPEC 13.8"]
+  ]},
+  { title: "Gaps we have not designed", items: [
+    ["G1", "gap", "Export and backup of a person's memories, as a download they can keep.", "Not in the spec"],
+    ["G2", "gap", "Restoring the server database from a backup, while mirrors are ahead of it or name versions it no longer has.", "Not in the spec", "The full-reconcile rule may cover it. Not tested."],
+    ["G3", "gap", "Compatibility range for the brain tools and the sync protocol between reporter and server versions.", "Not in the spec", "Other reporter features move a supported range with each release."],
+    ["G4", "gap", "Observability: counts for index drift, failed syncs and open conflicts, without logging text.", "Not in the spec"],
+    ["G5", "gap", "Abuse beyond rate limits: a person who keeps flagging, or keeps offering, and the Admin tools to deal with them.", "Partly in 13.3 and 13.7"],
+    ["G6", "gap", "Non-English search quality and translated console strings.", "Not in the spec"],
+    ["G7", "gap", "The lists the issues will need: every route, event, error code and interface name.", "Not in the spec", "Two engineers would otherwise build different ones."],
+    ["G8", "gap", "A person with several Podium servers: how My reporters shows and manages mirrors for each.", "Mirror key covers it. No console design."],
+    ["G9", "gap", "A user-guide page, and the atlas, e2e, live-test and standards updates this change will need.", "Process, see the coverage check"]
+  ]}
+];
+const COVER = [
+  ["Security and access control", "ok", "Reader comes from the credential, never an argument. A denied id answers like a missing one. Offers are bound to a version. One flag cannot hide a shared memory. Left: a hostile process with the token (D8, Q11)."],
+  ["The Admin rule", "prove", "Designed with notices in both places and an offline path. The build check that enforces it does not see memory fields yet (P2)."],
+  ["Sync correctness", "prove", "Rule table, merge, conflict resolution, guards and a model test are written. Depends on what each harness's engine allows (P1)."],
+  ["Storage on three databases", "ok", "Tables, contract cases and limits are listed in every adapter. Search no longer needs adapter-specific SQL. Measurement is still to do (P3)."],
+  ["Weight and search", "ok", "Fade, vote withdrawal, per-day uses and BM25 are specified. The numbers are guesses (Q4, Q5)."],
+  ["Scale and cost", "prove", "Limits and retention are set. Index memory, rebuild time and write cost are unmeasured (P3)."],
+  ["Consent and non-goals", "ok", "Everything is off by default. Section 1 of the spec gains a sixth exception and an amendment, which you still have to approve."],
+  ["Harness feasibility", "prove", "File API, end hook, resume, tool registration and how the reviewer starts are unknown (P1, Q3). OpenCode's memory format is not recorded in the repo."],
+  ["Product and UX holes", "open", "Revoked grants, project deletion, a deleted recipient and blocked senders have rules. The three console pages have no mockup yet (P4)."],
+  ["Basis for cutting issues", "gap", "Rules are testable, but routes, events, error codes and interface names are not listed (G7)."],
+  ["Missing entirely", "gap", "Backup and export, database restore, versioning, observability, abuse tools, non-English (G1 to G6)."]
+];
+const PROC = [
+  ["Branch and worktree for the spec", "ok", "Done, on docs/brain-spec. Nothing committed."],
+  ["Doc checks: indexes, frontmatter, citations, links", "ok", "All pass on draft 2."],
+  ["Second adversarial review, of draft 3", "open", "Running now."],
+  ["Mockups for the three console pages", "prove", "Required before any UI code, in light, dark and narrow, opened as an artifact."],
+  ["Patterns check against docs/PATTERNS.md", "open", "To run on the branch before a PR."],
+  ["Atlas update", "open", "Needed once something structural is built, not for the spec alone."],
+  ["e2e specs and live test for each harness", "open", "Needed when the feature is built. The live test spends model tokens."],
+  ["Standards update for any new component", "open", "Only through the maintainer's approval at release prep."],
+  ["Commit, PR into development, then issues in dependency order", "open", "Waiting on your go-ahead."]
+];
+
+/* ---------- round 2: your feedback ---------- */
+const UPD = {
+  D13: { t: "An Admin reads, and deletes to the trash, where the owner can recover the memory for 30 days. An Admin never edits a memory and never touches a person's machine." },
+  D18: { t: "An Admin's delete moves the memory to the trash, recoverable by the owner for 30 days. It never removes a file on a person's machine. A sync that finds it gone leaves the file and tells the person." },
+  D5: { t: "A memory has a type (user, feedback, project, reference), up to 10 tags, a short summary, a body of at most 8,000 characters, and now attached resources (see D37). No part ever holds a secret." },
+  D19: { t: "Search is an in-process index behind an interface, re-indexed on every add, change and delete, and re-checked through Storage. While it rebuilds, users and agents are told to wait.", note: "Library: MiniSearch, swappable (D39)." },
+
+  Q1: { st: "ok", note: "Your answer: the Admin approves, with the owner as the fallback. My reading: the Admin approves by default and the owner approves only when the Admin setting says so or no Admin is available. Confirm \"no Admin available\" is what you meant." },
+  Q2: { st: "ok", note: "Your answer: off by default." },
+  Q3: { st: "ok", note: "Your answer: a manual process run by an administrator at first. Later, Podium creates its own orchestration agents for this. See Q17 for what an Admin-run review may read." },
+  Q4: { st: "ok", note: "Your answer: good enough for now. Embeddings need regular re-indexing and more resources." },
+  Q5: { st: "ok", note: "Your answer: sounds right. Tune once it is in use." },
+  Q6: { st: "ok", note: "Your answer: yes. Revisit if it becomes a problem." },
+  Q7: { st: "ok", note: "Your answer: keep a notice, then mock it up and test what works." },
+  Q8: { st: "ok", note: "Your answer: the first sync is a dry run, and writes only after approval." },
+  Q9: { st: "open", note: "You asked for a popular library and a recommendation. I recommend MiniSearch, which is popular but not the most downloaded. Please confirm. See the library table under Search and weight." },
+  Q10: { st: "ok", note: "Your answer: the git remote by default. With no git, an Admin names it and can rename it. See Q18, because projects are the person's today." },
+  Q11: { st: "ok", note: "Your answer: no further step. Unauthenticated users never see memories in the console, and unauthenticated harnesses never reach them." },
+  Q12: { st: "ok", note: "Your answer: server and database are one podiumctl deployment. Document it for troubleshooting." },
+  Q13: { st: "ok", note: "Your answer: keep edges. Refactoring later costs more." },
+
+  P1: { note: "You agreed. The review says Claude Code's file API has no rename or delete and a 1.5 second end hook. I have not confirmed it." },
+  P2: { note: "You agreed. Confirmed in the code: today it only looks for text, prompt, answer, input, question and plan." },
+  P3: { note: "You agreed." },
+  P4: { note: "You agreed." },
+
+  G1: { st: "ok", note: "Your answer: back up the database with the server stopped. Document the process. The backup records the server version." },
+  G2: { st: "ok", note: "Your answer: block a restore whose version does not match the server, so the backup records its version. My note: mirrors that are ahead of a restored database still need the full-reconcile path, so that case needs a test." },
+  G3: { st: "ok", note: "Your answer: support three versions, like Kubernetes. The docs do not say that today. See Q22." },
+  G4: { st: "ok", note: "Your answer: never drift. Re-index on every change, and raise an alert while re-indexing. The periodic check stays as a safety net." },
+  G5: { st: "ok", note: "Your answer: build in reasonable rate limits." },
+  G6: { st: "ok", note: "Your answer: English only for now. Document what adding a language involves." },
+  G7: { st: "ok", note: "You asked whether this belongs in the spec. Yes. Routes, events, error codes and interface names go into the spec before issues are cut." },
+  G8: { st: "ok", note: "Your answer: one server only. Mirrors still record the server, so a later change is cheap." },
+  G9: { st: "ok", note: "Your answer: part of the documentation-sync sweep. Each issue carries its required tests in its Definition of Done." }
+};
+GROUPS.forEach(function (g) {
+  if (g.title === "Open questions") g.title = "First-round questions, now answered";
+  if (g.title === "Gaps we have not designed") g.title = "First-round gaps, now answered";
+  g.items.forEach(function (it) {
+    const u = UPD[it[0]]; if (!u) return;
+    if (u.st) it[1] = u.st;
+    if (u.t) it[2] = u.t;
+    if (u.note) it[4] = u.note;
+    it[5] = true;
+  });
+});
+GROUPS.splice(8, 0, { title: "New from your feedback", items: [
+  ["D36", "ok", "Search returns summaries only. The agent opens one memory to read its body, then opens attached resources one at a time, and decides \"this is it\" or keeps looking. Only what is needed enters the context window.", "Your feedback, spec to update", "", true],
+  ["D37", "ok", "A memory can have attached resources (references), each with a name and a one-line description that is shown with the memory, the way SKILL.md points to its reference files.", "Your feedback, spec to update", "Limits and local-file mapping are Q14 and Q15.", true],
+  ["D38", "ok", "Tags are a first-class field. A person or agent can require tags in a search so only matching memories come back.", "Your feedback, spec to update", "Agents also need to see which tags exist, or they will guess. I propose a tool that lists tags with counts.", true]
+] }, { title: "New questions from this round", items: [
+  ["Q14", "open", "How do a memory's resources become local files for sync?", "New", "Recommendation: a main file plus sibling resource files where the harness format allows it, otherwise the main file only and resources are read by tool.", true],
+  ["Q15", "open", "How many resources per memory, and how large?", "New", "Recommendation: at most 10 per memory, 8,000 characters each, to be measured.", true],
+  ["Q16", "open", "Should sync write every memory of a project to disk, or only pinned ones? Claude Code loads its memory index into every session, so mirroring everything works against D36.", "New", "Recommendation: keep \"everything\" as the default, because you want the two machines to match, add a \"pinned only\" choice, and show the index size before the first sync.", true],
+  ["Q17", "open", "When an Admin runs the reviewer, what may it read?", "New", "Recommendation: the everyone scope and flagged everyone memories only. A person's own memories only with that person's permission and the usual Admin-read notices.", true],
+  ["Q18", "open", "Who names a project? Projects belong to a person today, and you said an Admin names or renames one.", "New", "Recommendation: the person names their own, defaulting to the git remote. If an Admin can rename, that Admin sees project names, so it must be a told read.", true],
+  ["Q19", "open", "Does \"no, not what I'm looking for\" count as a downvote?", "New", "Recommendation: no. A memory that misses one search is not wrong. Only wrong, outdated and unsafe should lower weight.", true],
+  ["Q20", "open", "Tags only, or also one category per memory?", "New", "Recommendation: tags only, with the required-tags filter. The type field already gives one fixed category.", true],
+  ["Q21", "open", "Should a memory carry a \"last checked\" date, so stale ones can be spotted?", "New", "Recommendation: yes. All 22 of your memory files carry a date, and many name files or issues that can change.", true],
+  ["Q22", "open", "Should the brain's tools and sync support exactly three minor versions?", "New", "Today the docs give each reporter a min to max range (Claude Code 0.2.0 to 1.7.0). Three minors is the deprecation window, not a compatibility rule.", true]
+] });
+COVER[8] = ["Product and UX holes", "prove", "Revoked grants, project deletion, restore and blocked senders have rules. Merge notices and the new summary view need mockups (P4, Q7)."];
+COVER[9] = ["Basis for cutting issues", "open", "You agreed routes, events, error codes and interface names go in the spec (G7). Not written yet."];
+COVER[10] = ["Missing entirely", "open", "Each has an answer now (backup, versions, reindex alert, rate limits, English only, one server). Spec text is still to write."];
+PROC.splice(2, 0, ["Update the spec to match this board", "ok", "Done as draft 3. Not committed. Doc checks pass."]);
+PROC.push(["Issues list the required testing in their Definition of Done", "ok", "Your answer to G9."]);
+
+/* ---------- round 3: your answers ---------- */
+GROUPS.forEach(function (g) {
+  if (g.title === "New questions from this round") g.title = "Second-round questions";
+  g.items.forEach(function (it) { it[5] = false; });
+});
+const UPD3 = {
+  Q9: { st: "ok", note: "Your answer: use what fits, and make the library trivial to switch. I chose MiniSearch. See D39." },
+  Q14: { st: "ok", note: "Agreed: a main file plus sibling resource files where the harness format allows it, otherwise the main file only and resources are read by tool." },
+  Q15: { st: "ok", note: "Agreed: at most 10 resources per memory, 8,000 characters each, to be measured." },
+  Q16: { st: "ok", note: "Agreed: sync everything by default, offer \"pinned only\", and show the index size before the first sync." },
+  Q17: { st: "ok", note: "Agreed: an Admin-run review reads the everyone scope and flagged everyone memories only. A person's own memories need that person's permission and the usual Admin-read notices." },
+  Q18: { st: "ok", note: "Your answer: a person names their own projects, and an Admin can name them too. Because project names are the person's content, an Admin who lists, names or renames one is a told read: console notice, reporter callout and log entry." },
+  Q19: { st: "open", note: "You leaned to a downvote, so the same miss does not come back. What that misses: a downvote lowers the memory for every search, not just this one, so a good memory that did not fit one question sinks. My proposal: (1) remember rejections for the session, so later searches in that session leave them out, which solves the resurfacing, and (2) record \"not relevant\" as a light -1, against -4 for wrong, outdated or unsafe. Please confirm or choose a plain downvote." },
+  Q20: { st: "ok", note: "Agreed: tags act as categories. Tags only." },
+  Q21: { st: "ok", note: "Your answer: yes. My proposal for the detail: the owner, or their agent after checking the fact, sets it, and the reviewer queues old ones." },
+  Q22: { st: "ok", note: "Your answer: three versions counted by major and minor, never patch. 0.7, 1.0 and 1.1 are three. So a 1.1 server accepts reporters from 0.7.x, 1.0.x and 1.1.x. Releases are counted from the release history, not by arithmetic. See Q23 for how far this reaches." },
+  Q1: { st: "ok", note: "Your answer: the Admin approves, with the owner as the fallback. Confirmed: the owner approves only when the Admin setting says so or no Admin is available." },
+  G3: { note: "Answered in Q22: three versions by major and minor." }
+};
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    const u = UPD3[it[0]]; if (!u) return;
+    if (u.st) it[1] = u.st;
+    if (u.note) it[4] = u.note;
+    it[5] = true;
+  });
+});
+GROUPS.forEach(function (g) {
+  if (g.title === "New from your feedback") g.items.push(
+    ["D39", "ok", "The search library is swappable. MiniSearch sits behind the MemoryIndex interface, the way databases sit behind storage adapters: one contract test every implementation must pass, and a check that no other code imports a search library.", "Your answer to Q9, spec to update", "Libraries score differently, so the contract tests behaviour (what matches, what is filtered, a name match beating a body match), not exact scores.", true]
+  );
+  if (g.title === "Second-round questions") g.items.push(
+    ["Q23", "open", "Does the three-version rule cover only the brain, or the whole reporter?", "New", "Today the reporter range runs from 0.2.0 to 1.7.0, so applying it to everything would drop old reporters. Recommendation: the brain's tools and sync only.", true]
+  );
+});
+
+/* ---------- round 4 ---------- */
+GROUPS.forEach(function (g) { g.items.forEach(function (it) { it[5] = false; }); });
+const UPD4 = {
+  Q19: { st: "ok", note: "Agreed: a rejected memory is left out of later searches in that session, and \"not relevant\" records a light -1, against -4 for wrong, outdated or unsafe. The amounts are adjustable (D40)." },
+  Q23: { st: "ok", note: "Agreed: the three-version rule covers the brain's tools and sync only. The reporter's existing range is unchanged." },
+  D21: { t: "Weight is uses and votes that fade with a 90-day half-life, computed lazily. A use counts once per person, memory and day. A withdrawn vote takes back only what is left of it. \"Not relevant\" is -1, and wrong, outdated or unsafe is -4." }
+};
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    const u = UPD4[it[0]]; if (!u) return;
+    if (u.st) it[1] = u.st;
+    if (u.t) it[2] = u.t;
+    if (u.note) it[4] = u.note;
+    it[5] = true;
+  });
+});
+GROUPS.forEach(function (g) {
+  if (g.title === "New from your feedback") g.items.push(
+    ["D40", "ok", "The weight amounts (use, upvote, each downvote reason) and the half-life are Admin settings with these defaults, so they can be tuned without a code change.", "Your answer to Q19, spec to update", "Whether a change re-scores the past is Q24.", true]
+  );
+  if (g.title === "Second-round questions") g.items.push(
+    ["Q24", "open", "When the amounts are changed, do they apply only from then on, or re-score memories already weighted?", "New", "A memory stores only its current weight today, and daily use rows are swept after two days, so re-scoring would be impossible later. Recommendation: apply changes going forward, but keep a small history of votes and daily use counts from the start, without who read what, so re-scoring can be added without a data gap.", true]
+  );
+});
+
+/* ---------- round 5 ---------- */
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (it[0] === "Q24") { it[1] = "ok"; it[4] = "Agreed: changed amounts apply from then on. A small history of votes and of daily use counts per memory is kept from the start, without who read what, so re-scoring can be added later (D41)."; it[5] = true; }
+    if (it[0] === "D40") { it[4] = "A change applies from then on (Q24, D41)."; it[5] = true; }
+  });
+});
+GROUPS.forEach(function (g) {
+  if (g.title === "New from your feedback") g.items.push(
+    ["D41", "ok", "Changed weight amounts apply only going forward. The server keeps a history of votes and of use counts per memory per day, with no record of who read what, so that re-scoring the past stays possible.", "Your answer to Q24, spec to update", "The two-day table that stops one person counting twice in a day is separate and is still swept. The history's retention is set when the spec is written.", true]
+  );
+});
+
+/* ---------- round 6: what was waiting on you but had no id ---------- */
+GROUPS.forEach(function (g) { g.items.forEach(function (it) { it[5] = false; }); });
+GROUPS.splice(0, 0, { title: "Waiting on you: ideas from your memory files", items: [
+  ["Q25", "open", "Should there be a suggested outline per memory type (\"Why\", \"How to apply\")?", "Your memory files: 21 of 22 use it", "Recommendation: yes, shown in the tool description and the console editor, never enforced.", true],
+  ["Q26", "open", "Should [[name]] links in a local file become \"related\" links in the brain, on import and sync?", "Your memory files: 16 of 22 link", "Recommendation: yes. It uses the edges already in the first schema, and a link must keep working when a name changes.", true],
+  ["Q27", "open", "Should the memory-keeping habits be built into the brain's tools (update rather than duplicate, delete what is wrong, skip what the repository records, use real dates), with a save showing similar memories first?", "How your harness handles memories", "Recommendation: yes. It is the cheapest way to stop duplicates and stale notes.", true],
+  ["Q28", "open", "Should a share or promotion warn when the text has a network address or a home folder path?", "Your memory files: 1 of 22 has an address", "Recommendation: yes, a warning that does not block.", true]
+] }, { title: "Waiting on you: my readings in spec draft 3", items: [
+  ["Q29", "open", "Does \"no Admin is available\" mean a promotion has waited more than 7 days with no Admin decision?", "SPEC 13.3", "The 7 days and the definition are mine. Recommendation: accept, with the time as an Admin setting.", true],
+  ["Q30", "open", "May a person still start a review of their own memories, as well as the Admin-run review?", "SPEC 13.6", "Recommendation: yes. It was agreed earlier, and it needs no extra permission.", true],
+  ["Q31", "open", "Should search look inside resource content, or only at resource names and descriptions?", "SPEC 13.4", "The draft searches names and descriptions only, so a fact written only inside a resource is never found. Recommendation: search the content too, weighted lowest, and measure the index size.", true],
+  ["Q32", "open", "Is a new podiumctl restore command acceptable, so a restore into a different version can be refused?", "SPEC 13.9", "A server starting on an older database just migrates it, so nothing else can tell. Recommendation: yes, as its own issue.", true]
+] });
+PROC.push(["Answer the open questions Q25 to Q32", "open", "Waiting on you."]);
+
+/* ---------- round 7: found by the open-item audit ---------- */
+GROUPS.splice(2, 0, { title: "Waiting on you: found by an audit of this board", items: [
+  ["Q33", "open", "Do you approve the amendment to section 1 of the spec (a goal, a sixth exception to the conversation-content rule, and a change to its non-goals)?", "SPEC 1", "Recommendation: yes. It was noted as yours to approve but never asked.", true],
+  ["Q34", "open", "Should the weight history be kept as long as the memory it belongs to?", "SPEC 13.9", "My default. Recommendation: yes. It holds no voter or reader and is purged with the memory.", true],
+  ["Q35", "open", "Who may set a memory's \"last checked\" date: the owner, and the owner's agent after checking the fact?", "SPEC 13.2", "You agreed to the date (Q21). Who sets it was my detail. Recommendation: both, and the reviewer queues old ones.", true],
+  ["Q36", "open", "Should a shared (everyone) memory be hidden once 3 different people flag it, or an Admin confirms one flag?", "SPEC 13.2", "My number, shown inside D24 as decided. Recommendation: keep 3, as an Admin setting.", true],
+  ["Q37", "open", "Should a sync stop and ask above 20 files written or deleted, 3 memories trashed, or 10 trashed in 24 hours?", "SPEC 13.5", "My numbers. Recommendation: keep them and tune on use.", true],
+  ["Q38", "open", "Are the retention periods right: tombstone 180 days, review proposals 90 days, answered share offers and resolved conflicts 30 days?", "SPEC 13.9", "My numbers. Your 30-day trash is separate and settled (D23). Recommendation: keep them.", true],
+  ["Q39", "open", "Are the size and rate limits right: 5,000 memories a person, 20,000 shared (500 a person), 20 open share offers, 60 tool calls a minute, 20 saves a minute, 200 an hour, 20 flags a day?", "SPEC 13.9", "My numbers, all Admin settings. Recommendation: keep them and measure (P3).", true],
+  ["Q40", "open", "When the second review is done and your answers are in, may I commit, open the PR into development, and then file the issues in dependency order?", "Process", "Recommendation: commit and PR first, and file issues only after you have read the PR.", true]
+] });
+GROUPS.forEach(function (g) {
+  if (g.title === "Prove first, before any issue is cut") g.items.push(
+    ["P5", "prove", "Confirm the search library's features against its documentation: BM25 ranking with field boosts, prefix and fuzzy matching, removing and replacing entries, and a custom tokenizer.", "SPEC 13.4", "The comparison on this board is from my own knowledge. Download counts, versions and licences are from npm.", true]
+  );
+});
+PROC.forEach(function (r) {
+  if (r[0] === "Answer the open questions Q25 to Q32") { r[0] = "Answer the open questions Q25 to Q40"; }
+  if (r[0].indexOf("Commit, PR into development") === 0) r[2] = "Waiting on you (Q40).";
+});
+COVER.forEach(function (r) {
+  if (r[0] === "Consent and non-goals") { r[1] = "open"; r[2] = "Everything is off by default. The amendment to section 1 of the spec needs your approval (Q33)."; }
+});
+
+/* ---------- round 8: second review ---------- */
+GROUPS.forEach(function (g) { g.items.forEach(function (it) { it[5] = false; }); });
+const R2 = "Second review";
+GROUPS.splice(0, 0, { title: "Waiting on you: the second review, answer these first", items: [
+  ["Q41", "open", "May an Admin-run review read a person's own memories at all? The text then sits in the Admin's session, transcript, recording and agent answers, where another Admin can read it with no notice to the owner.", R2, "Recommendation: leave it out of the first version. The Admin reviews shared memories, and a person reviews their own. This changes your answers to Q3 and Q17.", true],
+  ["Q42", "open", "Today the owner can edit an approved shared memory with no new approval, and can restore one an Admin trashed. Should both go back through approval?", R2, "Recommendation: yes. An edit needs a new approval, with the approved text staying live meanwhile, and a restore lands in the owner's private memories.", true],
+  ["Q43", "open", "May an Admin purge a memory at once when the reason is an exposed secret, instead of waiting 30 days?", R2, "Recommendation: yes, for that reason only, with the owner told. This is an exception to D23.", true],
+  ["Q44", "open", "Should silence ever approve a promotion? After 7 days with no Admin, the owner can publish to everyone.", R2, "Recommendation: no. The owner approves only when the Admin setting says so. This changes your answer to Q1.", true],
+  ["Q46", "open", "Should memories an agent wrote on its own be written to disk without a person looking? Injected text could become a file every session loads.", R2, "Recommendation: a per-folder switch, \"write my agents' memories to disk\", off by default.", true],
+  ["Q48", "open", "Should the brain and sync also need an option set on the machine, as other features do, so a browser alone cannot turn on file writing?", R2, "Recommendation: yes. The project's pattern requires it, or a decision explaining the departure.", true]
+] }, { title: "Waiting on you: the second review, design details", items: [
+  ["Q45", "open", "How is a project identified from git? Today only owner/name is read, so two hosts collide, and with no remote the folder name is used.", R2, "Recommendation: host, owner and name with credentials removed, used as a suggested name only. Holding a project still needs a rule or grant, and a directory rule wins.", true],
+  ["Q47", "open", "What happens to a reporter newer than its server, and to development builds?", R2, "Recommendation: accept only the server's minor line and the two before it, say \"upgrade the server\" for a newer reporter, count a development build as the next release, and amend the rule that a mismatch only warns.", true],
+  ["Q49", "open", "Should each git worktree be its own synced folder? This repository makes a worktree per pull request, each needing its own approval.", R2, "Recommendation: worktrees share the main checkout's folder.", true],
+  ["Q50", "open", "A much-used memory cannot be demoted: daily use pushes its weight so high that five \"wrong\" votes change nothing. Should uses be capped?", R2, "Recommendation: yes. Cap how much uses alone can add, so votes still move the result.", true],
+  ["Q51", "open", "An agent must open a memory to reject it, which counts as a use and loads the text. May it reject from the summary?", R2, "Recommendation: yes. Rejecting from a summary only leaves it out of that session. Weight changes only after opening, once per person per day. This changes Q19.", true],
+  ["Q52", "open", "An Admin's project rename is shown to the person's agents, so an Admin could put instructions there. Should names be restricted?", R2, "Recommendation: yes, letters, digits and hyphens, at most 60 characters.", true]
+] });
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    if (it[0] === "Q22") { it[4] += " Correction: the releases went from 0.14.3 to 1.0.0. The 0.7 to 1.0 example is not real history, and I was wrong to repeat it as one."; it[5] = true; }
+    if (it[0] === "G1") { it[4] += " Correction: docs/SERVER.md already has backup guidance for PostgreSQL and MariaDB. There is no backup command."; it[5] = true; }
+    if (it[0] === "D8") { it[4] = "Correction: this limit also means a process holding the token can sign in to the console and perform the acts D9 calls human-only."; it[5] = true; }
+  });
+});
+PROC.forEach(function (r) {
+  if (r[0].indexOf("Second adversarial review") === 0) { r[1] = "ok"; r[2] = "Done: 36 findings. Not ready to cut into issues."; }
+  if (r[0] === "Answer the open questions Q25 to Q40") r[0] = "Answer the open questions Q25 to Q52";
+});
+PROC.push(["Fix the review findings that need no decision", "open", "After your answers: ids that survive a restore, resource ids, the sync protocol, missing routes, index updates, vote keys, secret scans and wrong claims."]);
+
+/* ---------- round 9: answers to Q25-Q40 ---------- */
+const UPD9 = {
+  Q25: "Your answer: yes. Shown in the tool description and the console editor, never enforced.",
+  Q26: "Your answer: yes.",
+  Q27: "Your answer: yes, absolutely.",
+  Q28: "Your answer: yes, a warning that does not block.",
+  Q29: "Your answer: as recommended, 7 days as an Admin setting. Note: Q44, raised by the second review, asks whether silence should approve at all.",
+  Q30: "Your answer: yes.",
+  Q31: "Your answer: search the content too. Not searching it can miss something important.",
+  Q32: "Your answer: absolutely.",
+  Q33: "Your answer: yes, the amendment to section 1 is approved.",
+  Q34: "Your answer: yes.",
+  Q35: "Your answer: both the owner and the owner's agent.",
+  Q36: "Your answer: as recommended, 3 people, as an Admin setting.",
+  Q37: "Your answer: as recommended.",
+  Q38: "Your answer: yes.",
+  Q39: "Your answer: yes. It is unlikely to get this big, and it can be tuned later.",
+  Q40: "Your answer: commit and open the PR. Filing the issues is discussed in detail first."
+};
+GROUPS.forEach(function (g) {
+  if (g.title.indexOf("Waiting on you: ideas") === 0) g.title = "Answered: ideas from your memory files";
+  if (g.title.indexOf("Waiting on you: my readings") === 0) g.title = "Answered: my readings in spec draft 3";
+  if (g.title.indexOf("Waiting on you: found by an audit") === 0) g.title = "Answered: found by an audit of this board";
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (UPD9[it[0]]) { it[1] = "ok"; it[4] = UPD9[it[0]]; it[5] = true; }
+  });
+});
+PROC.forEach(function (r) {
+  if (r[0] === "Answer the open questions Q25 to Q52") r[0] = "Answer the open questions Q41 to Q52";
+  if (r[0].indexOf("Commit, PR into development") === 0) r[2] = "Commit and PR approved (Q40). Issues are discussed with you first.";
+});
+
+/* ---------- round 10: answers to Q41-Q52 ---------- */
+const UPD10 = {
+  Q41: "Your answer: no. An Admin-run review reads shared memories only. A person reviews their own.",
+  Q42: "Your answer: yes. An edit to a shared memory needs a new approval, and a restore of one an Admin trashed lands in the owner's private memories.",
+  Q43: "Your answer: yes, and the log must say what it was. The entry records who, whose, which memory, when and \"purged for an exposed secret\", never the text.",
+  Q44: "Your answer: no. Silence never approves. The owner approves only when the Admin setting says owner, so the 7-day fallback is removed.",
+  Q45: "Your answer: the git remote is good enough, and a project is bigger than one person. The remote rule is settled. What \"bigger than one person\" changes is Q53.",
+  Q46: "Your answer: fine as it is. Agents write memories today, and the brain gives you the tools to see, change and remove them. No extra switch.",
+  Q47: "Your answer: as recommended.",
+  Q48: "Your answer: yes, an option on the machine as well.",
+  Q49: "You were right: this does not apply. I checked this machine: no worktree folder holds memory files, and the repository keeps one memory folder. The review was wrong and I passed it on unchecked.",
+  Q50: "Your answer: yes, cap uses. Deleting by the Admin or owner is a further protection. The cap's value is Q55.",
+  Q51: "Your answer: yes. The summary is what tells an agent whether to open a memory, as with a skill.",
+  Q52: "Your answer: yes, restrict names. A git-derived name keeps its owner/name form (Q56)."
+};
+GROUPS.forEach(function (g) {
+  if (g.title.indexOf("Waiting on you: the second review, answer") === 0) g.title = "Answered: the second review, main decisions";
+  if (g.title.indexOf("Waiting on you: the second review, design") === 0) g.title = "Answered: the second review, design details";
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (UPD10[it[0]]) { it[1] = "ok"; it[4] = UPD10[it[0]]; it[5] = true; }
+    if (it[0] === "Q1" || it[0] === "Q29") { it[4] = "Superseded by Q44: silence never approves a promotion."; it[5] = true; }
+    if (it[0] === "Q3" || it[0] === "Q17") { it[4] = "Superseded by Q41: an Admin-run review reads shared memories only."; it[5] = true; }
+  });
+});
+GROUPS.splice(0, 0, { title: "Waiting on you: raised by your last answers", items: [
+  ["Q53", "open", "You said a project is bigger than one person. Is a project one shared thing per git remote, used by everyone who works in it?", "Your answer to Q45", "Today the spec says a project belongs to one person and its name is private. Recommendation: one shared project per remote. Each person's memories in it stay private, shared memories can belong to it, and its name is no longer private, so an Admin naming it needs no notice.", true],
+  ["Q54", "open", "When an agent works in a repository, does it hold that project automatically, or only after you grant it?", "Your answer to Q45", "Recommendation: automatically, once the reporter's Brain switch is on. Turning the switch on is the consent, and a person can block a project.", true],
+  ["Q55", "open", "How much can uses alone add to a memory's weight?", "Your answer to Q50", "Recommendation: at most 10, as an Admin setting. That keeps a much-used memory ahead, while three \"wrong\" votes cancel it.", true],
+  ["Q56", "open", "May a name taken from git keep its owner/name form, with the tighter rule only for names someone types?", "Your answer to Q52", "Recommendation: yes. Otherwise eengelking/podium could not be a name. Typed names: letters, digits and hyphens, at most 60 characters.", true]
+] });
+PROC.forEach(function (r) {
+  if (r[0] === "Answer the open questions Q41 to Q52") r[0] = "Answer the open questions Q53 to Q56";
+  if (r[0].indexOf("Fix the review findings") === 0) r[2] = "In progress on the pull request.";
+  if (r[0].indexOf("Commit, PR into development") === 0) { r[1] = "ok"; r[2] = "Draft pull request 1384 is open. Issues are discussed with you first."; }
+});
+
+/* ---------- round 11: answers to Q53-Q56 ---------- */
+const UPD11 = {
+  Q53: "Your answer: yes. A project is anything one or more people work on, today one person with many agents, later many people with many agents. What that means for who reads which memory is Q57.",
+  Q54: "Your answer: yes, automatically, as Claude Code does with a memory folder. Change repository and the project and its memories change with it. The aim is to share across machines, users and teams.",
+  Q55: "Your answer: as recommended, 10.",
+  Q56: "Your answer: the project name alone, so a fork keeps access: eengelking/podium and foobar/podium are both podium. You accept other issues as a starting point. One of them matters if projects share memories between people (Q58)."
+};
+GROUPS.forEach(function (g) {
+  if (g.title === "Waiting on you: raised by your last answers") g.title = "Answered: projects and weights";
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (UPD11[it[0]]) { it[1] = "ok"; it[4] = UPD11[it[0]]; it[5] = true; }
+    if (it[0] === "D1") { it[4] = "May change: Q57 asks whether a third scope, for a project, is wanted."; it[5] = true; }
+  });
+});
+GROUPS.splice(0, 0, { title: "Waiting on you: what a shared project means", items: [
+  ["Q57", "open", "Can people who work on the same project read each other's memories in it?", "Your answers to Q53 and Q54", "This decides the design. You said earlier that nobody reads another person's memories without permission, and now that memories should be shared across users and teams. Recommendation: three scopes. Person (private, the default), project (everyone working on it, chosen for each memory) and everyone. This changes D1.", true],
+  ["Q58", "open", "If project memories are shared, how does someone become a member? With the name alone, anyone with a folder whose repository is called podium would join podium.", "Your answer to Q56", "That would let a stranger read the project's memories and plant text for its members' agents. Recommendation: your own memories follow the name automatically, but reading and writing the shared ones needs a one-time approval by a member or an Admin.", true],
+  ["Q59", "open", "May an agent write a shared project memory by itself, or does a person approve it first?", "Follows Q57", "Recommendation: the agent writes a private memory, and its person publishes it to the project with one action. No Admin approval.", true],
+  ["Q60", "open", "If a project is shared, its name is no longer one person's. Does an Admin naming it still need to notify anyone?", "Follows Q53", "Recommendation: no notice for the name itself, but members see who renamed it, and an Admin reading a project memory notifies its author.", true]
+] });
+PROC.forEach(function (r) {
+  if (r[0] === "Answer the open questions Q53 to Q56") r[0] = "Answer the open questions Q57 to Q60";
+  if (r[0].indexOf("Fix the review findings") === 0) { r[1] = "ok"; r[2] = "Done on the pull request. Not reviewed again."; }
+});
+
+/* ---------- round 12: answer to Q57 ---------- */
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (it[0] === "Q57") { it[1] = "ok"; it[4] = "Your answer: yes, but only a shared memory, never a personal one. Memories are tied to a specific project, because what is true in one repository can be false in another. How that is read is Q61 to Q64."; it[5] = true; }
+    if (it[0] === "D1" || it[0] === "D4" || it[0] === "D10" || it[0] === "D11") { it[4] = "Changing with your answer to Q57. See Q61 to Q64."; it[5] = true; }
+  });
+});
+GROUPS.splice(0, 0, { title: "Waiting on you: what \"tied to a project\" changes", items: [
+  ["Q61", "open", "You wrote that the goal is sharing across machines and teams \"but for project to project\". Do you mean per project, with nothing crossing from one project to another?", "Your answer to Q57", "My reading: yes. A memory stays in its project unless a person writes it again somewhere else. The diagram shows this.", true],
+  ["Q62", "open", "May a personal memory belong to no project, for preferences that hold everywhere?", "Follows Q57", "Such as \"tell me how long it will take\". Recommendation: yes, personal only, never shared, and only for the user and feedback types. This changes D4, where a memory with no project reaches all your agents.", true],
+  ["Q63", "open", "Does the scope that reaches everyone on the server, across projects, go away?", "Follows Q57", "Recommendation: yes. \"Shared\" then means the project's members. The Admin approval of promotions (Q44), the Read shared memories switch (D10) and promotion to everyone go with it.", true],
+  ["Q64", "open", "Is an Admin who reads a shared project memory reading something private?", "The project's Admin rule", "A shared memory is seen by members only, not by the whole server. Recommendation: yes. The author is told, as for any private read. That means an Admin-run review (Q41) notifies the authors of what it reads, and the notice cannot follow the text into the Admin's session.", true]
+] });
+PROC.forEach(function (r) {
+  if (r[0] === "Answer the open questions Q57 to Q60") r[0] = "Answer the open questions Q58 to Q64";
+});
+
+/* ---------- round 13: the project model settled ---------- */
+ST.assumed = "Assumed";
+const UPD13 = {
+  Q58: "Your answer: the group assignment in Admin decides which projects someone is a member of.",
+  Q59: "Your answer: as recommended. An agent writes a personal memory, and its person shares it with one action.",
+  Q60: "Your answer: like renaming a channel in Slack. People see the new name. No notice.",
+  Q61: "Your answer: correct. A memory is dedicated to its project, projects come first in the UI and the database, and a user or agent is shown only the memories of the project they are working on.",
+  Q62: "Your answer: yes, marked so it is clear it belongs to no project. I call it Global. Personal only, for the user and feedback types.",
+  Q63: "Your answer: yes. If everyone on the server works on one project, that project's members are everyone.",
+  Q64: "Your answer: as recommended. The author is told."
+};
+GROUPS.forEach(function (g) {
+  if (g.title.indexOf("Waiting on you: what") === 0) g.title = "Answered: projects and sharing";
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (UPD13[it[0]]) { it[1] = "ok"; it[4] = UPD13[it[0]]; it[5] = true; }
+    if (["D1", "D4", "D10", "D11", "D16", "D17", "Q1", "Q29", "Q44"].indexOf(it[0]) !== -1) { it[4] = "Replaced by the project model, D42 to D47."; it[5] = true; }
+    if (it[0] === "Q41") { it[4] = "Replaced by A5 unless you object: a project member reviews shared memories."; it[5] = true; }
+  });
+});
+GROUPS.splice(0, 0, { title: "The project model", items: [
+  ["D42", "ok", "Every memory belongs to a project, and a user or agent is shown only the memories of the project it is working on. Projects come first in the console and the database.", "Q61", "", true],
+  ["D43", "ok", "A Global memory belongs to no project. It is personal only, for preferences about you (user and feedback types).", "Q62", "", true],
+  ["D44", "ok", "A memory is personal (only you) or shared (the members of its project). There is no server-wide scope.", "Q57, Q63", "", true],
+  ["D45", "ok", "An Admin decides who is a member of a project, through groups.", "Q58", "", true],
+  ["D46", "ok", "An agent writes personal memories. Its person shares one with the project in one action.", "Q59", "", true],
+  ["D47", "ok", "Renaming a project shows everyone the new name, like a Slack channel, with no notice.", "Q60", "", true],
+  ["D48", "ok", "An Admin who reads a shared or personal memory tells its author. An Admin still never edits.", "Q64", "", true]
+] }, { title: "Assumed: my details, standing unless you object", items: [
+  ["A1", "assumed", "An Admin assigns a project to groups, and can also add a single person to it.", "Follows D45", "Podium puts a person in at most one group today, so groups alone would stop someone joining a project outside their group.", true],
+  ["A2", "assumed", "In a repository whose project no one is assigned to yet, your personal memories work. Sharing starts once an Admin assigns it.", "Follows D45, Q54", "", true],
+  ["A3", "assumed", "The Admin approval of promotions and the \"Read shared memories\" switch go away. Sharing is the person's one action, and being a member is what lets you read.", "Follows D44, D46", "", true],
+  ["A4", "assumed", "A change to a shared memory reaches others only when its author shares it again. Until then they see the version they had.", "Replaces the approval in Q42", "An agent's change is a personal draft.", true],
+  ["A5", "assumed", "A project member runs the review of shared memories. The Admin keeps reading and deleting, with the author told.", "Replaces Q41", "An Admin's review would notify every author and leave their text in the Admin's session.", true],
+  ["A6", "assumed", "Sharing a memory with one person stays, only between members of the same project.", "Keeps D12", "", true],
+  ["A7", "assumed", "Counts that were for the server-wide scope become per project: 20,000 shared memories in a project, 500 per person in it.", "SPEC 13.9", "", true]
+] });
+COVER[8] = ["Product and UX holes", "open", "The project model changes access, the console and sharing. The mockup (P4) has to show projects first."];
+PROC.forEach(function (r) {
+  if (r[0] === "Answer the open questions Q58 to Q64") { r[0] = "Look over the project model and the assumed details"; r[1] = "open"; r[2] = "Then the spec and the pull request are rewritten to match."; }
+});
+
+/* ---------- round 14: many groups per person ---------- */
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (it[0] === "A1") { it[1] = "ok"; it[2] = "Withdrawn: an Admin assigns projects to groups, with no separate adding of single people."; it[4] = "Replaced by D49. With many groups per person, groups are enough."; it[5] = true; }
+    if (it[0] === "D45") { it[4] = "See D49."; it[5] = true; }
+  });
+});
+GROUPS.forEach(function (g) {
+  if (g.title === "The project model") g.items.push(
+    ["D49", "ok", "A person can be in as many groups as needed. Their projects are everything their groups are assigned.", "Your message", "This changes Podium itself, not only the brain: today a person is in at most one group. It touches the database on all three adapters, Admin, how the console arranges people, and the My group chat.", true]
+  );
+  if (g.title.indexOf("Assumed: my details") === 0) g.items.push(
+    ["A8", "assumed", "Many groups per person is its own change, built and released before the brain's sharing.", "Follows D49", "", true],
+    ["A9", "assumed", "Where one group is expected today: a person has a My group chat for each of their groups, appears under each group in the console, and is an Admin if any of their groups is Administrators.", "Follows D49", "", true]
+  );
+});
+
+/* ---------- round 15: A4 corrected ---------- */
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (it[0] === "A4") { it[1] = "ok"; it[2] = "A shared memory stays shared at all times. When it is updated, what members see is updated."; it[4] = "Your answer, replacing my assumption. The author, or their agent, makes the change, and members see it at once. Version history lets it be undone."; it[5] = true; }
+    if (it[0] === "Q42") { it[4] = "The edit half is replaced by A4: an update to a shared memory takes effect at once. A memory an Admin trashed still comes back as personal."; it[5] = true; }
+  });
+});
+GROUPS.forEach(function (g) {
+  if (g.title.indexOf("Assumed: my details") === 0) g.items.push(
+    ["A10", "assumed", "Another member's shared memory is found by search and is not written into your local memory files.", "Keeps D27", "So an update by someone else never changes a file on your machine.", true]
+  );
+});
+
+/* ---------- round 16: agent updates need the owner's approval ---------- */
+GROUPS.forEach(function (g) {
+  g.items.forEach(function (it) {
+    it[5] = false;
+    if (it[0] === "A4") { it[2] = "A shared memory stays shared at all times. It never has to be shared again, and members get each approved update."; it[4] = "Your answer. Who has to approve an update is D50. My earlier note, that an agent's change reaches members at once, was wrong."; it[5] = true; }
+    if (it[0] === "Q42") { it[4] = "Your answer: yes. Restated as D50, with the owner approving, since there is no Admin approval any more. A memory an Admin trashed still comes back as personal."; it[5] = true; }
+  });
+});
+GROUPS.forEach(function (g) {
+  if (g.title === "The project model") g.items.push(
+    ["D50", "ok", "When an agent updates a shared memory, the owner has to approve the change. Members see the previous version until then, and the share updates on approval. An edit the owner makes themselves takes effect at once.", "Q42, A4", "", true]
+  );
+  if (g.title.indexOf("Assumed: my details") === 0) g.items.push(
+    ["A11", "assumed", "An agent's update to a personal memory takes effect without approval.", "Keeps Q46", "Agents write local memories on the fly today, and only its owner reads a personal memory.", true]
+  );
+});
+
+/* ---------- round 17: the spec rewritten to the project model ---------- */
+GROUPS.forEach(function (g) {
+  const notes = {
+    D2: "Now reads: shared memories keep the name as text.",
+    D3: "Replaced by D42 and Q54: no grants. A directory rule only names a project where there is no git remote.",
+    D6: "Now four: the Read shared memories switch went with A3. The machine option of Q48 also applies.",
+    D9: "Promotion is gone. Sharing and approving a change are console acts.",
+    D12: "Now between members of one project (A6), with no project to pick.",
+    D16: "Still holds, with directory rules in place of access rules. I had marked it replaced.",
+    D24: "Read personal and shared for person and everyone.",
+    D27: "Now: only your own memories are mirrored. Global ones only into folders that opt in.",
+    D32: "Read shared for everyone.",
+    D33: "Scopes are personal and shared.",
+    Q2: "Your answer: off by default. It is now the Include Global memories option."
+  };
+  g.items.forEach(function (it) { it[5] = false; if (notes[it[0]]) { it[4] = notes[it[0]]; it[5] = true; } });
+  if (g.title.indexOf("Assumed: my details") === 0) [
+    ["A12", "A git repository with no remote is named by hand, like a directory with no git.", "SPEC 13.3"],
+    ["A13", "Project names are compared ignoring case.", "SPEC 13.3"],
+    ["A14", "Renaming a project changes only the shown name, so the repository name still finds it. A member or an Admin can rename.", "SPEC 13.3, D47"],
+    ["A15", "A person who leaves a project keeps what they shared there, shared. They can delete it but not change what members see.", "SPEC 13.3"],
+    ["A16", "There is no unshare, and a shared memory cannot move to another project. The owner can delete it.", "SPEC 13.3, from your A4 answer"],
+    ["A17", "An agent changes only its own owner's memories. Another member's agent can vote or flag.", "SPEC 13.3"],
+    ["A18", "Anything that arrives through the reporter, a synced file included, counts as an agent's change. Only console edits are the owner's own.", "SPEC 13.3, D50"],
+    ["A19", "An agent's delete of a shared memory waits for the owner's approval too.", "SPEC 13.3, D50"],
+    ["A20", "A new memory goes into the current project unless the agent asks for Global.", "SPEC 13.3"],
+    ["A21", "When an Admin reads a session that was shown another person's shared memory, that author is told. The server records which ones a session was shown.", "SPEC 13.3, the Admin rule"],
+    ["A22", "A project's name is not private content: an Admin lists projects without a notice.", "SPEC 13.3, D47"],
+    ["A23", "A project that holds memories cannot be deleted.", "SPEC 13.3"],
+    ["A24", "An Admin who is a member can start a review as a member. There is no separate Admin-run review.", "SPEC 13.6, A5"],
+    ["A25", "Your approval of the section 1 amendment (Q33) still stands, with the wording now saying memory text reaches another person by project sharing or an accepted offer.", "SPEC 1"]
+  ].forEach(function (a) { g.items.push([a[0], "assumed", a[1], a[2], "", true]); });
+  if (g.title.indexOf("Prove first") === 0) g.items.push(["P6", "prove", "A third adversarial review, of the project model, before any issue is cut. Neither review saw it.", "SPEC 13.10", "It spends tokens. I will say how much before starting one.", true]);
+});
+COVER[0] = ["Security and access control", "prove", "Reader and project come from the credential and the session, never an argument. Not reviewed under the project model (P6). A hostile process with the token is an accepted limit (D8)."];
+COVER[1] = ["The Admin rule", "prove", "Notices for personal and shared memories, member Admins and read sessions. The build check does not see memory fields yet (P2)."];
+COVER[6] = ["Consent and non-goals", "ok", "Everything is off by default. Section 1 wording changed with the model (A25)."];
+COVER[8] = ["Product and UX holes", "prove", "Projects first, approvals and sharing need the mockup (P4)."];
+COVER[9] = ["Basis for cutting issues", "prove", "Names are written in SPEC 13.11. The project model is not reviewed (P6)."];
+COVER[10] = ["Missing entirely", "prove", "Written into the spec. A third review would look for what is still missing (P6)."];
+PROC[0] = ["Branch and worktree for the spec", "ok", "docs/brain-spec."];
+PROC[1] = ["Doc checks: indexes, frontmatter, citations, links", "ok", "All pass on draft 4."];
+PROC[2] = ["Update the spec to match this board", "ok", "Done as draft 4, committed and pushed."];
+PROC[5] = ["Patterns check against docs/PATTERNS.md", "ok", "Docs only: relies on the Docs patterns, alters none."];
+PROC[11] = ["Look over the project model", "ok", "You said go."];
+
+/* ---------- small helpers ---------- */
+const NS = "http://www.w3.org/2000/svg";
+function el(p, n, a, t) { const e = document.createElementNS(NS, n); for (const k in (a || {})) e.setAttribute(k, a[k]); if (t != null) e.textContent = t; if (p) p.appendChild(e); return e; }
+function h(tag, attrs, text) { const e = document.createElement(tag); for (const k in (attrs || {})) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; }
+function icon(kind) {
+  const s = el(null, "svg", { viewBox: "0 0 14 14", "aria-hidden": "true" });
+  const c = { fill: "none", stroke: "currentColor", "stroke-width": "1.8", "stroke-linecap": "round", "stroke-linejoin": "round" };
+  if (kind === "ok") { el(s, "circle", Object.assign({ cx: 7, cy: 7, r: 5.8 }, c)); el(s, "path", Object.assign({ d: "M4.2 7.2l2 2 3.6-4" }, c)); }
+  if (kind === "open") { el(s, "circle", Object.assign({ cx: 7, cy: 7, r: 5.8 }, c)); el(s, "path", Object.assign({ d: "M5.3 5.4a1.8 1.8 0 1 1 2.6 1.6c-.6.3-.9.7-.9 1.3M7 10.4v.2" }, c)); }
+  if (kind === "prove") { el(s, "path", Object.assign({ d: "M3.5 12.5V2M3.5 2.5h7l-1.6 2.4 1.6 2.4h-7" }, c)); }
+  if (kind === "assumed") { el(s, "circle", Object.assign({ cx: 7, cy: 7, r: 5.8 }, c)); el(s, "path", Object.assign({ d: "M4.2 7.8c.9-1.6 2-1.6 2.8-.8s1.9.8 2.8-.8" }, c)); }
+  if (kind === "gap") { el(s, "circle", Object.assign({ cx: 7, cy: 7, r: 5.8, "stroke-dasharray": "2.6 2.2" }, c)); }
+  return s;
+}
+function chip(kind) { const c = h("span", { class: "pill al-st " + { ok: "good", open: "warn", assumed: "soon al-assumed", prove: "bad", gap: "" }[kind] }); c.appendChild(icon(kind)); c.appendChild(document.createTextNode(ST[kind])); return c; }
+
+/* ---------- diagram toolkit ---------- */
+function canvas(fig, id, w, hgt, label) {
+  const wrap = h("div", { class: "al-scroll" });
+  const s = el(null, "svg", { viewBox: "0 0 " + w + " " + hgt, role: "img", "aria-label": label });
+  const d = el(s, "defs");
+  const m = el(d, "marker", { id: id + "-a", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" });
+  el(m, "path", { d: "M0 0L10 5L0 10z", fill: "currentColor" });
+  wrap.appendChild(s); fig.appendChild(wrap);
+  s._id = id; return s;
+}
+function lines(s, x, y, arr, cls) {
+  const n = arr.length;
+  arr.forEach(function (t, i) { el(s, "text", { x: x, y: y + (i - (n - 1) / 2) * 15 + 4.5, "text-anchor": "middle", "class": cls || "" }, t); });
+}
+function box(s, x, y, w, hh, arr, cls) { el(s, "rect", { x: x, y: y, width: w, height: hh, rx: 7, "class": "nd " + (cls || "") }); lines(s, x + w / 2, y + hh / 2, arr); }
+function diamond(s, cx, cy, w, hh, arr, cls) {
+  el(s, "path", { d: "M" + cx + " " + (cy - hh / 2) + "L" + (cx + w / 2) + " " + cy + "L" + cx + " " + (cy + hh / 2) + "L" + (cx - w / 2) + " " + cy + "Z", "class": "nd " + (cls || "") });
+  lines(s, cx, cy, arr);
+}
+function edge(s, pts, o) {
+  o = o || {};
+  const d = pts.map(function (p, i) { return (i ? "L" : "M") + p[0] + " " + p[1]; }).join("");
+  el(s, "path", { d: d, "class": "ed" + (o.dash ? " dash" : "") + (o.acc ? " acc" : ""), "marker-end": o.noarrow ? "" : "url(#" + s._id + "-a)" });
+  if (o.label) el(s, "text", { x: o.lx, y: o.ly, "text-anchor": o.anchor || "middle", "class": "sm" }, o.label);
+}
+function note(s, x, y, t, anchor, cls) { el(s, "text", { x: x, y: y, "text-anchor": anchor || "start", "class": cls || "sm" }, t); }
+
+/* ---------- diagram P: projects and sharing ---------- */
+(function () {
+  const fig = document.getElementById("fig-projects");
+  const s = canvas(fig, "proj", 1000, 380, "Two projects, podium and another. Each holds shared memories that every member reads, and each person's personal memories that only that person reads. Nothing moves between the two projects.");
+  function project(x, name) {
+    box(s, x, 20, 430, 270, [], "zone");
+    note(s, x + 215, 44, "Project: " + name, "middle", "hd");
+    box(s, x + 20, 60, 390, 62, ["Shared memories", "every member of this project reads them"], "good");
+    box(s, x + 20, 196, 185, 62, ["Your personal", "only you"], "hi");
+    box(s, x + 225, 196, 185, 62, ["A teammate's personal", "only them"], "");
+    edge(s, [[x + 112, 196], [x + 112, 122]], { label: "you share", lx: x + 120, ly: 164, anchor: "start" });
+    edge(s, [[x + 317, 196], [x + 317, 122]], { label: "they share", lx: x + 325, ly: 164, anchor: "start" });
+  }
+  project(20, "podium");
+  project(550, "another repository");
+  note(s, 500, 150, "nothing", "middle"); note(s, 500, 166, "crosses", "middle");
+  box(s, 250, 312, 500, 50, ["Global: your personal preferences, such as \"tell me how long it will take\"", "Only you. They belong to no project and follow you"], "hi");
+  fig.appendChild(h("figcaption", {}, "An Admin decides who belongs to each project, through groups. Sharing is a person's action on one memory. A project memory never leaves its project."));
+})();
+
+/* ---------- diagram A: system ---------- */
+(function () {
+  const fig = document.getElementById("fig-system");
+  const s = canvas(fig, "sys", 1000, 470, "System map: harnesses with podium-reporter talk to the Podium server, which keeps memories in one database through Storage and serves search from an in-process index. The console shows them to people and Admins.");
+  box(s, 20, 30, 240, 410, [], "zone"); note(s, 140, 52, "Person's machines", "middle", "hd");
+  box(s, 36, 70, 208, 150, [], "");
+  note(s, 140, 92, "Claude Code", "middle", "hd");
+  box(s, 52, 104, 176, 40, ["podium-reporter", "(tools, sync)"], "hi");
+  box(s, 52, 160, 176, 44, ["local memory files", "(the harness's own)"], "");
+  edge(s, [[140, 144], [140, 160]], { dash: false, noarrow: false });
+  box(s, 36, 250, 208, 150, [], "");
+  note(s, 140, 272, "OpenCode", "middle", "hd");
+  box(s, 52, 284, 176, 40, ["podium-reporter", "(tools, sync)"], "hi");
+  box(s, 52, 340, 176, 44, ["local memory files", "(the harness's own)"], "");
+  edge(s, [[140, 324], [140, 340]]);
+  box(s, 390, 30, 240, 410, [], "zone"); note(s, 510, 52, "Podium server", "middle", "hd");
+  box(s, 406, 70, 208, 62, ["Brain routes", "three gates, then access"], "hi");
+  box(s, 406, 150, 208, 52, ["MemoryIndex", "(in the server process)"], "");
+  box(s, 406, 222, 208, 52, ["Storage", "the only way to the database"], "hi");
+  box(s, 406, 294, 64, 40, ["SQLite"], ""); box(s, 478, 294, 64, 40, ["Postgres"], ""); box(s, 550, 294, 64, 40, ["MariaDB"], "");
+  box(s, 406, 352, 208, 66, ["Admin log", "who, whose, when", "never the text"], "");
+  edge(s, [[510, 132], [510, 150]]);
+  edge(s, [[510, 202], [510, 222]], { label: "ids, then re-check", lx: 600, ly: 214, anchor: "start" });
+  edge(s, [[510, 274], [510, 294]]);
+  box(s, 750, 30, 230, 410, [], "zone"); note(s, 865, 52, "Console (browser)", "middle", "hd");
+  box(s, 766, 70, 198, 62, ["My reporters", "switches, folders, rules"], "");
+  box(s, 766, 150, 198, 72, ["My memories", "projects first, approvals,", "trash, inbox, conflicts"], "");
+  box(s, 766, 240, 198, 62, ["Admin > Memories", "read, delete (told)"], "hi");
+  box(s, 766, 322, 198, 96, ["Live event", "{ rev, scope }", "no id, no name,", "no count"], "note");
+  edge(s, [[260, 124], [330, 124], [330, 100], [406, 100]], { label: "tool calls, sync", lx: 334, ly: 92, anchor: "start" });
+  edge(s, [[260, 304], [330, 304], [330, 112], [406, 112]], { label: "", lx: 0, ly: 0 });
+  edge(s, [[406, 128], [346, 128], [346, 190], [260, 190]], { dash: true, label: "callouts to the person", lx: 262, ly: 178, anchor: "start" });
+  edge(s, [[614, 76], [730, 76], [730, 370], [766, 370]], { label: "event", lx: 724, ly: 250, anchor: "end" });
+  edge(s, [[766, 186], [690, 186], [690, 108], [614, 108]], { label: "gated routes", lx: 652, ly: 102 });
+  const cap = h("figcaption", {}, "Reporters never reach the database. Everything passes the gates, and the index only suggests candidates. The live event tells every open console that something changed and nothing else, so each console asks again through a gated route.");
+  fig.appendChild(cap);
+})();
+
+/* ---------- diagram B: consent gates ---------- */
+(function () {
+  const fig = document.getElementById("fig-gate");
+  const s = canvas(fig, "gate", 1000, 340, "Gates before a read: the Admin flag, the machine option and reporter switch, and a person behind the session. A failed gate refuses. Then the session's project decides: with none, only Global memories; with one, your own memories there and Global; as a member, also its shared memories.");
+  box(s, 16, 52, 118, 56, ["Agent calls", "a brain tool"], "hi");
+  const gx = [228, 388, 548];
+  const gl = [["Admin flag", "Brain on?"], ["Machine and", "switch on?"], ["A person behind", "the session?"]];
+  gx.forEach(function (x, i) { diamond(s, x, 80, 132, 92, gl[i], ""); });
+  edge(s, [[134, 80], [162, 80]]);
+  edge(s, [[294, 80], [322, 80]], { label: "yes", lx: 308, ly: 70 });
+  edge(s, [[454, 80], [482, 80]], { label: "yes", lx: 468, ly: 70 });
+  box(s, 176, 232, 420, 52, ["Refused", "the server answers, and the tool says the feature may be off"], "bad");
+  gx.forEach(function (x) { edge(s, [[x, 126], [x, 232]], { label: "no", lx: x + 14, ly: 186, anchor: "start" }); });
+  diamond(s, 740, 80, 150, 92, ["Session is in", "a project?"], "");
+  edge(s, [[614, 80], [665, 80]], { label: "yes", lx: 640, ly: 70 });
+  box(s, 640, 190, 150, 52, ["Global memories", "only"], "");
+  edge(s, [[715, 119], [715, 190]], { label: "no", lx: 702, ly: 164, anchor: "end" });
+  box(s, 840, 52, 146, 56, ["Your own there,", "plus Global"], "good");
+  edge(s, [[815, 80], [840, 80]], { label: "yes", lx: 827, ly: 70 });
+  diamond(s, 912, 196, 150, 86, ["A member?"], "");
+  edge(s, [[912, 108], [912, 153]]);
+  box(s, 835, 272, 154, 50, ["Also its shared"], "good");
+  edge(s, [[912, 239], [912, 272]], { label: "yes", lx: 924, ly: 260, anchor: "start" });
+  fig.appendChild(h("figcaption", {}, "The first three gates refuse. The project, taken from the repository and never from a tool's argument, then narrows what is reachable. An Admin makes people members by assigning the project to their groups."));
+})();
+
+/* ---------- diagram C: lifecycle ---------- */
+(function () {
+  const fig = document.getElementById("fig-life");
+  const s = canvas(fig, "life", 1000, 480, "Memory states: active, flagged, trashed for 30 days, a tombstone for 180 days, then removed. A personal memory becomes shared by its owner's action. An agent's change to a shared memory waits for approval. An offer makes a copy.");
+  box(s, 30, 50, 130, 56, ["Active"], "hi");
+  box(s, 330, 50, 160, 56, ["Trashed", "text kept 30 days"], "note");
+  box(s, 650, 50, 160, 56, ["Deleted", "tombstone, no text"], "");
+  box(s, 890, 50, 90, 56, ["Removed"], "");
+  edge(s, [[160, 70], [330, 70]], { label: "delete", lx: 245, ly: 60 });
+  edge(s, [[330, 92], [160, 92]], { label: "restore (owner only)", lx: 245, ly: 112 });
+  edge(s, [[490, 78], [650, 78]], { label: "after 30 days", lx: 570, ly: 68 });
+  edge(s, [[810, 78], [890, 78]], { label: "180 days", lx: 850, ly: 68 });
+  box(s, 30, 168, 130, 50, ["Flagged"], "");
+  edge(s, [[70, 106], [70, 168]], { label: "flag", lx: 60, ly: 142, anchor: "end" });
+  edge(s, [[120, 168], [120, 106]], { label: "clear", lx: 132, ly: 142, anchor: "start" });
+  box(s, 650, 166, 220, 54, ["Person deleted", "personal and Global skip the trash"], "bad");
+  edge(s, [[730, 166], [730, 106]]);
+  note(s, 190, 180, "Flag on a shared memory: hidden after an Admin", "start");
+  note(s, 190, 196, "confirms it, or 3 different people flag it.", "start");
+  note(s, 190, 212, "A person's shared memories stay when they are deleted.", "start");
+  note(s, 30, 262, "Sharing and changes", "start", "hd");
+  box(s, 30, 280, 150, 56, ["Personal"], "");
+  box(s, 330, 280, 160, 56, ["Shared", "members read it"], "good");
+  box(s, 650, 280, 190, 56, ["Change waiting", "members see the old text"], "note");
+  edge(s, [[180, 308], [330, 308]], { label: "owner shares", lx: 255, ly: 298 });
+  edge(s, [[490, 296], [650, 296]], { label: "agent changes", lx: 570, ly: 286 });
+  edge(s, [[650, 322], [490, 322]], { label: "owner approves or rejects", lx: 570, ly: 342 });
+  note(s, 30, 372, "The owner's own edit in the console applies at once.", "start");
+  box(s, 30, 400, 170, 50, ["Offer", "bound to a version"], "");
+  box(s, 290, 400, 190, 50, ["Recipient reads", "under a warning"], "hi");
+  box(s, 560, 400, 190, 50, ["Accepts"], "");
+  box(s, 830, 400, 150, 50, ["Their own copy"], "good");
+  edge(s, [[200, 425], [290, 425]], { label: "sender starts", lx: 245, ly: 416 });
+  edge(s, [[480, 425], [560, 425]]);
+  edge(s, [[750, 425], [830, 425]]);
+  fig.appendChild(h("figcaption", {}, "Sharing changes who reads the same memory. Offering gives one member a copy. Every delete goes to the same trash, and an agent's delete of a shared memory waits for approval like a change."));
+})();
+
+/* ---------- diagram D: sync ---------- */
+(function () {
+  const fig = document.getElementById("fig-sync");
+  const s = canvas(fig, "sync", 1000, 672,"Sync decision tree for one memory: compare local file and server with the base. One side changed is fast-forward or push, both the same converges, both different merges or becomes a conflict. Resolving a conflict moves the mirror's base.");
+  diamond(s, 110, 250, 170, 96, ["Local file", "changed?"], "hi");
+  diamond(s, 330, 100, 150, 86, ["Server", "changed?"]);
+  diamond(s, 330, 330, 150, 86, ["Server", "changed?"]);
+  edge(s, [[110, 202], [110, 100], [255, 100]], { label: "no", lx: 124, ly: 150, anchor: "start" });
+  edge(s, [[110, 298], [110, 330], [255, 330]], { label: "yes", lx: 124, ly: 322, anchor: "start" });
+  box(s, 470, 56, 210, 40, ["Nothing to do"], "");
+  box(s, 470, 170, 250, 40, ["Fast-forward: write server version"], "good");
+  edge(s, [[405, 100], [440, 100], [440, 76], [470, 76]], { label: "no", lx: 438, ly: 66, anchor: "end" });
+  edge(s, [[330, 143], [330, 190], [470, 190]], { label: "yes", lx: 344, ly: 166, anchor: "start" });
+  box(s, 470, 290, 250, 40, ["Push: compare-and-swap on base"], "good");
+  edge(s, [[405, 330], [440, 330], [440, 310], [470, 310]], { label: "no", lx: 438, ly: 300, anchor: "end" });
+  diamond(s, 330, 450, 170, 86, ["Same content", "on both?"]);
+  edge(s, [[330, 373], [330, 407]], { label: "yes", lx: 344, ly: 396, anchor: "start" });
+  box(s, 470, 430, 250, 40, ["Converge: no new version"], "good");
+  edge(s, [[415, 450], [470, 450]], { label: "yes", lx: 442, ly: 440 });
+  diamond(s, 330, 570, 170, 86, ["Lines overlap", "or fields differ?"]);
+  edge(s, [[330, 493], [330, 527]], { label: "no", lx: 344, ly: 516, anchor: "start" });
+  box(s, 470, 520, 250, 46, ["Three-way merge, marked", "merged automatically"], "note");
+  edge(s, [[415, 570], [440, 570], [440, 543], [470, 543]], { label: "no", lx: 438, ly: 560, anchor: "end" });
+  box(s, 470, 612, 250, 40, ["Conflict: kept, you choose"], "bad");
+  edge(s, [[330, 613], [330, 632], [470, 632]], { label: "yes", lx: 344, ly: 626, anchor: "start" });
+  box(s, 760, 36, 224, 24, [], "zone"); note(s, 872, 52, "After a conflict", "middle", "hd");
+  box(s, 770, 80, 204, 56, ["Server keeps its version,", "local side stored on a branch"], "");
+  box(s, 770, 168, 204, 56, ["Person picks a side", "or edits a merge"], "hi");
+  box(s, 770, 256, 204, 56, ["New version with", "two parents"], "");
+  box(s, 770, 344, 204, 66, ["Mirror's base moves to", "the stored local side"], "good");
+  box(s, 770, 442, 204, 56, ["Next sync is a", "fast-forward"], "good");
+  edge(s, [[872, 136], [872, 168]]); edge(s, [[872, 224], [872, 256]]); edge(s, [[872, 312], [872, 344]]); edge(s, [[872, 410], [872, 442]]);
+  edge(s, [[720, 632], [745, 632], [745, 108], [770, 108]], { dash: true });
+  fig.appendChild(h("figcaption", {}, "Only the owner's own memories are mirrored. A change to a shared memory that arrives by sync waits for approval before members see it. A delete on one side against an edit on the other is also a conflict. Moving the base is what stops the same conflict from reopening at every sync."));
+})();
+
+/* ---------- diagram E: admin notice ---------- */
+(function () {
+  const fig = document.getElementById("fig-admin");
+  const s = canvas(fig, "adm", 1000, 400, "When an Admin opens, lists or deletes someone's memory the route is in the registry as told. The person gets a red console notice and record line, a reporter callout now or at their next session, and the Admin log records who, whose and when.");
+  box(s, 20, 150, 150, 70, ["Admin opens, lists", "or trashes someone's", "memory"], "hi");
+  box(s, 230, 150, 190, 70, ["Server route", "in the Admin read", "registry as told"], "hi");
+  edge(s, [[170, 185], [230, 185]]);
+  box(s, 500, 30, 270, 76, ["Console", "red notice naming the Admin while live,", "permanent record line, never the text"], "");
+  box(s, 500, 150, 270, 40, ["Admin log: who, whose, when, never the text"], "");
+  diamond(s, 635, 280, 190, 90, ["Person has a", "live session?"]);
+  edge(s, [[420, 168], [460, 168], [460, 68], [500, 68]]);
+  edge(s, [[420, 172], [480, 172], [500, 172]]);
+  edge(s, [[420, 200], [460, 200], [460, 280], [540, 280]]);
+  box(s, 810, 230, 180, 52, ["Callout in the session", "never sent to the model"], "good");
+  box(s, 810, 306, 180, 74, ["Kept on their act thread,", "owed until seen, shown at", "next session on any reporter"], "note");
+  edge(s, [[730, 270], [770, 270], [770, 256], [810, 256]], { label: "yes", lx: 776, ly: 246, anchor: "start" });
+  edge(s, [[730, 292], [770, 292], [770, 343], [810, 343]], { label: "no", lx: 776, ly: 326, anchor: "start" });
+  box(s, 20, 290, 380, 80, ["Refused to an Admin (owner-only)", "offers, conflicts, import lists, mirror state,", "directory rules, vote reasons, search terms"], "bad");
+  fig.appendChild(h("figcaption", {}, "An Admin's power is reading and deleting. The person always hears about it in two places, and the model never does. Shared memories are no exception, even for an Admin who is a member."));
+})();
+
+/* ---------- diagram F: search ---------- */
+(function () {
+  const fig = document.getElementById("fig-search");
+  const s = canvas(fig, "srch", 1000, 330, "Search reads from the index, then every page is re-checked through Storage. A write commits to Storage first and updates the index in the same request. A drift check rebuilds the index if it disagrees with the store.");
+  note(s, 16, 26, "Read path", "start", "hd");
+  box(s, 16, 40, 150, 56, ["Agent calls", "search"], "hi");
+  box(s, 206, 40, 210, 56, ["Index: BM25 per field,", "narrowed by owner, project,", "scope, state"], "");
+  box(s, 456, 40, 230, 56, ["Storage re-check with the", "real access rules. Returns only", "what the reader may read"], "hi");
+  box(s, 726, 40, 258, 56, ["Page of 10, no body", "refused ids dropped, more fetched", "up to 3 rounds"], "good");
+  edge(s, [[166, 68], [206, 68]]); edge(s, [[416, 68], [456, 68]], { label: "ids", lx: 436, ly: 58 }); edge(s, [[686, 68], [726, 68]]);
+  note(s, 16, 150, "Write path", "start", "hd");
+  box(s, 16, 164, 150, 56, ["Save, edit,", "trash or purge"], "hi");
+  box(s, 206, 164, 210, 56, ["Storage transaction", "memory + change counter"], "hi");
+  box(s, 456, 164, 230, 56, ["Index updated after commit,", "in the same request"], "");
+  box(s, 726, 164, 258, 56, ["Reply. A search a second", "later finds it, and a trashed", "memory is already gone"], "good");
+  edge(s, [[166, 192], [206, 192]]); edge(s, [[416, 192], [456, 192]]); edge(s, [[686, 192], [726, 192]]);
+  box(s, 206, 256, 480, 52, ["Every 10 minutes, and after an error: compare the store's change", "counter and count with the index. A mismatch rebuilds it and logs the counts"], "note");
+  edge(s, [[571, 220], [571, 256]], { dash: true });
+  fig.appendChild(h("figcaption", {}, "The index can miss a memory and cannot show one the reader may not read. It is derived data, built from Storage at start, and it relies on one server process per database."));
+})();
+
+/* ---------- chart G: weight fade ---------- */
+(function () {
+  const H = 90, EV = [[0, 1, "use +1"], [5, 3, "upvote +3"], [40, 1, "use +1"], [100, -4, "downvote -4"], [130, 3, "upvote +3"]];
+  const faded = function (t) { return EV.filter(function (e) { return e[0] <= t; }).reduce(function (s, e) { return s + e[1] * Math.pow(0.5, (t - e[0]) / H); }, 0); };
+  const raw = function (t) { return EV.filter(function (e) { return e[0] <= t; }).reduce(function (s, e) { return s + e[1]; }, 0); };
+  const W = 960, HT = 360, L = 50, R = 170, T = 34, B = 44;
+  const x = function (d) { return L + d * (W - L - R) / 180; };
+  const y = function (v) { return T + (5 - v) * (HT - T - B) / 7; };
+  const box0 = document.getElementById("chart");
+  const lg = h("div", { class: "al-keys" });
+  [["--deleg", "Faded weight (what ranks)"], ["--ink2", "Sum of events, no fade"]].forEach(function (a) {
+    const sp = h("span"); const sw = h("i", { class: "al-sw" }); sw.style.background = "var(" + a[0] + ")"; sp.appendChild(sw); sp.appendChild(document.createTextNode(a[1])); lg.appendChild(sp);
+  });
+  box0.appendChild(lg);
+  const wrap = h("div", { class: "al-scroll" });
+  const s = el(null, "svg", { viewBox: "0 0 " + W + " " + HT, role: "img", "aria-label": "Line chart of one memory's weight over 180 days. Faded weight ends at 1.25 and dipped to minus 1.46 after the downvote on day 100. The no-fade sum ends at 4.", style: "display:block;width:100%;min-width:640px;height:auto" });
+  const g = el(s, "g", { "class": "grid" });
+  for (let v = -2; v <= 5; v++) el(g, "line", { x1: L, x2: W - R, y1: y(v), y2: y(v), style: v === 0 ? "stroke:var(--ink2)" : "" });
+  const ax = el(s, "g", { "class": "axis" });
+  for (let v = -2; v <= 5; v++) el(ax, "text", { x: L - 8, y: y(v) + 4, "text-anchor": "end" }, String(v));
+  [0, 30, 60, 90, 120, 150, 180].forEach(function (d) { el(ax, "text", { x: x(d), y: HT - 22, "text-anchor": "middle" }, String(d)); });
+  el(ax, "text", { x: (L + W - R) / 2, y: HT - 4, "text-anchor": "middle" }, "Days since the first use");
+  el(ax, "text", { x: 12, y: 16, "text-anchor": "start" }, "Weight");
+  // raw step line
+  let d1 = "M" + x(0) + " " + y(0);
+  let prev = 0;
+  EV.forEach(function (e) { d1 += "L" + x(e[0]) + " " + y(prev) + "L" + x(e[0]) + " " + y(raw(e[0])); prev = raw(e[0]); });
+  d1 += "L" + x(180) + " " + y(prev);
+  el(s, "path", { d: d1, fill: "none", stroke: "var(--ink2)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-dasharray": "6 4" });
+  // faded line
+  let d2 = ""; for (let t = 0; t <= 180; t++) { d2 += (t ? "L" : "M") + x(t) + " " + y(faded(t)); }
+  el(s, "path", { d: d2, fill: "none", stroke: "var(--deleg)", "stroke-width": 2.5, "stroke-linejoin": "round" });
+  // events
+  const pos = { 0: [0, 20, "start"], 5: [0, -12, "start"], 40: [0, -12, "start"], 100: [0, 22, "middle"], 130: [0, -12, "middle"] };
+  EV.forEach(function (e) {
+    const v = faded(e[0]);
+    el(s, "circle", { cx: x(e[0]), cy: y(v), r: 5, fill: "var(--surface)", stroke: "var(--deleg)", "stroke-width": 2.5 });
+    const p = pos[e[0]];
+    el(s, "text", { x: x(e[0]) + (e[0] === 0 ? 6 : e[0] === 5 || e[0] === 40 ? 8 : 0), y: y(v) + p[1], "text-anchor": p[2], style: "font-size:12px;fill:var(--ink)" }, "day " + e[0] + ": " + e[2]);
+  });
+  // end labels
+  el(s, "text", { x: x(180) + 8, y: y(faded(180)) + 4, style: "font-size:12.5px;fill:var(--ink);font-weight:600" }, "Faded: " + faded(180).toFixed(2));
+  el(s, "text", { x: x(180) + 8, y: y(raw(180)) + 4, style: "font-size:12.5px;fill:var(--ink);font-weight:600" }, "No fade: " + raw(180));
+  // hover
+  const cl = el(s, "line", { y1: T, y2: HT - B, stroke: "var(--ink2)", "stroke-width": 1, style: "display:none" });
+  const tip = h("div", { class: "al-tip" });
+  wrap.appendChild(s); box0.appendChild(wrap); box0.appendChild(tip);
+  const hit = el(s, "rect", { x: L, y: T, width: W - L - R, height: HT - T - B, fill: "transparent" });
+  hit.addEventListener("mousemove", function (ev) {
+    const r = s.getBoundingClientRect(); const sx = (ev.clientX - r.left) * W / r.width;
+    const d = Math.max(0, Math.min(180, Math.round((sx - L) * 180 / (W - L - R))));
+    cl.setAttribute("x1", x(d)); cl.setAttribute("x2", x(d)); cl.style.display = "";
+    tip.innerHTML = "";
+    tip.appendChild(h("div", {}, "Day " + d));
+    const a = h("div"); a.appendChild(document.createTextNode("Faded weight ")); a.appendChild(h("b", {}, faded(d).toFixed(2))); tip.appendChild(a);
+    const b = h("div"); b.appendChild(document.createTextNode("No fade ")); b.appendChild(h("b", {}, String(raw(d)))); tip.appendChild(b);
+    const f = h("div"); f.appendChild(document.createTextNode("Ranking factor ")); f.appendChild(h("b", {}, "x" + (1 + 0.5 * Math.tanh(faded(d) / 10)).toFixed(2))); tip.appendChild(f);
+    tip.style.display = "block";
+    const bx = box0.getBoundingClientRect();
+    let left = ev.clientX - bx.left + 14; if (left + 190 > bx.width) left = ev.clientX - bx.left - 200;
+    tip.style.left = left + "px"; tip.style.top = (ev.clientY - bx.top + 10) + "px";
+  });
+  hit.addEventListener("mouseleave", function () { tip.style.display = "none"; cl.style.display = "none"; });
+  const minv = Math.min.apply(null, Array.from({ length: 181 }, function (_, t) { return faded(t); }));
+  document.getElementById("chart-cap").textContent = "One memory, five events over 180 days, using the spec's formula with a 90-day half-life. With no fade it would read " + raw(180) + ". Faded, it reads " + faded(180).toFixed(2) + ", and it dipped to " + minv.toFixed(2) + " the day the downvote landed. At the end, the ranking factor is x" + (1 + 0.5 * Math.tanh(faded(180) / 10)).toFixed(2) + ".";
+})();
+
+/* ---------- diagram H: progressive disclosure ---------- */
+(function () {
+  const fig = document.getElementById("fig-disclose");
+  const s = canvas(fig, "disc", 1000, 470, "Three levels of reading. A search returns summaries only. The agent opens one memory for its body and a list of resources, then opens one resource at a time. At each step it either uses the memory or keeps looking.");
+  note(s, 16, 24, "Level 1: search", "start", "hd");
+  box(s, 16, 38, 170, 58, ["Search: text,", "required tags,", "project"], "hi");
+  box(s, 232, 38, 330, 58, ["Up to 10 summaries: name, summary,", "tags, weight, and the names of", "attached resources. No body"], "");
+  diamond(s, 660, 67, 150, 80, ["Looks", "promising?"]);
+  edge(s, [[186, 67], [232, 67]]); edge(s, [[562, 67], [585, 67]]);
+  box(s, 800, 40, 184, 54, ["Try other words", "or tags"], "");
+  edge(s, [[735, 67], [800, 67]], { label: "no", lx: 767, ly: 57 });
+  edge(s, [[892, 40], [892, 12], [101, 12], [101, 38]], { dash: true });
+  note(s, 16, 160, "Level 2: one memory", "start", "hd");
+  box(s, 232, 175, 330, 58, ["Open it: the body, plus each resource's", "name, one-line description and size.", "Counts as a use"], "hi");
+  edge(s, [[660, 107], [660, 134], [397, 134], [397, 175]], { label: "yes", lx: 670, ly: 126, anchor: "start" });
+  diamond(s, 660, 204, 150, 80, ["Is this", "it?"]);
+  edge(s, [[562, 204], [585, 204]]);
+  box(s, 800, 177, 184, 54, ["Use it, and vote", "if it helped"], "good");
+  edge(s, [[735, 204], [800, 204]], { label: "yes", lx: 767, ly: 194 });
+  note(s, 16, 300, "Level 3: one resource", "start", "hd");
+  box(s, 232, 314, 330, 58, ["Open one resource at a time,", "only the ones the body points to", "as relevant"], "hi");
+  edge(s, [[660, 244], [660, 274], [397, 274], [397, 314]], { label: "need more", lx: 670, ly: 266, anchor: "start" });
+  diamond(s, 660, 343, 150, 80, ["Is this", "it?"]);
+  edge(s, [[562, 343], [585, 343]]);
+  box(s, 800, 316, 184, 54, ["Use it"], "good");
+  edge(s, [[735, 343], [800, 343]], { label: "yes", lx: 767, ly: 333 });
+  box(s, 540, 414, 240, 46, ["Not it: go back to the results", "and open the next one"], "note");
+  edge(s, [[660, 383], [660, 414]], { label: "no", lx: 674, ly: 403, anchor: "start" });
+  edge(s, [[540, 437], [200, 437], [200, 82], [232, 82]], { dash: true });
+  fig.appendChild(h("figcaption", {}, "Only what the agent asks for enters its context. The dashed lines go back to searching or to the next result."));
+})();
+
+/* ---------- chart I: context cost ---------- */
+(function () {
+  const rows = [
+    ["One search page and one memory", 12200, "12,200"],
+    ["Index lines for 5,000 memories, if all were mirrored", 830000, "830,000"],
+    ["Every memory body at the limits", 40000000, "40,000,000"]
+  ];
+  const W = 960, L = 360, R = 130, rowH = 46, T = 10, HT = T + rows.length * rowH + 42;
+  const x = function (v) { return L + (Math.log10(v) - 3) / 5 * (W - L - R); };
+  const box0 = document.getElementById("chart-ctx");
+  const wrap = h("div", { class: "al-scroll" });
+  const s = el(null, "svg", { viewBox: "0 0 " + W + " " + HT, role: "img", "aria-label": "Characters that would enter an agent's context, on a log scale: one search page and one memory is 12,200, index lines for 5,000 mirrored memories about 830,000, every body at the limits 40,000,000.", style: "display:block;width:100%;min-width:640px;height:auto" });
+  const g = el(s, "g", { "class": "grid" }), ax = el(s, "g", { "class": "axis" });
+  [[1000, "1k"], [10000, "10k"], [100000, "100k"], [1000000, "1M"], [10000000, "10M"], [100000000, "100M"]].forEach(function (t) {
+    el(g, "line", { x1: x(t[0]), x2: x(t[0]), y1: T, y2: T + rows.length * rowH });
+    el(ax, "text", { x: x(t[0]), y: T + rows.length * rowH + 16, "text-anchor": "middle" }, t[1]);
+  });
+  el(ax, "text", { x: (L + W - R) / 2, y: HT - 6, "text-anchor": "middle" }, "Characters, log scale");
+  rows.forEach(function (r, i) {
+    const y = T + i * rowH + 12, w = x(r[1]) - L;
+    el(s, "text", { x: L - 10, y: y + 15, "text-anchor": "end", style: "font-size:13px;fill:var(--ink)" }, r[0]);
+    const bar = el(s, "path", { d: "M" + L + " " + y + "h" + (w - 4) + "a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4h-" + (w - 4) + "z", fill: "var(--deleg)" });
+    el(bar, "title", {}, r[0] + ": " + r[2] + " characters");
+    el(s, "text", { x: x(r[1]) + 8, y: y + 15, style: "font-size:13px;font-weight:600;fill:var(--ink)" }, r[2]);
+  });
+  wrap.appendChild(s); box0.appendChild(wrap);
+  document.getElementById("ctx-cap").textContent = "Upper limits, not measurements. A search page is 10 results of at most 420 characters of name and summary (4,200), plus one body of at most 8,000. The middle bar uses 166 characters per index line, the average in your files. Resources add only what the agent opens.";
+})();
+
+/* ---------- render register, tallies, coverage ---------- */
+const FLAGS = (function () { try { return new Set(JSON.parse(localStorage.getItem("brain-board-flags") || "[]")); } catch (e) { return new Set(); } })();
+function saveFlags() { try { localStorage.setItem("brain-board-flags", JSON.stringify(Array.from(FLAGS))); } catch (e) {} }
+const ALL = [];
+const list = document.getElementById("register-list");
+GROUPS.forEach(function (g) {
+  const gd = h("div", { class: "al-group" }); gd.appendChild(h("h3", {}, g.title));
+  g.items.forEach(function (it) {
+    const id = it[0], st = it[1], t = it[2], src = it[3], nt = it[4];
+    const row = h("div", { class: "al-item", id: id.toLowerCase(), "data-st": st });
+    row.appendChild(h("a", { class: "al-id", href: "#" + id.toLowerCase(), "aria-label": "Item " + id }, id));
+    const b = h("div", { class: "al-body" });
+    b.appendChild(h("p", { class: "al-t" }, t));
+    const meta = h("div", { class: "al-meta" }); meta.appendChild(chip(st)); if (it[5]) meta.appendChild(h("span", { class: "pill soon" }, "Changed this round")); meta.appendChild(h("span", {}, src)); b.appendChild(meta);
+    if (nt) b.appendChild(h("p", { class: "al-note" }, nt));
+    row.appendChild(b);
+    const side = h("div", { class: "al-side" });
+    const fb = h("button", { type: "button", class: "btn al-flag", "aria-pressed": FLAGS.has(id) ? "true" : "false", "data-id": id }, FLAGS.has(id) ? "Flagged" : "Flag");
+    side.appendChild(fb); row.appendChild(side);
+    if (FLAGS.has(id)) row.classList.add("al-flagged");
+    gd.appendChild(row);
+    ALL.push({ id: id, st: st, t: t, row: row, btn: fb, changed: !!it[5], text: (id + " " + t + " " + (src || "") + " " + (nt || "")).toLowerCase() });
+  });
+  list.appendChild(gd);
+});
+const empty = h("div", { class: "al-empty" }, "Nothing matches. Clear the search or pick another filter."); empty.hidden = true; list.appendChild(empty);
+
+const tal = document.getElementById("tallies");
+["ok", "open", "assumed", "prove", "gap"].forEach(function (k) {
+  const n = ALL.filter(function (a) { return a.st === k; }).length;
+  const what = { ok: "decided items", open: "open questions", assumed: "assumed details", prove: "items to prove first", gap: "gaps" }[k];
+  const d = h("button", { type: "button", class: "kpi al-tally", "data-go": k, "aria-label": n + " " + what + ". Show them in the register" }); 
+  const sp = h("span", { class: "al-k" }); sp.appendChild(icon(k)); sp.firstChild.setAttribute("width", "13"); sp.firstChild.setAttribute("height", "13"); sp.appendChild(document.createTextNode({ ok: "decided", open: "open questions", assumed: "assumed", prove: "to prove first", gap: "gaps left" }[k])); d.appendChild(sp); d.appendChild(h("span", { class: "v" }, String(n))); tal.appendChild(d);
+});
+
+let filter = "all", query = "";
+function apply() {
+  let shown = 0;
+  ALL.forEach(function (a) {
+    const okf = filter === "all" || (filter === "flagged" ? FLAGS.has(a.id) : filter === "changed" ? a.changed : a.st === filter);
+    const okq = !query || a.text.indexOf(query) !== -1;
+    a.row.hidden = !(okf && okq); if (!a.row.hidden) shown++;
+  });
+  document.querySelectorAll(".al-group").forEach(function (g) { g.hidden = !g.querySelector(".al-item:not([hidden])"); });
+  empty.hidden = shown > 0;
+  const none = { open: "No open questions are left.", prove: "Nothing is waiting to be proved.", gap: "No gaps are left.", flagged: "Nothing is flagged yet." }[filter];
+  empty.textContent = none && !query ? none + " Press All to see everything, including the answered items." : "Nothing matches. Clear the search or pick another filter.";
+}
+tal.addEventListener("click", function (e) {
+  const t = e.target.closest(".al-tally"); if (!t) return;
+  document.getElementById("q").value = ""; query = "";
+  document.querySelector('#filters button[data-f="' + t.getAttribute("data-go") + '"]').click();
+  document.getElementById("register").scrollIntoView();
+});
+document.querySelectorAll("#filters button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    filter = b.getAttribute("data-f");
+    document.querySelectorAll("#filters button").forEach(function (o) { o.setAttribute("aria-pressed", o === b ? "true" : "false"); });
+    apply();
+  });
+});
+document.getElementById("q").addEventListener("input", function (e) { query = e.target.value.trim().toLowerCase(); apply(); });
+
+const bar = document.getElementById("bar"), fallback = document.getElementById("fallback");
+function barUpdate() {
+  const n = FLAGS.size; bar.classList.toggle("al-on", n > 0);
+  document.getElementById("bar-count").textContent = n + (n === 1 ? " item flagged" : " items flagged");
+  if (!n) fallback.classList.remove("al-on");
+}
+list.addEventListener("click", function (e) {
+  const b = e.target.closest(".al-flag"); if (!b) return;
+  const id = b.getAttribute("data-id"); const a = ALL.find(function (z) { return z.id === id; });
+  if (FLAGS.has(id)) { FLAGS.delete(id); } else { FLAGS.add(id); }
+  const on = FLAGS.has(id); b.setAttribute("aria-pressed", on ? "true" : "false"); b.textContent = on ? "Flagged" : "Flag"; a.row.classList.toggle("al-flagged", on);
+  saveFlags(); barUpdate(); if (filter === "flagged") apply();
+});
+function flaggedText() {
+  return "Flagged on the brain alignment board:\n" + ALL.filter(function (a) { return FLAGS.has(a.id); }).map(function (a) { return a.id + " (" + ST[a.st] + "): " + a.t; }).join("\n");
+}
+document.getElementById("copy").addEventListener("click", function () {
+  const txt = flaggedText(); const btn = this;
+  function showFallback() { fallback.value = txt; fallback.classList.add("al-on"); fallback.focus(); fallback.select(); }
+  try { navigator.clipboard.writeText(txt).then(function () { btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy flagged"; }, 1600); }, showFallback); } catch (err) { showFallback(); }
+});
+document.getElementById("clear").addEventListener("click", function () {
+  FLAGS.clear(); saveFlags(); ALL.forEach(function (a) { a.btn.setAttribute("aria-pressed", "false"); a.btn.textContent = "Flag"; a.row.classList.remove("al-flagged"); }); barUpdate(); apply();
+});
+barUpdate();
+
+document.querySelectorAll("[data-theme-pick]").forEach(function (b) {
+  b.addEventListener("click", function () {
+    const v = b.getAttribute("data-theme-pick");
+    if (v) document.documentElement.setAttribute("data-theme", v); else document.documentElement.removeAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme-name", "podium");
+    document.querySelectorAll("[data-theme-pick]").forEach(function (o) { o.setAttribute("aria-pressed", o === b ? "true" : "false"); });
+  });
+});
+document.documentElement.setAttribute("data-theme-name", "podium");
+
+function fillTable(id, rows, withNote) {
+  const tb = document.getElementById(id);
+  rows.forEach(function (r) {
+    const tr = h("tr"); tr.appendChild(h("td", { class: "k" }, r[0]));
+    const td = h("td"); td.appendChild(chip(r[1])); tr.appendChild(td);
+    if (withNote) tr.appendChild(h("td", {}, r[2])); else { td.appendChild(document.createTextNode(" ")); td.appendChild(h("span", {}, r[2])); }
+    tb.appendChild(tr);
+  });
+}
+fillTable("cov-body", COVER, true);
+fillTable("proc-body", PROC, false);
+</script>
+</html>

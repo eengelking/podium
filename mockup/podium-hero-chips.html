@@ -1,0 +1,110 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium front page chips: now and proposed</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* #1415: the front page's four floating chips, as they are now (text is page text sized in cqw) and as proposed (text drawn inside
+   each chip's graphic). Open it in Safari. The page around them is only for review; the chips use the marketing palette, scoped. */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-ui); }
+main { max-width: 1240px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 6px; }
+h2 { font-size: 15px; margin: 22px 0 6px; }
+h3 { font-size: 13px; margin: 0 0 4px; color: var(--ink2); }
+p { margin: 0; color: var(--ink2); }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 16px; }
+.narrow { grid-template-columns: repeat(auto-fit, 340px); }
+
+.stage { --surface: #121A2E; --sunk: #0E1526; --ink: #E8ECF6; --mute: #8791AB; --line: #25304A; --accent: #8CA0FF; --accent-ink: #0A1030; --hot: #FF5C9A; --bad: #FF7A80; --warn: #E8B64A; --hero-a: #26399B; --hero-b: #0A1030;
+  --sans: "Hanken Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  background: linear-gradient(135deg, var(--hero-a), var(--hero-b)); border-radius: 10px; padding: 12px 0; }
+.stage.light { --surface: #FFFFFF; --sunk: #E9EDF4; --ink: #0D1424; --mute: #6B7690; --line: #D8DEEA; --accent: #2F4BFF; --accent-ink: #FFFFFF; --hot: #D61F69; --bad: #C0262D; --warn: #9A5B00; --hero-a: #2F4BFF; --hero-b: #16217A; }
+.art-wrap { position: relative; container-type: inline-size; width: 100%; aspect-ratio: 600 / 150; }
+.chip { --u: calc(100cqw / 600); position: absolute; box-sizing: border-box; left: calc(var(--x) * var(--u)); top: calc(var(--y) * var(--u)); width: calc(var(--w) * var(--u)); height: calc(var(--h) * var(--u)); border-radius: calc(var(--u) * 14); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 calc(var(--u) * 12) calc(var(--u) * 20) calc(var(--u) * -6) color-mix(in srgb, var(--hero-b) 55%, transparent); color: var(--ink); will-change: transform; animation: bob var(--t, 7s) ease-in-out var(--d, 0s) infinite; }
+.chip.bad { border: 1.6px solid var(--bad); }
+@keyframes bob { 0%, 100% { transform: translate3d(0, 0, 0); } 50% { transform: translate3d(0, calc(var(--u) * -10), 0); } }
+@media (prefers-reduced-motion: reduce) { .chip { animation: none; } }
+
+/* now: as site/src/pages/index.astro has it */
+.now .chip { display: flex; align-items: center; gap: calc(var(--u) * 10); padding: 0 calc(var(--u) * 12); }
+.now .chip svg { flex: none; width: calc(var(--u) * 30); height: calc(var(--u) * 30); }
+.now .lbl { display: block; font: 500 calc(var(--u) * 10.5) / 1.2 var(--sans); color: var(--mute); }
+.now .val { display: block; font: 700 calc(var(--u) * 16) / 1.2 var(--sans); color: var(--ink); }
+.now .val.small { font-size: calc(var(--u) * 13); }
+.now .mono { display: block; font: 500 calc(var(--u) * 11.5) / 1.3 var(--mono); color: var(--ink); }
+.now .mono2 { display: block; font: 500 calc(var(--u) * 10) / 1.3 var(--mono); color: var(--mute); }
+
+/* proposed: one graphic per chip, laid over its border box, so one unit of the graphic is one unit of the illustration */
+.next .chip > svg { position: absolute; left: -1px; top: -1px; width: calc(100% + 2px); height: calc(100% + 2px); overflow: visible; }
+.next .chip.bad > svg { left: -1.6px; top: -1.6px; width: calc(100% + 3.2px); height: calc(100% + 3.2px); }
+.next .lbl { font: 500 10.5px var(--sans); fill: var(--mute); }
+.next .val { font: 700 16px var(--sans); fill: var(--ink); }
+.next .val.small { font-size: 13px; }
+.next .mono { font: 500 11.5px var(--mono); fill: var(--ink); }
+.next .mono2 { font: 500 10px var(--mono); fill: var(--mute); }
+</style>
+<main>
+  <h1>Front page chips: now and proposed</h1>
+  <p>Open this in Safari. The two sides should look and move the same. Proposed draws each chip's words inside its graphic, as the icons already are.</p>
+  <h2>Dark</h2>
+  <div class="pair"><div><h3>Now</h3><div class="stage" data-kind="now"></div></div><div><h3>Proposed</h3><div class="stage" data-kind="next"></div></div></div>
+  <h2>Light</h2>
+  <div class="pair"><div><h3>Now</h3><div class="stage light" data-kind="now"></div></div><div><h3>Proposed</h3><div class="stage light" data-kind="next"></div></div></div>
+  <h2>Narrow, as on a phone</h2>
+  <div class="pair narrow"><div><h3>Now</h3><div class="stage" data-kind="now"></div></div><div><h3>Proposed</h3><div class="stage" data-kind="next"></div></div></div>
+</main>
+
+<template id="now">
+  <div class="art-wrap now">
+    <div class="chip" style="--x:40;--y:12;--w:150;--h:50;--t:7s;--d:0s">
+      <svg viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" style="fill:var(--hot)"/><text x="15" y="20" text-anchor="middle" style="font:700 15px var(--sans);fill:var(--accent-ink)">$</text></svg>
+      <span><span class="lbl">Fleet cost</span><span class="val">$6.89</span></span>
+    </div>
+    <div class="chip" style="--x:330;--y:12;--w:152;--h:56;--t:8s;--d:-2.5s">
+      <svg viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--line);stroke-width:4.5"/><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--warn);stroke-width:4.5;stroke-linecap:round;stroke-dasharray:66 10;transform:rotate(-90deg);transform-origin:15px 15px"/><text x="15" y="18" text-anchor="middle" style="font:700 8px var(--sans);fill:var(--ink)">88%</text></svg>
+      <span><span class="lbl">Context window</span><span class="val small">almost full</span></span>
+    </div>
+    <div class="chip" style="--x:40;--y:86;--w:178;--h:44;--t:7.5s;--d:-4s">
+      <svg viewBox="0 0 30 30" fill="none" stroke-width="1.8" stroke-linecap="round" style="stroke:var(--accent)"><circle cx="9" cy="7" r="3"/><circle cx="9" cy="23" r="3"/><circle cx="21" cy="11" r="3"/><path d="M9 10v10M21 14c0 6-12 3-12 6"/></svg>
+      <span class="mono">feat/chat ↑2 ~5</span>
+    </div>
+    <div class="chip bad" style="--x:330;--y:86;--w:180;--h:50;--t:6.5s;--d:-1.5s">
+      <svg viewBox="0 0 30 30" fill="none" stroke-width="2.4" stroke-linecap="round" style="stroke:var(--bad)"><path d="M8 8l14 14M22 8L8 22"/></svg>
+      <span><span class="mono">npm test</span><span class="mono2">exit 1, 3 failed</span></span>
+    </div>
+  </div>
+</template>
+
+<template id="next">
+  <div class="art-wrap next">
+    <div class="chip" style="--x:40;--y:12;--w:150;--h:50;--t:7s;--d:0s">
+      <svg viewBox="0 0 150 50">
+        <g transform="translate(13 10)"><circle cx="15" cy="15" r="13" style="fill:var(--hot)"/><text x="15" y="20" text-anchor="middle" style="font:700 15px var(--sans);fill:var(--accent-ink)">$</text></g>
+        <text class="lbl" x="53" y="18.3">Fleet cost</text><text class="val" x="53" y="36.4">$6.89</text>
+      </svg>
+    </div>
+    <div class="chip" style="--x:330;--y:12;--w:152;--h:56;--t:8s;--d:-2.5s">
+      <svg viewBox="0 0 152 56">
+        <g transform="translate(13 13)"><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--line);stroke-width:4.5"/><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--warn);stroke-width:4.5;stroke-linecap:round;stroke-dasharray:66 10;transform:rotate(-90deg);transform-origin:15px 15px"/><text x="15" y="18" text-anchor="middle" style="font:700 8px var(--sans);fill:var(--ink)">88%</text></g>
+        <text class="lbl" x="53" y="23.1">Context window</text><text class="val small" x="53" y="38.4">almost full</text>
+      </svg>
+    </div>
+    <div class="chip" style="--x:40;--y:86;--w:178;--h:44;--t:7.5s;--d:-4s">
+      <svg viewBox="0 0 178 44">
+        <g transform="translate(13 7)" fill="none" stroke-width="1.8" stroke-linecap="round" style="stroke:var(--accent)"><circle cx="9" cy="7" r="3"/><circle cx="9" cy="23" r="3"/><circle cx="21" cy="11" r="3"/><path d="M9 10v10M21 14c0 6-12 3-12 6"/></g>
+        <text class="mono" x="53" y="25.5">feat/chat ↑2 ~5</text>
+      </svg>
+    </div>
+    <div class="chip bad" style="--x:330;--y:86;--w:180;--h:50;--t:6.5s;--d:-1.5s">
+      <svg viewBox="0 0 180 50">
+        <g transform="translate(13.4 10)" fill="none" stroke-width="2.4" stroke-linecap="round" style="stroke:var(--bad)"><path d="M8 8l14 14M22 8L8 22"/></g>
+        <text class="mono" x="53.4" y="22.6">npm test</text><text class="mono2" x="53.4" y="36.6">exit 1, 3 failed</text>
+      </svg>
+    </div>
+  </div>
+</template>
+
+<script>
+for (const stage of document.querySelectorAll(".stage")) stage.append(document.getElementById(stage.dataset.kind).content.cloneNode(true));
+</script>

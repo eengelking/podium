@@ -1,9 +1,10 @@
 // Tests for the docs site's page preparation and version choice (site/scripts/lib.mjs, #688).
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { collectPages, computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, releaseUrl, rewriteLinks, rewriteTarget, titleOf, withoutBlock, withoutContents } from "../site/scripts/lib.mjs";
+import { collectPages, computeVersions, descriptionOf, embedPage, frontmatter, llmsTxt, plain, prepareDocs, preparePage, previewImageTags, releaseUrl, rewriteLinks, rewriteTarget, titleOf, withoutBlock, withoutContents } from "../site/scripts/lib.mjs";
 import { parseFrontmatter } from "./docFrontmatter.mjs";
 
 const slugs = new Map<string, string>([
@@ -373,5 +374,31 @@ describe("releaseUrl", () => {
   it("points the newest version at the latest release and an older one at its tag", () => {
     expect(releaseUrl({ latest: true, ref: null })).toBe("https://github.com/eengelking/podium/releases/latest");
     expect(releaseUrl({ latest: false, ref: "v1.2.2" })).toBe("https://github.com/eengelking/podium/releases/tag/v1.2.2");
+  });
+});
+
+// #1413: link previews keep their own copy of an image for its address, so the address has to change when the image does.
+describe("the link preview image", () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const image = fs.readFileSync(path.join(root, "site/public/og.png"));
+  const config = fs.readFileSync(path.join(root, "site/astro.config.mjs"), "utf8");
+  const contents = (tags: ReturnType<typeof previewImageTags>) => tags.map((t) => t.attrs.content);
+
+  it("gives og:image and twitter:image an address with the image's fingerprint", () => {
+    const fingerprint = createHash("sha256").update(image).digest("hex").slice(0, 8);
+    const tags = previewImageTags("https://example.test", image);
+    expect(tags.map((t) => t.attrs.property ?? t.attrs.name)).toEqual(["og:image", "twitter:image"]);
+    expect(contents(tags)).toEqual(Array(2).fill(`https://example.test/og.png?v=${fingerprint}`));
+  });
+  it("changes the address when the image changes", () => {
+    const changed = Buffer.concat([image, Buffer.from([0])]);
+    expect(contents(previewImageTags("https://example.test", changed))).not.toEqual(contents(previewImageTags("https://example.test", image)));
+  });
+  it("is what the site's config uses, with no fixed address beside it", () => {
+    expect(config).toContain("previewImageTags(");
+    // Both tags are in the head, and the file read for the fingerprint is the only mention of the image.
+    expect(config).toMatch(/^\s+ogImage,$/m);
+    expect(config).toMatch(/^\s+twitterImage,$/m);
+    expect(config.match(/og\.png/g)).toHaveLength(1);
   });
 });

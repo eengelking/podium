@@ -1,0 +1,166 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Podium link preview mockup</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../frontend/src/fleet/tokens.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wdth,wght@12..96,75..100,300..800&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* #1414: the link preview image, redrawn to match the front page. The page around the cards is only for review. The cards use the
+   marketing standard's tokens (as the site's theme.css declares them), scoped to .og, not the console's. */
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font-ui); }
+main { max-width: 900px; margin: 0 auto; padding: 24px 16px 48px; }
+main > h1 { font-size: 22px; margin: 0 0 6px; }
+main > p { color: var(--ink2); margin: 0 0 20px; }
+section { margin-top: 28px; }
+section h3 { font-size: 16px; margin: 0 0 2px; }
+section > p { margin: 0 0 10px; color: var(--ink2); font-size: 13px; }
+.frame { position: relative; width: 100%; aspect-ratio: 1200 / 630; overflow: hidden; border: 1px solid var(--axis); border-radius: 8px; }
+.frame > .og { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.chat { width: 400px; max-width: 100%; padding: 12px; border: 1px solid var(--axis); border-left: 4px solid var(--axis); border-radius: 6px; box-sizing: border-box; }
+.chat b { display: block; font-size: 14px; }
+.chat span { display: block; font-size: 12.5px; color: var(--ink2); margin: 2px 0 8px; }
+
+.og { --bg: #F3F5F9; --surface: #FFFFFF; --sunk: #E9EDF4; --ink: #0D1424; --ink2: #46506A; --mute: #6B7690; --line: #D8DEEA;
+  --accent: #2F4BFF; --accent-ink: #FFFFFF; --hot: #D61F69; --ok: #14804A; --bad: #C0262D; --warn: #9A5B00;
+  --hero-a: #2F4BFF; --hero-b: #16217A; --hero-ink: #FFFFFF; --hero-mark: #FFC857;
+  --display: "Bricolage Grotesque", "Helvetica Neue", Arial, sans-serif; --sans: "Hanken Grotesk", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  width: 1200px; height: 630px; position: relative; overflow: hidden; background: var(--bg); color: var(--hero-ink); font-family: var(--sans); text-align: left; }
+.og.navy { --bg: #090E1B; --surface: #121A2E; --sunk: #0E1526; --ink: #E8ECF6; --ink2: #A5AFC6; --mute: #8791AB; --line: #25304A;
+  --accent: #8CA0FF; --accent-ink: #0A1030; --hot: #FF5C9A; --ok: #4CC38A; --bad: #FF7A80; --warn: #E8B64A;
+  --hero-a: #26399B; --hero-b: #0A1030; --hero-ink: #E8ECF6; --hero-mark: #F2B544; }
+.og.plain .works { display: none; }
+.og .back { position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 16%, var(--bg)); clip-path: polygon(0 0, 100% 0, 100% 548px, 0 100%); }
+.og .hero { position: absolute; inset: 0; background: linear-gradient(135deg, var(--hero-a), var(--hero-b)); clip-path: polygon(0 0, 100% 0, 100% 520px, 0 602px); }
+.og .hero::before { content: ""; position: absolute; width: 760px; height: 760px; left: -280px; top: -340px; border-radius: 50%; background: color-mix(in srgb, var(--hero-ink) 7%, transparent); }
+.og .hero::after { content: ""; position: absolute; width: 520px; height: 520px; right: -140px; bottom: -60px; border-radius: 50%; background: color-mix(in srgb, var(--hero-ink) 6%, transparent); }
+.og .copy { position: absolute; left: 64px; top: 44px; width: 500px; }
+.og .brand { display: flex; align-items: center; gap: 12px; font: 700 32px var(--display); letter-spacing: -0.01em; }
+.og .brand svg { width: 38px; height: 38px; color: var(--hero-mark); }
+.og h2 { margin: 34px 0 0; font: 700 70px/1 var(--display); font-stretch: 85%; letter-spacing: -0.028em; text-wrap: balance; }
+.og .lede { margin: 22px 0 0; font-size: 25px; line-height: 1.4; width: 460px; color: color-mix(in srgb, var(--hero-ink) 90%, transparent); }
+.og .works { margin: 20px 0 0; font-size: 22px; font-weight: 700; }
+.og .url { position: absolute; left: 64px; top: 544px; font: 500 20px var(--mono); }
+.og .art-wrap { position: absolute; left: 546px; top: 28px; width: 620px; height: 496px; container-type: inline-size; }
+.og .sky, .og .art { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.og .sky .glow { fill: var(--hero-ink); opacity: .08; }
+.og .sky .orbit { fill: none; stroke: var(--hero-ink); stroke-dasharray: 3 7; opacity: .32; }
+.og .sky .ring { fill: none; stroke: var(--hero-ink); stroke-width: 2.2; opacity: .8; }
+.og .sky .moon { fill: var(--hero-ink); opacity: .55; }
+.og .sky .stars { fill: var(--hero-ink); opacity: .75; }
+.og stop.hot { --p: var(--hot); } .og stop.gold { --p: var(--hero-mark); } .og stop.green { --p: var(--ok); }
+.og stop.s0 { stop-color: color-mix(in srgb, var(--hero-ink) 55%, var(--p)); }
+.og stop.s1 { stop-color: var(--p); }
+.og stop.s2 { stop-color: color-mix(in srgb, var(--hero-b) 50%, var(--p)); }
+.og .art .card { fill: var(--surface); stroke: var(--line); }
+.og .art .sunk { fill: var(--sunk); }
+.og .art .ln { fill: none; stroke: var(--mute); stroke-width: 1.6; opacity: .7; }
+.og .art .mono { font: 500 11px var(--mono); fill: var(--ink); }
+.og .art .mono2 { font: 500 10px var(--mono); fill: var(--mute); }
+.og .art .big { font: 700 16px var(--sans); fill: var(--ink); }
+.og .art .lab { font: 500 10.5px var(--sans); fill: var(--mute); }
+.og .art .st { font: 600 10.5px var(--sans); fill: var(--ink2); }
+.og .art .track { fill: var(--line); }
+.og .art .shadowed { filter: drop-shadow(0 18px 22px color-mix(in srgb, var(--hero-b) 45%, transparent)); }
+.og .chip { --u: calc(100cqw / 600); position: absolute; box-sizing: border-box; left: calc(var(--x) * var(--u)); top: calc(var(--y) * var(--u)); width: calc(var(--w) * var(--u)); height: calc(var(--h) * var(--u)); display: flex; align-items: center; gap: calc(var(--u) * 10); padding: 0 calc(var(--u) * 12); border-radius: calc(var(--u) * 14); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 calc(var(--u) * 12) calc(var(--u) * 20) calc(var(--u) * -6) color-mix(in srgb, var(--hero-b) 55%, transparent); color: var(--ink); }
+.og .chip svg { flex: none; width: calc(var(--u) * 30); height: calc(var(--u) * 30); }
+.og .chip .lbl { display: block; font: 500 calc(var(--u) * 10.5) / 1.2 var(--sans); color: var(--mute); }
+.og .chip .val { display: block; font: 700 calc(var(--u) * 16) / 1.2 var(--sans); color: var(--ink); }
+.og .chip .val.small { font-size: calc(var(--u) * 13); }
+.og .chip .mono { display: block; font: 500 calc(var(--u) * 11.5) / 1.3 var(--mono); color: var(--ink); }
+.og .chip .mono2 { display: block; font: 500 calc(var(--u) * 10) / 1.3 var(--mono); color: var(--mute); }
+.og .chip.bad { border: 1.6px solid var(--bad); }
+</style>
+<main>
+  <h1>Link preview image, 1200 by 630</h1>
+  <p>The front page's hero in one frame: its gradient and slanted edge, headline, console illustration and sky, held still. The maintainer accepted B2, navy with no harness named. Sample figures are invented.</p>
+  <section><h3>A1. Blue, names the harnesses (recommended)</h3><p>The front page in light mode. Matches the 1.7.1 changelog entry and the page description.</p><div class="frame" data-card=""></div></section>
+  <section><h3>A2. Blue, names no harness</h3><p>Follows the marketing standard's wording rule. The 1.7.1 changelog entry stays wrong about the image.</p><div class="frame" data-card="plain"></div></section>
+  <section><h3>B1. Navy, names the harnesses</h3><p>The front page in dark mode.</p><div class="frame" data-card="navy"></div></section>
+  <section><h3>B2. Navy, names no harness</h3><div class="frame" data-card="navy plain"></div></section>
+  <section><h3>At chat size, 400 px wide</h3><p>Only the headline and the shape of the picture need to read here.</p>
+    <div class="chat"><b>See every agent session on one screen</b><span>Podium is a live fleet console for AI coding agents.</span><div class="frame" data-card=""></div></div>
+  </section>
+</main>
+<template id="card"><div class="og">
+  <div class="back"></div><div class="hero"></div>
+  <div class="copy">
+    <div class="brand"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="4" r="2"/><circle cx="4" cy="15" r="2"/><circle cx="10" cy="15" r="2"/><circle cx="16" cy="15" r="2"/><path d="M10 6v3M10 9H4v4M10 9h6v4M10 9v4"/></svg>Podium</div>
+    <h2>See every agent session on one screen.</h2>
+    <p class="lede">Model, cost, context and branch, and why anything failed. It watches and never types into a terminal.</p>
+    <p class="works">Works with Claude Code and OpenCode</p>
+  </div>
+  <div class="art-wrap"><svg class="sky" viewBox="0 0 600 480" aria-hidden="true"><defs><radialGradient id="hot-ID" cx=".35" cy=".3" r=".85"><stop offset="0" class="s0 hot"/><stop offset=".55" class="s1 hot"/><stop offset="1" class="s2 hot"/></radialGradient><radialGradient id="gold-ID" cx=".35" cy=".3" r=".85"><stop offset="0" class="s0 gold"/><stop offset=".55" class="s1 gold"/><stop offset="1" class="s2 gold"/></radialGradient><radialGradient id="green-ID" cx=".35" cy=".3" r=".85"><stop offset="0" class="s0 green"/><stop offset=".55" class="s1 green"/><stop offset="1" class="s2 green"/></radialGradient></defs>
+  <circle class="glow" cx="300" cy="252" r="250"/>
+  <g class="stars"><path transform="translate(70 168) scale(1)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/><path transform="translate(560 190) scale(0.8)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/><path transform="translate(520 448) scale(1.1)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/><path transform="translate(222 40) scale(0.7)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/><path transform="translate(36 392) scale(0.6)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/><path transform="translate(330 22) scale(0.5)" d="M0-9 L2.2-2.2 L9 0 L2.2 2.2 L0 9 L-2.2 2.2 L-9 0 L-2.2-2.2Z"/><circle cx="168" cy="456" r="3"/><circle cx="578" cy="130" r="3"/><circle cx="36" cy="300" r="2.5"/><circle cx="110" cy="30" r="2"/><circle cx="470" cy="20" r="1.8"/></g>
+  <circle class="orbit" cx="300" cy="252" r="285"/><circle class="orbit" cx="300" cy="252" r="232"/><circle class="orbit" cx="300" cy="252" r="176"/>
+  <g transform="translate(572 338)"><ellipse class="ring" rx="42" ry="11.5" transform="rotate(-24)"/><circle r="21" fill="url(#hot-ID)"/><path class="ring" d="M-42 0A42 11.5 0 0 0 42 0" transform="rotate(-24)"/></g>
+  <circle cx="244" cy="76" r="11" fill="url(#green-ID)"/><circle cx="398" cy="76" r="16" fill="url(#gold-ID)"/><circle class="moon" cx="424" cy="60" r="4"/></svg><svg
+  class="art"
+  viewBox="0 0 600 480"
+  role="img"
+  aria-label="An illustration of the Podium console: one orchestrator above three sessions, one running, one waiting on a person and one failed, with a cost, a context level, a git branch and a failure floating around it."
+>
+  <g class="shadowed">
+    <rect class="card" x="90" y="110" width="420" height="300" rx="18"></rect>
+    <rect class="sunk" x="90" y="110" width="420" height="36" rx="18"></rect>
+    <rect class="sunk" x="90" y="128" width="420" height="18"></rect>
+    <circle cx="112" cy="128" r="5" style="fill:var(--bad)"></circle><circle cx="128" cy="128" r="5" style="fill:var(--warn)"></circle><circle cx="144" cy="128" r="5" style="fill:var(--ok)"></circle>
+    <rect class="card" x="200" y="119" width="200" height="18" rx="9"></rect>
+    <text class="mono2" x="300" y="131.5" text-anchor="middle">podium.engelking.dev:4317</text>
+
+    <circle cx="300" cy="178" r="13" style="fill:var(--accent)"></circle>
+    <circle cx="300" cy="178" r="5" style="fill:var(--accent-ink)"></circle>
+    <text class="st" x="322" y="182">orchestrator, 3 agents</text>
+    <path class="ln" d="M300 191V206H169V224M300 191V224M300 191V206H431V224"></path>
+
+    <rect class="sunk" x="108" y="224" width="122" height="170" rx="12"></rect>
+    <text class="mono" x="120" y="248">feat/chat</text>
+    <circle cx="124" cy="266" r="4.5" style="fill:var(--ok)"></circle><text class="st" x="134" y="270">running</text>
+    <text class="lab" x="120" y="296">context</text><text class="lab" x="206" y="296" text-anchor="end">62%</text>
+    <rect class="track" x="120" y="302" width="98" height="6" rx="3"></rect><rect x="120" y="302" width="61" height="6" rx="3" style="fill:var(--accent)"></rect>
+    <text class="big" x="120" y="338">$4.18</text><text class="lab" x="120" y="354">estimated</text>
+    <circle cx="124" cy="376" r="5" style="fill:var(--accent)"></circle><circle cx="142" cy="376" r="5" style="fill:var(--ok)"></circle><circle cx="160" cy="376" r="5" style="fill:var(--mute)"></circle>
+
+    <rect class="sunk" x="239" y="224" width="122" height="170" rx="12" style="stroke:var(--warn);stroke-width:1.6"></rect>
+    <text class="mono" x="251" y="248">fix/login</text>
+    <path d="M255 261.5l4.5 4.5-4.5 4.5-4.5-4.5z" style="fill:var(--warn)"></path><text class="st" x="265" y="270">waiting on you</text>
+    <text class="lab" x="251" y="296">context</text><text class="lab" x="337" y="296" text-anchor="end">88%</text>
+    <rect class="track" x="251" y="302" width="98" height="6" rx="3"></rect><rect x="251" y="302" width="86" height="6" rx="3" style="fill:var(--warn)"></rect>
+    <text class="big" x="251" y="338">$2.07</text><text class="lab" x="251" y="354">estimated</text>
+    <circle cx="255" cy="376" r="5" style="fill:var(--accent)"></circle><circle cx="273" cy="376" r="5" style="fill:var(--warn)"></circle>
+
+    <rect class="sunk" x="370" y="224" width="122" height="170" rx="12" style="stroke:var(--bad);stroke-width:1.6"></rect>
+    <text class="mono" x="382" y="248">docs-site</text>
+    <path d="M382 262l8 8m0-8l-8 8" style="stroke:var(--bad);stroke-width:2;stroke-linecap:round;fill:none"></path><text class="st" x="396" y="270">failed</text>
+    <text class="lab" x="382" y="296">context</text><text class="lab" x="468" y="296" text-anchor="end">31%</text>
+    <rect class="track" x="382" y="302" width="98" height="6" rx="3"></rect><rect x="382" y="302" width="30" height="6" rx="3" style="fill:var(--accent)"></rect>
+    <text class="big" x="382" y="338">$0.64</text><text class="lab" x="382" y="354">estimated</text>
+    <circle cx="386" cy="376" r="5" style="fill:var(--bad)"></circle>
+  </g>
+</svg><div class="chip" style="--x:14;--y:56;--w:150;--h:50;--t:7s;--d:0s" aria-hidden="true">
+              <svg viewBox="0 0 30 30"><circle cx="15" cy="15" r="13" style="fill:var(--hot)"></circle><text x="15" y="20" text-anchor="middle" style="font:700 15px var(--sans);fill:var(--accent-ink)">$</text></svg>
+              <span><span class="lbl">Fleet cost</span><span class="val">$6.89</span></span>
+            </div>
+            <div class="chip" style="--x:436;--y:44;--w:152;--h:56;--t:8s;--d:-2.5s" aria-hidden="true">
+              <svg viewBox="0 0 30 30"><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--line);stroke-width:4.5"></circle><circle cx="15" cy="15" r="12" fill="none" style="stroke:var(--warn);stroke-width:4.5;stroke-linecap:round;stroke-dasharray:66 10;transform:rotate(-90deg);transform-origin:15px 15px"></circle><text x="15" y="18" text-anchor="middle" style="font:700 8px var(--sans);fill:var(--ink)">88%</text></svg>
+              <span><span class="lbl">Context window</span><span class="val small">almost full</span></span>
+            </div>
+            <div class="chip" style="--x:8;--y:360;--w:178;--h:44;--t:7.5s;--d:-4s" aria-hidden="true">
+              <svg viewBox="0 0 30 30" fill="none" stroke-width="1.8" stroke-linecap="round" style="stroke:var(--accent)"><circle cx="9" cy="7" r="3"></circle><circle cx="9" cy="23" r="3"></circle><circle cx="21" cy="11" r="3"></circle><path d="M9 10v10M21 14c0 6-12 3-12 6"></path></svg>
+              <span class="mono">feat/chat ↑2 ~5</span>
+            </div>
+            <div class="chip bad" style="--x:412;--y:396;--w:180;--h:50;--t:6.5s;--d:-1.5s" aria-hidden="true">
+              <svg viewBox="0 0 30 30" fill="none" stroke-width="2.4" stroke-linecap="round" style="stroke:var(--bad)"><path d="M8 8l14 14M22 8L8 22"></path></svg>
+              <span><span class="mono">npm test</span><span class="mono2">exit 1, 3 failed</span></span>
+</div></div>
+  <div class="url">podium.engelking.dev</div>
+</div></template>
+<script>
+const source = document.getElementById("card").innerHTML;
+document.querySelectorAll("[data-card]").forEach((frame, i) => {
+  frame.innerHTML = source.replaceAll("-ID", "-" + i);
+  const og = frame.firstElementChild;
+  for (const c of frame.dataset.card.split(" ").filter(Boolean)) og.classList.add(c);
+  new ResizeObserver(() => { og.style.transform = "scale(" + frame.clientWidth / 1200 + ")"; }).observe(frame);
+});
+</script>

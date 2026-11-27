@@ -14,6 +14,15 @@ the changes merged after the reporter's 0.14.3 bump, because it is the first rel
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-11-26
+
+### Fixed
+
+- A link to the docs site shows its current preview image. The image's address now changes when the image does, so an app that kept a copy of the old one fetches the new one for a newly posted link.
+- The link preview image matches the docs site's front page: its gradient, type and console illustration, in the dark palette. It names no harness, so the 1.7.1 entry that says the image names Claude Code and OpenCode was wrong about the image.
+- The front page's floating chips no longer show without their words in Safari. Each chip's words are now drawn inside its graphic, so they no longer depend on font sizes taken from the illustration's width.
+- The docs site's front page no longer goes blank below the header in Safari after a narrow window is widened in one step, as going full screen does (#1415).
+
 ## [1.7.1] - 2026-11-25
 
 ### Changed
@@ -1397,7 +1406,8 @@ and a plugin you can install from a marketplace.
 - The project was renamed from `claude-dashboard` to `podium`
   (`eengelking/podium`). (PR #5)
 
-[Unreleased]: https://github.com/eengelking/podium/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/eengelking/podium/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/eengelking/podium/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/eengelking/podium/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/eengelking/podium/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/eengelking/podium/compare/v1.5.1...v1.6.0

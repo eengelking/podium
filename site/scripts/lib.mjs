@@ -1,5 +1,6 @@
 // The pure parts of the site build (#688): turning a doc in docs/ into a page Starlight can read, and choosing which released versions
 // the site shows. Plain scans rather than patterns on text that comes from the docs, so hostile input costs one pass (#487, #489).
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { MAX_DESCRIPTION, parseFrontmatter } from "../../scripts/docFrontmatter.mjs";
@@ -503,6 +504,18 @@ export function computeVersions({ tags, headVersion, firstLine }) {
     .sort((a, b) => compareLines(b, a))
     .map((line) => ({ line, label: line, latest: false, ref: newestByLine.get(line).tag, base: `/${line}/` }));
   return [{ line: headLine, label: headLine, latest: true, ref: null, base: "/" }, ...older];
+}
+
+/**
+ * The head tags that name the link preview image (site/public/og.png). Whatever shows a preview keeps its own copy of the image for its
+ * address, so the address carries a fingerprint of the file and changes when the image does (#1413).
+ */
+export function previewImageTags(origin, image) {
+  const content = `${origin}/og.png?v=${createHash("sha256").update(image).digest("hex").slice(0, 8)}`;
+  return [
+    { tag: "meta", attrs: { property: "og:image", content } },
+    { tag: "meta", attrs: { name: "twitter:image", content } },
+  ];
 }
 
 /** The GitHub page that lists what a version changed: the latest release for the newest version, the tag's release for an older one. */

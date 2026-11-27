@@ -40,7 +40,10 @@ DOCS_FIRST_LINE=1.2 node site/scripts/build.mjs   # try the version menu before 
 
 Look at the result at 400 px and 1440 px, light and dark, with `scripts/page-shot.mjs` against that server (set
 `document.documentElement.dataset.theme` in `--eval` to pick the theme), and stop the server afterwards. The tests for the page
-preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
+preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`), and the front page's are `scripts/site-home.test.ts`.
+
+Chrome does not show Safari's drawing faults. `swift scripts/webkit-shot.swift --help` loads a page in the system WebKit through
+loads and resizes that have shown them (macOS only). Open every picture it saves: text that was not painted still measures as normal.
 
 ## Common changes
 
@@ -51,7 +54,7 @@ preparation are `scripts/site-lib.test.ts` (`npm test -w server -- site-lib`).
 | Change the look | `site/src/styles/theme.css` defines the marketing palette (the atlas's tokens, light and dark, with the people hues left to the demo pages) and maps it onto Starlight's variables. It does not read the app's `tokens.css`. A new color is a new token there, never a literal in a component. A change to the look needs a mockup first. |
 | Change the header, footer, banner, version menu, theme switch or the search dialog's empty state | The components in `site/src/components/` (the search hints are the script in `Header.astro`). They read the version list from `siteMeta.ts`. |
 | Change the homepage | `site/src/pages/index.astro`. Its commands are the ones in the README and `docs/user-guide/`; change them together. |
-| Change the social image | Edit `site/og/og.html` and regenerate `site/public/og.png` as its comment says. |
+| Change the social image | Edit `site/og/og.html` and regenerate `site/public/og.png` as its comment says. Its address in the page head carries a fingerprint of the file (`previewImageTags` in `site/scripts/lib.mjs`), so nothing else needs changing. |
 | Change which releases are listed | `FIRST_VERSION_LINE` in `site/docs-nav.mjs`. |
 
 ## Writing a doc page

@@ -21,8 +21,10 @@ These were not resolvable from the type declarations alone. The implementer veri
 9. Does the sample worktree detection work when a session is started inside a worktree created by `isolation: "worktree"`? Verify with one real run.
 10. Name: "Podium" is a working name. Keep it in one constant (`APP_NAME`) so it can change.
 
+The brain ([section 13](13-the-brain/README.md)) is a draft. What it assumed and what must be proved first are listed in [13.10](13-the-brain/13-10-open-questions.md), not here.
+
 <!-- nav:start -->
 ---
 
-Previous: [11. Explicitly out of scope / deferred](11-out-of-scope-and-deferred.md) · Up: [Specification](README.md)
+Previous: [11. Explicitly out of scope / deferred](11-out-of-scope-and-deferred.md) · Up: [Specification](README.md) · Next: [13. The brain](13-the-brain/README.md)
 <!-- nav:end -->

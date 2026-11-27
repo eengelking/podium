@@ -109,8 +109,9 @@ report to it:
    podiumctl restart
    ```
 
-4. Make each person a token in Admin. They set `serverUrl` to `http://<your host>:4317`, `token` to their
-   token and `userName` to the name you gave them (see [REPORTER.md](REPORTER.md)).
+4. Make each person a token in Admin. They give their reporter `http://<your host>:4317`, their token and the
+   name you gave them: `serverUrl`, `token` and `userName` in Claude Code, or `PODIUM_SERVER`, `PODIUM_TOKEN` and
+   `PODIUM_USER` in OpenCode (see [REPORTER.md](REPORTER.md)).
 5. Once a session reports with a person's token, the console groups the wall by person (see "People" in
    [docs/user-guide/](user-guide/README.md)).
 
