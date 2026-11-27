@@ -46,7 +46,8 @@ how many orchestrators are live. The state uses the same words as [Admin > Repor
 **Idle**, **Silent** or **Not since restart**; hover or focus it to read what it means. **Off on the machine** means the
 reporter's `peers` option is off there, and only that machine can turn it on. In Claude Code there, run
 `/plugin configure podium-reporter@eengelking-marketplace` and set `peers` to on. In the Claude desktop app there, open
-**Settings** > **Plugins** > **Podium-Reporter** > **Settings** and turn on `peers`. **Reporter can't message: update it** means the mod is too
+**Settings** > **Plugins** > **Podium-Reporter** > **Settings** and turn on `peers`. In OpenCode there, set
+`PODIUM_PEERS=true` in `~/.podium/config.env` and run `opencode service restart`. **Reporter can't message: update it** means the mod is too
 old to send the option. A version this server does not support is marked **outdated** or **newer**, as on Admin >
 Reporters, whether or not the machine has a live session.
 

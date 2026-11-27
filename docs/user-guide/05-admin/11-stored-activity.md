@@ -16,8 +16,8 @@ by session, loop, project, owner, age, or a range of dates (**Entries from** and
 - **Delete everything…** empties it.
 
 Each asks first and says how many entries and how much space will go. A running session keeps being captured while the
-policy keeps history. After a delete, the file is compacted so the space comes back, and a line says how much was
-freed. Each delete is written to the Admin log with who did it and how much went, and never the text. A delete changes
+policy keeps history. After a delete on SQLite, the file is compacted so the space comes back, and a line says how much
+was freed. PostgreSQL and MariaDB reuse or reclaim the space themselves, and the line reports 0 bytes freed there. Each delete is written to the Admin log with who did it and how much went, and never the text. A delete changes
 the database only; copies of the database you made earlier are not changed. To remove something private that leaked,
 delete the session's history, or use the date range to remove just the minutes concerned across sessions.
 
